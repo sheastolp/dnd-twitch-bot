@@ -98,6 +98,16 @@ Chat: `!guide` or `!link` posts that same URL.
 
 The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter powers the sub/resub thank-you (see below). **Channels that connected before this scope was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous to start firing; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
+### Continuous deployment (GitHub → Val Town)
+
+This repo is the source of truth; `.vt/state.json` links it to the live val (see the [Val Town CLI docs](https://www.val.town/docs)). `.github/workflows/deploy.yml` pushes every commit on `main` to that val automatically via `vt push`, so merging to `main` is what ships to `guildscribe.val.run`.
+
+Setup (one-time, on GitHub):
+1. Generate an API key at [val.town/settings/api](https://www.val.town/settings/api) with val read+write permission.
+2. Add it as a repository secret named `VAL_TOWN_API_KEY` (Settings → Secrets and variables → Actions).
+
+After that, every push to `main` deploys automatically; you can also trigger a deploy manually from the Actions tab (`Deploy to Val Town` → Run workflow).
+
 ### Guild Dashboard (`/dashboard`)
 
 A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off` in chat.
