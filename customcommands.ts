@@ -59,7 +59,7 @@ const RANDNUM_ABS_LIMIT = 1_000_000;
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
 // can never shadow or be confused with the bot's own commands.
 const RESERVED_NAMES = new Set([
-  "roll", "r", "d20", "leaderboard", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
+  "roll", "r", "d20", "rollcall", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",

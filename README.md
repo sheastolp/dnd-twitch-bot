@@ -159,14 +159,14 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
 | `!bg3loot` | Random magic item drop with a BG3-style rarity tier (Common → Legendary) |
 | `!bg3camp` | Random camp-night vignette featuring one of the BG3 companions |
-| `!leaderboard` | Natural 20 leaderboard, top 3 for the past hour/day/week in one line |
-| `!leaderboard nat1` | Natural 1 leaderboard instead of nat 20 |
-| `!leaderboard nat20 week` / `!leaderboard nat1 hour` | One time frame only (`hour`, `day`, or `week`), top 5 instead of top 3 |
-| `!leaderboard @user` | One player's own nat 20 **and** nat 1 counts across hour/day/week, instead of the channel-wide top list |
-| `!leaderboard @user week` | Same, but just the one time frame |
+| `!rollcall` | Natural 20 leaderboard, top 3 for the past hour/day/week in one line |
+| `!rollcall nat1` | Natural 1 leaderboard instead of nat 20 |
+| `!rollcall nat20 week` / `!rollcall nat1 hour` | One time frame only (`hour`, `day`, or `week`), top 5 instead of top 3 |
+| `!rollcall @user` | One player's own nat 20 **and** nat 1 counts across hour/day/week, instead of the channel-wide top list |
+| `!rollcall @user week` | Same, but just the one time frame |
 
 ### Dice roller leaderboard
-Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!leaderboard` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed). Add `@user` instead to look up one player directly — `!leaderboard @user` shows their own nat 20 **and** nat 1 counts side by side across all three windows (no need to pick a kind), and `!leaderboard @user week` narrows it to one window.
+Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!rollcall` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed). Add `@user` instead to look up one player directly — `!rollcall @user` shows their own nat 20 **and** nat 1 counts side by side across all three windows (no need to pick a kind), and `!rollcall @user week` narrows it to one window.
 
 ### Guild archives (lookups)
 | Command | Example |
@@ -195,7 +195,7 @@ Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving th
 | `!party leave <name>` | Leave |
 | `!party disband <name>` | Leader dissolves the company |
 
-### Arena & wilds (combat)
+### Player duels & hunts
 | Command | Description |
 |---------|-------------|
 | `!dndduel @user` | Auto PvP challenge |
@@ -210,14 +210,17 @@ Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving th
 | `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random encounter, or a specific bestiary entry if you name one |
 | `!dndduel party hunt classic <party> [monster]` | Classic hunt — same optional targeting |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
-| `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
-| `!leaderboard [nat1\|nat20] [hour\|day\|week]` / `!leaderboard @user [hour\|day\|week]` | Dice roller standings — see [Dice roller leaderboard](#dice-roller-leaderboard) below |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
 
 **Targeted hunts:** the optional `[monster]` on `!dndduel party hunt` matches the same way as `!monster <name>` — an exact name wins, otherwise the first bestiary entry whose name contains what you typed (case-insensitive), e.g. `!dndduel party hunt myparty remorhaz` or `!dndduel party hunt classic myparty adult red dragon`. The named monster is still scaled to the party's average level exactly like a random pick — naming one only picks *which* monster, not its stats. If nothing matches, the bot tells you and the hunt doesn't start; leave the monster name off for a random, level-appropriate pick.
 
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
+
+### Initiative tracker
+| Command | Description |
+|---------|-------------|
+| `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 
 ### Custom commands & triggers
 Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but different subcommands (`add`/`edit`/`remove`/`cooldown`/`list` vs. `on`/`off`/`status`/`leave`), so there's no collision.
@@ -234,7 +237,8 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
 
-Responses support these placeholders:
+#### Response placeholders
+Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and they're filled in when it fires:
 
 | Placeholder | Expands to |
 |---|---|

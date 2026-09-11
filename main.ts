@@ -1255,7 +1255,7 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help = category === "dice"
-        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !leaderboard [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !leaderboard @user [hour/day/week] for one player's own nat1/nat20 counts | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
         ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !help | !guide | !link"
         : category === "character"
@@ -1453,17 +1453,17 @@ async function handleRequest(req: Request): Promise<Response> {
           }
         }
       }
-    } else if (/^!leaderboard(?:\s+.*)?$/i.test(chatMessage)) {
-      // !leaderboard [nat1|nat20] [hour|day|week] — natural 1/20 standings
+    } else if (/^!rollcall(?:\s+.*)?$/i.test(chatMessage)) {
+      // !rollcall [nat1|nat20] [hour|day|week] — natural 1/20 standings
       // logged from !roll/!r/!d20 (see recordDiceRollEvent above). Kind
       // defaults to nat20; with no time frame given, shows a compact top-3
       // across all three windows in one line, otherwise a bigger top-5 for
       // just the requested window.
       //
-      // !leaderboard @user [hour|day|week] — one player's own nat1 AND nat20
+      // !rollcall @user [hour|day|week] — one player's own nat1 AND nat20
       // counts instead of the channel-wide top list. No kind filter here
       // since the point is seeing both side by side for that person.
-      const rawArgs = chatMessage.replace(/^!leaderboard\s*/i, "").trim();
+      const rawArgs = chatMessage.replace(/^!rollcall\s*/i, "").trim();
       const targetMatch = rawArgs.match(/@(\S+)/);
       const targetDisplay = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : null;
       const targetUser = targetDisplay ? targetDisplay.toLowerCase() : null;
@@ -1518,9 +1518,9 @@ async function handleRequest(req: Request): Promise<Response> {
             getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
           ]);
           await sendChatMessages(
-            `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !leaderboard ${
+            `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !rollcall ${
               kind === "nat20" ? "nat1" : "nat20"
-            }, !leaderboard ${kind} week for a bigger top 5, or !leaderboard @user for one player's stats.`,
+            }, !rollcall ${kind} week for a bigger top 5, or !rollcall @user for one player's stats.`,
             broadcasterId,
           );
         }

@@ -352,7 +352,7 @@ export async function ensureTables() {
       PRIMARY KEY (broadcaster_id, keyword)
     )`,
   );
-  // Natural 1/20 log for the dice roller leaderboard (!leaderboard) — one
+  // Natural 1/20 log for the dice roller leaderboard (!rollcall) — one
   // row per qualifying 1d20 roll from !roll/!r/!d20 (including ability
   // checks/saves, since those are 1d20+mod under the hood). See
   // recordDiceRollEvent/getDiceLeaderboard below and the handler in main.ts.
@@ -1419,7 +1419,7 @@ export async function markCustomTriggerUsed(broadcasterId: string, keyword: stri
   );
 }
 
-/** Logs one natural 1 or natural 20 for the !leaderboard command. Call only
+/** Logs one natural 1 or natural 20 for the !rollcall command. Call only
  * for an actual 1d20 roll (see rawD20 on rollDice's result) — modified/multi-
  * die rolls don't have a "natural" result and shouldn't be logged. */
 export async function recordDiceRollEvent(
@@ -1461,7 +1461,7 @@ export async function getDiceLeaderboard(
 }
 
 /** One player's own natural 1 and natural 20 counts in one channel/window,
- * for `!leaderboard @user`. Always returns both kinds (0 if they have none)
+ * for `!rollcall @user`. Always returns both kinds (0 if they have none)
  * rather than requiring two separate calls. */
 export async function getDiceStatsForUser(
   broadcasterId: string,
