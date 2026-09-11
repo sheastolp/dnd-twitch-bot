@@ -143,7 +143,7 @@ export function renderAdminLogsPage(opts: {
     }
   </div>`;
 
-  const kindOptions = ["", "merchant", "operator_disable", "operator_enable", "dashboard_toggle"]
+  const kindOptions = ["", "merchant", "npc", "operator_disable", "operator_enable", "dashboard_toggle"]
     .map((k) => `<option value="${escapeHtml(k)}" ${k === kindFilter ? "selected" : ""}>${k ? escapeHtml(k) : "all kinds"}</option>`)
     .join("");
 

@@ -37,6 +37,7 @@ import {
   getRecentNpcConversation,
   isNpcEnabled,
   listNpcCharacters,
+  recordMonitorEvent,
   setNpcEnabled,
   trimNpcConversation,
   type NpcCharacterRow,
@@ -132,7 +133,13 @@ export async function generateNpcReply(
 
     const raw = completion.choices[0]?.message?.content ?? "";
     const reply = compactText(raw, MAX_REPLY_LEN);
-    if (!reply) return { ok: false, error: "generation_failed" };
+    if (!reply) {
+      await recordMonitorEvent(
+        "npc_generation_error",
+        `${ownerKey}/${character.name}: empty reply. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
+      );
+      return { ok: false, error: "generation_failed" };
+    }
 
     await appendNpcConversationMessage(ownerKey, channelId, character.name, "user", message, authorDisplay);
     await appendNpcConversationMessage(ownerKey, channelId, character.name, "assistant", reply);
@@ -142,6 +149,7 @@ export async function generateNpcReply(
     return { ok: true, reply, characterName: character.name };
   } catch (e) {
     console.error("generateNpcReply failed", e);
+    await recordMonitorEvent("npc_generation_error", `${ownerKey}/${character.name}: ${String(e)}`);
     return { ok: false, error: "generation_failed" };
   }
 }
