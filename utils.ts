@@ -23,6 +23,29 @@ export function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]!));
 }
 
+/** Minimal cookie parsing for the /dashboard login session — just enough to
+ * read a single named cookie back out of a Request. */
+export function getCookie(req: Request, name: string): string | null {
+  const header = req.headers.get("Cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+
+/** Builds a Set-Cookie header value for the /dashboard session cookie.
+ * HttpOnly + Secure + SameSite=Lax: not readable from JS, not sent on
+ * cross-site requests (the main defense against a forged toggle POST), but
+ * still attached on a normal top-level link/redirect from Twitch's login. */
+export function sessionCookie(name: string, value: string, maxAgeSeconds: number): string {
+  const attrs = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "Secure", "SameSite=Lax"];
+  attrs.push(maxAgeSeconds > 0 ? `Max-Age=${maxAgeSeconds}` : "Max-Age=0");
+  return attrs.join("; ");
+}
+
 export function formatStatLine(c: Character) {
   return `Lv${c.level} XP ${c.xp ?? 0} | ${abilityNames
     .map((a) => `${a} ${c.scores[a]}(${modifier(c.scores[a]) >= 0 ? "+" : ""}${modifier(c.scores[a])})`)

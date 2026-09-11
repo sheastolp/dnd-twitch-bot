@@ -158,6 +158,10 @@ export async function ensureTables() {
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS pending_eventsub_cancellations (subscription_id TEXT PRIMARY KEY, broadcaster_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at INTEGER NOT NULL)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS welcomed_users (username TEXT PRIMARY KEY, welcomed_at INTEGER)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS goodnight_cooldowns (broadcaster_id TEXT PRIMARY KEY, last_at INTEGER NOT NULL)`);
+  await sqlite.execute(`CREATE TABLE IF NOT EXISTS chronicle_cooldowns (broadcaster_id TEXT PRIMARY KEY, last_at INTEGER NOT NULL)`);
+  // Running count of chat messages (any account, bots included) seen since
+  // the chronicle's last quote in a channel — see bumpChronicleMessageCount.
+  await sqlite.execute(`CREATE TABLE IF NOT EXISTS chronicle_activity (broadcaster_id TEXT PRIMARY KEY, message_count INTEGER NOT NULL DEFAULT 0)`);
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS creation_sessions (
       broadcaster_id TEXT, username TEXT, step TEXT, race TEXT, subrace TEXT, class TEXT, scores TEXT, updated_at INTEGER,
@@ -203,6 +207,44 @@ export async function ensureTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS merchant_settings (
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, next_post_at INTEGER, updated_at INTEGER
+    )`,
+  );
+  // Single-row rolling status for the merchant cron trigger — lets an
+  // operator (or an external monitor) check "is the merchant actually
+  // ticking, and did the last run have errors" without digging through raw
+  // monitor_events. Written by merchant.cron.ts on every run.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_cron_status (
+      id INTEGER PRIMARY KEY,
+      last_run_at INTEGER,
+      last_channels_due INTEGER DEFAULT 0,
+      last_posts_ok INTEGER DEFAULT 0,
+      last_posts_failed INTEGER DEFAULT 0,
+      last_error TEXT,
+      last_error_at INTEGER,
+      last_success_at INTEGER,
+      total_runs INTEGER DEFAULT 0,
+      total_posts_ok INTEGER DEFAULT 0,
+      total_posts_failed INTEGER DEFAULT 0
+    )`,
+  );
+  // Chronicle: randomly quotes a plain chat message back with a D&D-flavored
+  // reply. Off by default per channel; toggled with !chronicle.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS chronicle_settings (
+      broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
+    )`,
+  );
+  // Web dashboard login sessions (/dashboard). A viewer logs in with Twitch
+  // (scope user:read:moderated_channels) so we can prove they're a
+  // moderator/broadcaster of a channel before letting them flip module
+  // switches. session_id is an opaque cookie value; the Twitch user tokens
+  // live server-side only, never in the cookie itself.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS dashboard_sessions (
+      session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, login TEXT, display_name TEXT,
+      access_token TEXT NOT NULL, refresh_token TEXT, token_expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL
     )`,
   );
   await sqlite.execute(
@@ -263,9 +305,15 @@ export async function ensureTables() {
     `CREATE TABLE IF NOT EXISTS monster_duels (
       broadcaster_id TEXT PRIMARY KEY, player TEXT, monster_name TEXT, monster_cr TEXT,
       monster_ac INTEGER, monster_hp INTEGER, monster_hp_max INTEGER, monster_attack INTEGER,
-      monster_damage_die INTEGER, monster_damage_bonus INTEGER, current_turn TEXT, active INTEGER, updated_at INTEGER
+      monster_damage_die INTEGER, monster_damage_bonus INTEGER, current_turn TEXT, active INTEGER, updated_at INTEGER,
+      player_hp INTEGER
     )`,
   );
+  // player_hp was added after the original table shipped — back-fill it for
+  // channels whose monster_duels table predates this column, or every
+  // !dndduel attack past the first exchange throws on the UPDATE below and
+  // the bot goes silent.
+  try { await sqlite.execute(`ALTER TABLE monster_duels ADD COLUMN player_hp INTEGER`); } catch (_) {}
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS party_monster_duels (
       broadcaster_id TEXT PRIMARY KEY,
@@ -544,6 +592,21 @@ export async function getBroadcaster(broadcasterId: string) {
   return res.rows.length ? res.rows[0] : null;
 }
 
+/** Bulk-fetch connected broadcasters from a candidate id list (e.g. "channels
+ * this Twitch user moderates or owns") — used by the /dashboard route to
+ * intersect a viewer's Twitch moderator status with channels GuildScribe
+ * actually knows about. Returns only rows that are currently connected. */
+export async function getConnectedBroadcastersByIds(broadcasterIds: string[]) {
+  const ids = [...new Set(broadcasterIds)].filter(Boolean);
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  const res = await sqlite.execute(
+    `SELECT * FROM broadcasters WHERE connected = 1 AND broadcaster_id IN (${placeholders})`,
+    ids,
+  );
+  return res.rows;
+}
+
 // "kind" is a short label ("sub" for channel.subscribe, "resub" for
 // channel.subscription.message) distinguishing the two extra subscriptions
 // created alongside the main chat-message one in broadcasters.subscription_id.
@@ -582,6 +645,8 @@ export async function purgeChannelData(broadcasterId: string) {
     "party_monster_duels",
     "channel_settings",
     "merchant_settings",
+    "chronicle_settings",
+    "chronicle_activity",
     "channel_characters",
     "characters",
     "character_backups",
@@ -600,6 +665,7 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
   else {
     await sqlite.execute("DELETE FROM channel_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
+    await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   }
@@ -631,6 +697,108 @@ export async function setMerchantEnabled(broadcasterId: string, enabled: boolean
   );
 }
 
+export async function isChronicleEnabled(broadcasterId: string) {
+  const res = await sqlite.execute("SELECT enabled FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
+  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
+}
+
+/** Toggle the chronicle's random chat-quoting. Off by default. */
+export async function setChronicleEnabled(broadcasterId: string, enabled: boolean) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO chronicle_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
+    [broadcasterId, enabled ? 1 : 0, Date.now()],
+  );
+}
+
+/** Create a /dashboard login session after a successful Twitch OAuth
+ * exchange. session_id is the opaque value stored in the viewer's cookie. */
+export async function createDashboardSession(opts: {
+  sessionId: string;
+  userId: string;
+  login: string;
+  displayName: string;
+  accessToken: string;
+  refreshToken: string | null;
+  tokenExpiresAt: number;
+}) {
+  const now = Date.now();
+  await sqlite.execute(
+    `INSERT OR REPLACE INTO dashboard_sessions
+     (session_id, user_id, login, display_name, access_token, refresh_token, token_expires_at, created_at, last_seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [
+      opts.sessionId,
+      opts.userId,
+      opts.login,
+      opts.displayName,
+      opts.accessToken,
+      opts.refreshToken,
+      opts.tokenExpiresAt,
+      now,
+      now,
+    ],
+  );
+}
+
+export async function getDashboardSession(sessionId: string) {
+  const res = await sqlite.execute("SELECT * FROM dashboard_sessions WHERE session_id = ?", [sessionId]);
+  return res.rows.length ? res.rows[0] : null;
+}
+
+/** Called after a token refresh so the next request reuses the new access
+ * token instead of refreshing again. */
+export async function updateDashboardSessionToken(
+  sessionId: string,
+  accessToken: string,
+  refreshToken: string | null,
+  tokenExpiresAt: number,
+) {
+  await sqlite.execute(
+    "UPDATE dashboard_sessions SET access_token = ?, refresh_token = ?, token_expires_at = ?, last_seen_at = ? WHERE session_id = ?",
+    [accessToken, refreshToken, tokenExpiresAt, Date.now(), sessionId],
+  );
+}
+
+export async function deleteDashboardSession(sessionId: string) {
+  await sqlite.execute("DELETE FROM dashboard_sessions WHERE session_id = ?", [sessionId]);
+}
+
+/** Per-channel cooldown gate for chronicle quotes, mirrors
+ * checkGoodnightCooldown: returns false (and leaves the timestamp alone) if
+ * still cooling down, otherwise stamps "now" and returns true. */
+export async function checkChronicleCooldown(broadcasterId: string, cooldownMs: number) {
+  const now = Date.now();
+  const res = await sqlite.execute("SELECT last_at FROM chronicle_cooldowns WHERE broadcaster_id = ?", [broadcasterId]);
+  const last = Number(res.rows[0]?.last_at ?? 0);
+  if (now - last < cooldownMs) return false;
+  await sqlite.execute("INSERT OR REPLACE INTO chronicle_cooldowns (broadcaster_id,last_at) VALUES (?,?)", [broadcasterId, now]);
+  return true;
+}
+
+/** Increments the running count of chat messages seen since the chronicle's
+ * last quote in this channel — every message counts, including bot
+ * accounts, so a bot-heavy but otherwise quiet channel still builds up
+ * enough activity for a quote to eventually fire (bots just never get
+ * selected as the one quoted). Returns the updated count. */
+export async function bumpChronicleMessageCount(broadcasterId: string): Promise<number> {
+  await sqlite.execute(
+    "INSERT OR IGNORE INTO chronicle_activity (broadcaster_id, message_count) VALUES (?, 0)",
+    [broadcasterId],
+  );
+  await sqlite.execute(
+    "UPDATE chronicle_activity SET message_count = message_count + 1 WHERE broadcaster_id = ?",
+    [broadcasterId],
+  );
+  const res = await sqlite.execute("SELECT message_count FROM chronicle_activity WHERE broadcaster_id = ?", [broadcasterId]);
+  return Number(res.rows[0]?.message_count ?? 0);
+}
+
+/** Resets a channel's chronicle message-activity count to 0, called right
+ * after a quote actually posts. */
+export async function resetChronicleMessageCount(broadcasterId: string) {
+  await sqlite.execute("UPDATE chronicle_activity SET message_count = 0 WHERE broadcaster_id = ?", [broadcasterId]);
+}
+
 /** Channels whose merchant is enabled, due for a post, connected, not
  * operator-blocked, and not otherwise disabled via !dndbot off. */
 export async function getDueMerchantChannels(now: number): Promise<string[]> {
@@ -654,6 +822,91 @@ export async function rescheduleMerchant(broadcasterId: string, nextPostAt: numb
     "UPDATE merchant_settings SET next_post_at = ?, updated_at = ? WHERE broadcaster_id = ?",
     [nextPostAt, Date.now(), broadcasterId],
   );
+}
+
+/** Records the outcome of one merchant.cron.ts tick. `errorDetail` should be
+ * the most recent failure's message, or null if the tick had no failures —
+ * on a clean tick the previously-recorded error (if any) is preserved so a
+ * status check still shows the last time something actually went wrong. */
+export async function recordMerchantCronRun(
+  now: number,
+  channelsDue: number,
+  postsOk: number,
+  postsFailed: number,
+  errorDetail: string | null,
+) {
+  await sqlite.execute(
+    `INSERT OR REPLACE INTO merchant_cron_status
+       (id, last_run_at, last_channels_due, last_posts_ok, last_posts_failed,
+        last_error, last_error_at, last_success_at,
+        total_runs, total_posts_ok, total_posts_failed)
+     VALUES (
+       1, ?, ?, ?, ?,
+       CASE WHEN ? > 0 THEN ? ELSE (SELECT last_error FROM merchant_cron_status WHERE id = 1) END,
+       CASE WHEN ? > 0 THEN ? ELSE (SELECT last_error_at FROM merchant_cron_status WHERE id = 1) END,
+       CASE WHEN ? > 0 THEN ? ELSE (SELECT last_success_at FROM merchant_cron_status WHERE id = 1) END,
+       COALESCE((SELECT total_runs FROM merchant_cron_status WHERE id = 1), 0) + 1,
+       COALESCE((SELECT total_posts_ok FROM merchant_cron_status WHERE id = 1), 0) + ?,
+       COALESCE((SELECT total_posts_failed FROM merchant_cron_status WHERE id = 1), 0) + ?
+     )`,
+    [
+      now, channelsDue, postsOk, postsFailed,
+      postsFailed, errorDetail ? errorDetail.slice(0, 300) : null,
+      postsFailed, now,
+      postsOk, now,
+      postsOk, postsFailed,
+    ],
+  );
+}
+
+export async function getMerchantCronStatus() {
+  const res = await sqlite.execute("SELECT * FROM merchant_cron_status WHERE id = 1");
+  return res.rows[0] ?? null;
+}
+
+/** Per-channel merchant diagnostic view: settings joined with connection,
+ * block, and bot-enable state, so an operator can see at a glance *why* a
+ * given channel's merchant isn't posting (never turned on, channel
+ * disconnected, blocked, bot disabled, or just not due yet). Ordered by
+ * next_post_at so the soonest-due channels surface first. */
+export async function getMerchantOverview() {
+  const res = await sqlite.execute(
+    `SELECT
+       m.broadcaster_id AS broadcaster_id,
+       b.login AS login,
+       b.display_name AS display_name,
+       m.enabled AS merchant_enabled,
+       m.next_post_at AS next_post_at,
+       m.updated_at AS merchant_updated_at,
+       b.connected AS connected,
+       CASE WHEN cb.broadcaster_id IS NULL THEN 0 ELSE 1 END AS blocked,
+       cb.reason AS block_reason,
+       COALESCE(cs.enabled, 1) AS bot_enabled
+     FROM merchant_settings m
+     LEFT JOIN broadcasters b ON b.broadcaster_id = m.broadcaster_id
+     LEFT JOIN channel_blocks cb ON cb.broadcaster_id = m.broadcaster_id
+     LEFT JOIN channel_settings cs ON cs.broadcaster_id = m.broadcaster_id
+     ORDER BY (m.next_post_at IS NULL), m.next_post_at ASC`,
+  );
+  return res.rows;
+}
+
+/** Recent monitor_events, optionally filtered to kinds starting with a
+ * prefix (e.g. "merchant" to see only merchant-related entries). */
+export async function getMonitorEvents(kindPrefix?: string, limit = 50) {
+  const cappedLimit = Math.min(Math.max(Math.floor(limit) || 50, 1), 200);
+  if (kindPrefix) {
+    const res = await sqlite.execute(
+      "SELECT kind, detail, created_at FROM monitor_events WHERE kind LIKE ? ORDER BY id DESC LIMIT ?",
+      [`${kindPrefix}%`, cappedLimit],
+    );
+    return res.rows;
+  }
+  const res = await sqlite.execute(
+    "SELECT kind, detail, created_at FROM monitor_events ORDER BY id DESC LIMIT ?",
+    [cappedLimit],
+  );
+  return res.rows;
 }
 
 export async function getDuel(broadcasterId: string) {
@@ -779,6 +1032,37 @@ export async function getRecentLogs(broadcasterId?: string, limit = 200) {
     : `SELECT username,broadcaster_id,action,detail,created_at FROM activity_logs ORDER BY id DESC LIMIT ${safeLimit}`;
   const res = await sqlite.execute(query, broadcasterId ? [broadcasterId] : []);
   return res.rows;
+}
+
+/** Self-healing safety net for schema drift: ensureTables() already runs a
+ * best-effort ALTER TABLE ADD COLUMN for columns added after a table
+ * originally shipped (see the monster_duels/player_hp comment above), but
+ * that migration hasn't proven 100% reliable in practice — a write
+ * referencing the column can still occasionally hit "no such column" (seen
+ * with monster_duels/player_hp: the bot goes silent mid-duel with an
+ * unhandled_error instead of replying). Rather than track down exactly why
+ * that particular ALTER isn't always landing in time, this wraps the
+ * fragile write itself: run it, and if it fails specifically because the
+ * named column is missing, add the column right here and retry once before
+ * giving up. Cheap, idempotent, and fixes the symptom regardless of cause. */
+export async function withColumnHeal<T>(
+  table: string,
+  column: string,
+  columnDef: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!String(e).includes(`no such column: ${column}`)) throw e;
+    try {
+      await sqlite.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${columnDef}`);
+    } catch (_) {
+      /* lost a race with another request adding it concurrently — fine,
+         fn() below will succeed either way, or throw its real error. */
+    }
+    return await fn();
+  }
 }
 
 /**
