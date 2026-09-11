@@ -159,6 +159,12 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
 | `!bg3loot` | Random magic item drop with a BG3-style rarity tier (Common → Legendary) |
 | `!bg3camp` | Random camp-night vignette featuring one of the BG3 companions |
+| `!leaderboard` | Natural 20 leaderboard, top 3 for the past hour/day/week in one line |
+| `!leaderboard nat1` | Natural 1 leaderboard instead of nat 20 |
+| `!leaderboard nat20 week` / `!leaderboard nat1 hour` | One time frame only (`hour`, `day`, or `week`), top 5 instead of top 3 |
+
+### Dice roller leaderboard
+Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!leaderboard` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed).
 
 ### Guild archives (lookups)
 | Command | Example |
@@ -199,12 +205,15 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!dndduel party A B` | Auto party vs party |
 | `!dndduel party classic A B` | Classic party vs party |
 | `!dndduel party accept` / `decline` / `attack` / `status` / `end` | Party duel flow |
-| `!dndduel party hunt <party>` | Auto **company vs monster** |
-| `!dndduel party hunt classic <party>` | Classic hunt |
+| `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random encounter, or a specific bestiary entry if you name one |
+| `!dndduel party hunt classic <party> [monster]` | Classic hunt — same optional targeting |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
+| `!leaderboard [nat1\|nat20] [hour\|day\|week]` | Dice roller standings — see [Dice roller leaderboard](#dice-roller-leaderboard) below |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
+
+**Targeted hunts:** the optional `[monster]` on `!dndduel party hunt` matches the same way as `!monster <name>` — an exact name wins, otherwise the first bestiary entry whose name contains what you typed (case-insensitive), e.g. `!dndduel party hunt myparty remorhaz` or `!dndduel party hunt classic myparty adult red dragon`. The named monster is still scaled to the party's average level exactly like a random pick — naming one only picks *which* monster, not its stats. If nothing matches, the bot tells you and the hunt doesn't start; leave the monster name off for a random, level-appropriate pick.
 
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
 
@@ -223,7 +232,18 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
 
-Responses support `{user}`, `{target}` (first `@mention`, commands only), `{count}` (uses so far), and `{random:a|b|c}` (picks one option). Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
+Responses support these placeholders:
+
+| Placeholder | Expands to |
+|---|---|
+| `{user}` | Display name of whoever triggered it |
+| `{target}` | First `@mention` in a `!command`'s arguments (falls back to `{user}` for triggers, which have no arguments) |
+| `{count}` | How many times this command/trigger has now fired |
+| `{args}` | Everything typed after the command name (a `!command`'s own arguments) or, for a `!trigger`, the whole chat message that set it off — empty string if there's nothing to capture |
+| `{random:a\|b\|c}` | Picks one option at random (max 5 per response) |
+| `{randnum:MIN-MAX}` | A random whole number in that inclusive range, e.g. `{randnum:1-100}` (max 5 per response; `MIN`/`MAX` can be negative, e.g. `{randnum:-5-5}`) |
+
+Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
 ### Battle maps
 | Command | Description |
@@ -311,7 +331,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 
 - Start: level 1, 0 XP  
 - Monster CR → XP; thresholds can auto-level  
-- Monsters chosen by **level** (and party size on hunts), with win-friendly balance  
+- Monsters chosen by **level** (and party size on hunts), with win-friendly balance — or targeted by name on a party hunt (`!dndduel party hunt <party> <monster>`), still scaled to the party's level the same way  
 - Large solo roster across CR bands  
 
 ---

@@ -421,7 +421,13 @@ export function rollDice(input = "1d20", customLabel?: string) {
                 "That's a roll fit for a Tuesday quest.",
               ];
   const pun = puns[Math.floor(Math.random() * puns.length)];
-  return `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
+  const text = `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
+  // rawD20 is the unmodified die face (1-20) whenever exactly one d20 was
+  // rolled — a flat bonus (e.g. "1d20+5" for an ability check) doesn't
+  // change it, since the modifier isn't part of the natural result. null for
+  // anything that isn't a single d20 (e.g. 2d6, 4d8). Callers use this to
+  // log leaderboard events without re-parsing the formatted text.
+  return { text, rawD20 };
 }
 
 // Yes/No fate questions, e.g. "!roll is enya going to die this time?" — a

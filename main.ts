@@ -22,6 +22,7 @@ import {
   getConnectedBroadcastersByIds,
   getConnections,
   getDashboardSession,
+  getDiceLeaderboard,
   getExtraEventSubSubscriptions,
   getMap,
   getMapCells,
@@ -41,6 +42,7 @@ import {
   purgeChannelData,
   queueEventSubCancellation,
   recordActivity,
+  recordDiceRollEvent,
   recordMonitorEvent,
   resetCharacter,
   saveCharacter,
@@ -1252,7 +1254,7 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help = category === "dice"
-        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !leaderboard [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
         ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !help | !guide | !link"
         : category === "character"
@@ -1260,13 +1262,13 @@ async function handleRequest(req: Request): Promise<Response> {
         : category === "party"
         ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
         : category === "combat"
-        ? "⚔️ Arena & wilds: !dndduel @user (auto) | !dndduel classic @user | !dndduel accept/decline/attack/status/end | !dndduel (auto monster) | !dndduel monster (classic) | !dndduel party A B | !dndduel party classic A B | !dndduel party accept/decline/attack/status/end | !dndduel party hunt <party> | !dndduel party hunt classic <party> | !dndduel party hunt attack/status/end | !turn start | !turn roll | !turn add <name> <init> | !turn show | !turn next | !turn prev | !turn remove <name> | !turn end"
+        ? "⚔️ Arena & wilds: !dndduel @user (auto) | !dndduel classic @user | !dndduel accept/decline/attack/status/end | !dndduel (auto monster) | !dndduel monster (classic) | !dndduel party A B | !dndduel party classic A B | !dndduel party accept/decline/attack/status/end | !dndduel party hunt <party> [monster] | !dndduel party hunt classic <party> [monster] — optional [monster] targets a specific bestiary entry (e.g. remorhaz) instead of a random pick, still level-scaled | !dndduel party hunt attack/status/end | !turn start | !turn roll | !turn add <name> <init> | !turn show | !turn next | !turn prev | !turn remove <name> | !turn end"
         : category === "lookup"
         ? "📚 Guild archives: !spell <name> [+N] | !item <name> [+N] | !class <name> | !feat <name> | !ability <score> | !race <name> | !subrace <name> | !monster <name> | !rule <topic> | !rules <topic> (e.g. !spell fireball, !rules magic, !monster goblin) | !bg3lookup <name> — BG3 companions/origins/classes/races/locations/factions/deities/villains/items (e.g. !bg3lookup astarion, !bg3lookup moonrise towers)"
         : category === "maps"
         ? "🗺️ Battle maps: !map create <name> [WxH] [template] (mod) | !map templates | !map list | !map view <name> | !map delete <name> / !map remove <name> (mod) | !map terrains | !map fill <name> <terrain> (mod) | !map paint <name> <x> <y> <terrain> (mod) | !map addchar <name> [x y] | !map addchar <name> @user [x y] (mod) | !map move <name> <x> <y> | !map move <name> @user <x> <y> (mod) | !map removechar <name> [@user]"
         : category === "custom"
-        ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/edit/remove/cooldown are mod-only, list is open to everyone"
+        ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/edit/remove/cooldown are mod-only, list is open to everyone. Response placeholders: {user} {target} {count} {args} {random:a|b|c} {randnum:MIN-MAX} (e.g. {randnum:1-100})"
         : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
@@ -1430,15 +1432,68 @@ async function handleRequest(req: Request): Promise<Response> {
               `@${display} that's not a valid roll — try !roll, !r, !d20, !roll 2d6+3, !roll dex, !roll stealth, or !roll <question>?`,
               broadcasterId,
             );
-          } else if (rollTarget) {
-            await sendChatMessage(
-              `@${display} rolled for @${rollTarget}: ${result}`,
-              broadcasterId,
-            );
           } else {
-            await sendChatMessage(`@${display} ${result}`, broadcasterId);
+            if (result.rawD20 === 20 || result.rawD20 === 1) {
+              await recordDiceRollEvent(
+                broadcasterId,
+                chatter,
+                display,
+                result.rawD20 === 20 ? "nat20" : "nat1",
+              );
+            }
+            if (rollTarget) {
+              await sendChatMessage(
+                `@${display} rolled for @${rollTarget}: ${result.text}`,
+                broadcasterId,
+              );
+            } else {
+              await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
+            }
           }
         }
+      }
+    } else if (/^!leaderboard(?:\s+.*)?$/i.test(chatMessage)) {
+      // !leaderboard [nat1|nat20] [hour|day|week] — natural 1/20 standings
+      // logged from !roll/!r/!d20 (see recordDiceRollEvent above). Kind
+      // defaults to nat20; with no time frame given, shows a compact top-3
+      // across all three windows in one line, otherwise a bigger top-5 for
+      // just the requested window.
+      const lbWords = chatMessage.replace(/^!leaderboard\s*/i, "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const kind: "nat1" | "nat20" = lbWords.includes("nat1") || lbWords.includes("1") ? "nat1" : "nat20";
+      const windowMs: Record<"hour" | "day" | "week", number> = {
+        hour: 60 * 60 * 1000,
+        day: 24 * 60 * 60 * 1000,
+        week: 7 * 24 * 60 * 60 * 1000,
+      };
+      const windowAliases: Record<string, "hour" | "day" | "week"> = {
+        hour: "hour", "1hr": "hour", "1h": "hour",
+        day: "day", "1d": "day",
+        week: "week", "1w": "week",
+      };
+      const requestedWindow = lbWords.map((w) => windowAliases[w]).find(Boolean);
+      const label = kind === "nat20" ? "Natural 20" : "Natural 1";
+      const emoji = kind === "nat20" ? "🌟" : "💀";
+      const formatEntries = (rows: { displayName: string; count: number }[]) =>
+        rows.length ? rows.map((r) => `${r.displayName} x${r.count}`).join(", ") : "none yet";
+
+      if (requestedWindow) {
+        const rows = await getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs[requestedWindow], 5);
+        await sendChatMessage(
+          `@${display} ${emoji} ${label} leaderboard (past ${requestedWindow}): ${formatEntries(rows)}`,
+          broadcasterId,
+        );
+      } else {
+        const [hourRows, dayRows, weekRows] = await Promise.all([
+          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.hour, 3),
+          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.day, 3),
+          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
+        ]);
+        await sendChatMessages(
+          `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !leaderboard ${
+            kind === "nat20" ? "nat1" : "nat20"
+          }, or !leaderboard ${kind} week for a bigger top 5.`,
+          broadcasterId,
+        );
       }
     } else if (chatMessage === "!bg3roll") {
       await sendChatMessage(rollBG3Character(display), broadcasterId);

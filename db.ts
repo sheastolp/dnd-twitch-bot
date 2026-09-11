@@ -352,6 +352,21 @@ export async function ensureTables() {
       PRIMARY KEY (broadcaster_id, keyword)
     )`,
   );
+  // Natural 1/20 log for the dice roller leaderboard (!leaderboard) — one
+  // row per qualifying 1d20 roll from !roll/!r/!d20 (including ability
+  // checks/saves, since those are 1d20+mod under the hood). See
+  // recordDiceRollEvent/getDiceLeaderboard below and the handler in main.ts.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS dice_roll_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      broadcaster_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+  );
+  await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_dice_roll_events_lookup ON dice_roll_events(broadcaster_id, kind, created_at)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_commands_channel ON custom_commands(broadcaster_id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_triggers_channel ON custom_triggers(broadcaster_id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_channel_id ON activity_logs(broadcaster_id,id)`);
@@ -654,6 +669,7 @@ export async function purgeChannelData(broadcasterId: string) {
     "maps",
     "map_cells",
     "map_tokens",
+    "dice_roll_events",
   ]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
@@ -1401,4 +1417,45 @@ export async function markCustomTriggerUsed(broadcasterId: string, keyword: stri
     "UPDATE custom_triggers SET uses = uses + 1, last_used_at = ? WHERE broadcaster_id = ? AND keyword = ?",
     [Date.now(), broadcasterId, keyword],
   );
+}
+
+/** Logs one natural 1 or natural 20 for the !leaderboard command. Call only
+ * for an actual 1d20 roll (see rawD20 on rollDice's result) — modified/multi-
+ * die rolls don't have a "natural" result and shouldn't be logged. */
+export async function recordDiceRollEvent(
+  broadcasterId: string,
+  username: string,
+  displayName: string,
+  kind: "nat1" | "nat20",
+) {
+  await sqlite.execute(
+    "INSERT INTO dice_roll_events (broadcaster_id,username,display_name,kind,created_at) VALUES (?,?,?,?,?)",
+    [broadcasterId, username.toLowerCase(), displayName, kind, Date.now()],
+  );
+}
+
+/** Top rollers for one channel/kind/window, most nat 1s or nat 20s first
+ * (ties broken by whoever's most recent). display_name is a best-effort
+ * label — the most recently seen casing for that username, not necessarily
+ * from their most recent roll. */
+export async function getDiceLeaderboard(
+  broadcasterId: string,
+  kind: "nat1" | "nat20",
+  sinceMs: number,
+  limit = 5,
+) {
+  const res = await sqlite.execute(
+    `SELECT username, MAX(display_name) AS display_name, COUNT(*) AS count, MAX(created_at) AS last_at
+     FROM dice_roll_events
+     WHERE broadcaster_id = ? AND kind = ? AND created_at >= ?
+     GROUP BY username
+     ORDER BY count DESC, last_at DESC
+     LIMIT ?`,
+    [broadcasterId, kind, sinceMs, limit],
+  );
+  return res.rows.map((r: any) => ({
+    username: String(r.username),
+    displayName: String(r.display_name),
+    count: Number(r.count),
+  }));
 }

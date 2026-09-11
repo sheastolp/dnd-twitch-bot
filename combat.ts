@@ -1,6 +1,6 @@
 // Duels, party combat, monster duels, and initiative tracker
 
-import { pickMonsterForLevel } from "./data.ts";
+import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, type SoloMonster } from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
 import {
   createPartyInvite,
@@ -1422,21 +1422,29 @@ export async function handlePartyDuelCommand(
       return true;
     }
 
-    // Start hunt: !dndduel party hunt [classic] <party-name>
+    // Start hunt: !dndduel party hunt [classic] <party-name> [monster name]
+    // The optional trailing monster name targets a specific bestiary entry
+    // (matched the same way as !monster <name>) instead of a random pick —
+    // e.g. !dndduel party hunt myparty remorhaz or
+    // !dndduel party hunt classic myparty adult red dragon.
     let classic = false;
     let partyName = "";
+    let monsterNameWords: string[] = [];
     if (
       huntAction === "classic" || huntAction === "turn" ||
       huntAction === "manual"
     ) {
       classic = true;
       partyName = (parts[4] ?? "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      monsterNameWords = parts.slice(5);
     } else {
       partyName = huntAction.replace(/[^a-z0-9_-]/g, "");
+      monsterNameWords = parts.slice(4);
     }
+    const requestedMonsterName = monsterNameWords.join(" ").trim();
     if (!partyName) {
       await sendChatMessage(
-        `@${display} Party hunt: !dndduel party hunt <party> (auto) | !dndduel party hunt classic <party> | !dndduel party hunt attack | status | end`,
+        `@${display} Party hunt: !dndduel party hunt <party> [monster] (auto) | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack | status | end`,
         broadcasterId,
       );
       return true;
@@ -1488,8 +1496,21 @@ export async function handlePartyDuelCommand(
       return true;
     }
     const avgLevel = Math.max(1, Math.round(levelSum / livingMembers.length));
-    // Scale monster gently for group size (still player-favored).
-    const monster = pickMonsterForLevel(avgLevel);
+    let monster: SoloMonster;
+    if (requestedMonsterName) {
+      const targetedBase = findMonsterByName(requestedMonsterName);
+      if (!targetedBase) {
+        await sendChatMessage(
+          `@${display} no bestiary match for "${requestedMonsterName}" — check the spelling with !monster <name>, or leave it off for a random encounter.`,
+          broadcasterId,
+        );
+        return true;
+      }
+      monster = scaleMonsterForLevel(targetedBase, avgLevel);
+    } else {
+      // Scale monster gently for group size (still player-favored).
+      monster = pickMonsterForLevel(avgLevel);
+    }
     const sizeScale = 0.5 + livingMembers.length * 0.22; // 1p~0.72, 2p~0.94, 3p~1.16
     monster.hp = Math.max(10, Math.round(monster.hp * sizeScale));
     monster.attack = Math.max(

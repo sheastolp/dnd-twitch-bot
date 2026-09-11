@@ -23,7 +23,13 @@
 //   {target}  the first @mentioned user in a !command's arguments (falls
 //             back to {user} for triggers, which have no arguments)
 //   {count}   how many times this command/trigger has now fired
-//   {random:a|b|c}  picks one option at random (max 5 per response)
+//   {args}    everything typed after the command name (a !command's own
+//             arguments; for a !trigger, the whole chat message that set it
+//             off) — empty string if there was nothing to capture
+//   {random:a|b|c}       picks one option at random (max 5 per response)
+//   {randnum:MIN-MAX}    a random whole number in that inclusive range, e.g.
+//                        {randnum:1-100} (max 5 per response; MIN/MAX may be
+//                        negative, e.g. {randnum:-5-5})
 
 import { pick, compactText } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
@@ -44,12 +50,16 @@ import {
 const MAX_CUSTOM_RESPONSE_LEN = 400;
 const MAX_COOLDOWN_SECONDS = 3600;
 const MAX_RANDOM_BLOCKS = 5;
+const MAX_RANDNUM_BLOCKS = 5;
+// Keeps {randnum:MIN-MAX} bounds sane regardless of what's typed — plenty of
+// range for loot rolls, gold drops, percentages, etc.
+const RANDNUM_ABS_LIMIT = 1_000_000;
 
 // Every built-in command word (and a few words reserved for future/adjacent
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
 // can never shadow or be confused with the bot's own commands.
 const RESERVED_NAMES = new Set([
-  "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
+  "roll", "r", "d20", "leaderboard", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
@@ -70,7 +80,7 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
   return keyword;
 }
 
-function applyTemplate(response: string, vars: { user: string; target?: string; count?: number }): string {
+function applyTemplate(response: string, vars: { user: string; target?: string; count?: number; args?: string }): string {
   let randomBlocks = 0;
   let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
     randomBlocks++;
@@ -78,9 +88,22 @@ function applyTemplate(response: string, vars: { user: string; target?: string; 
     const choices = options.split("|").map((s) => s.trim()).filter(Boolean);
     return choices.length ? pick(choices) : "";
   });
+  let randnumBlocks = 0;
+  out = out.replace(/\{randnum:(-?\d{1,7})-(-?\d{1,7})\}/gi, (_match, minStr: string, maxStr: string) => {
+    randnumBlocks++;
+    if (randnumBlocks > MAX_RANDNUM_BLOCKS) return "";
+    let min = Number.parseInt(minStr, 10);
+    let max = Number.parseInt(maxStr, 10);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return "";
+    if (min > max) [min, max] = [max, min];
+    min = Math.max(-RANDNUM_ABS_LIMIT, min);
+    max = Math.min(RANDNUM_ABS_LIMIT, max);
+    return String(min + Math.floor(Math.random() * (max - min + 1)));
+  });
   out = out.replaceAll("{user}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
   out = out.replaceAll("{count}", String(vars.count ?? ""));
+  out = out.replaceAll("{args}", vars.args ?? "");
   return out;
 }
 
@@ -337,6 +360,7 @@ export async function handleCustomCommandInvocation(
     user: display,
     target,
     count: Number(result.row.uses ?? 0),
+    args,
   });
   await sendChatMessages(text, broadcasterId);
   return true;
@@ -364,7 +388,11 @@ export async function handleTriggerMatch(
     const lastUsedAt = Number(row.last_used_at ?? 0);
     if (cooldownMs > 0 && now - lastUsedAt < cooldownMs) continue; // on cooldown — see if another trigger matches
     await markCustomTriggerUsed(broadcasterId, keyword);
-    const rendered = applyTemplate(String(row.response ?? ""), { user: display, count: Number(row.uses ?? 0) + 1 });
+    const rendered = applyTemplate(String(row.response ?? ""), {
+      user: display,
+      count: Number(row.uses ?? 0) + 1,
+      args: text,
+    });
     await sendChatMessages(rendered, broadcasterId);
     return true;
   }
