@@ -64,7 +64,9 @@
 // a saved-quote system (!quote add/get), named counters separate from a
 // command's own use count ({count} already covers "how many times has this
 // fired"), conditional/$(if) logic, and anything needing a paid API key
-// (stock prices, weather, AI chat replies) that isn't configured here.
+// (stock prices, weather) that isn't configured here. AI chat replies ARE
+// now supported, just not through this system — see npcs.ts's !npc command
+// (AI-voiced NPC characters, via Val Town's built-in std/openai wrapper).
 
 import { pick, compactText } from "./utils.ts";
 import {

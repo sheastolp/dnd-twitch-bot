@@ -45,11 +45,12 @@ export function renderLogsPage(rows: any[]) {
 export function renderAdminLogsPage(opts: {
   status: any | null;
   overview: any[];
+  npcOverview: any[];
   events: any[];
   kindFilter: string;
   key: string;
 }): string {
-  const { status, overview, events, kindFilter, key } = opts;
+  const { status, overview, npcOverview, events, kindFilter, key } = opts;
   const now = Date.now();
   const lastRunAt = status ? Number(status.last_run_at ?? 0) : 0;
   const staleMs = 20 * 60_000;
@@ -116,6 +117,32 @@ export function renderAdminLogsPage(opts: {
     }
   </div>`;
 
+  const npcOverviewRows = npcOverview
+    .map((r: any) => {
+      const npcOn = Number(r.npc_enabled) === 1;
+      const connected = Number(r.connected) === 1;
+      const blocked = Number(r.blocked) === 1;
+      const botOn = Number(r.bot_enabled) === 1;
+      let why = "";
+      if (!npcOn) why = "NPCs are off (!npc on not run, or turned off)";
+      else if (!connected) why = "channel not connected to GuildScribe";
+      else if (blocked) why = `channel blocked by operator${r.block_reason ? ` (${escapeHtml(String(r.block_reason))})` : ""}`;
+      else if (!botOn) why = "bot disabled in this channel (!dndbot off)";
+      else why = "enabled and reachable";
+      const rowClass = npcOn && connected && !blocked && botOn ? "" : "row-muted";
+      return `<tr class="${rowClass}"><td>${escapeHtml(r.display_name || r.login || r.broadcaster_id)}</td><td>${npcOn ? "on" : "off"}</td><td>${Number(r.character_count ?? 0)}</td><td>${Number(r.total_uses ?? 0)}</td><td>${connected ? "yes" : "no"}</td><td>${blocked ? "yes" : "no"}</td><td>${botOn ? "yes" : "no"}</td><td>${escapeHtml(why)}</td></tr>`;
+    })
+    .join("");
+
+  const npcOverviewCard = `<div class="card">
+    <h2>Per-channel NPC state</h2>
+    ${
+      npcOverview.length
+        ? `<div style="overflow:auto"><table><thead><tr><th>Channel</th><th>NPCs</th><th>Roster size</th><th>Total uses</th><th>Connected</th><th>Blocked</th><th>Bot on</th><th>Diagnosis</th></tr></thead><tbody>${npcOverviewRows}</tbody></table></div>`
+        : `<p class="muted">No channel has ever run <code>!npc on</code> — the npc_settings table is empty.</p>`
+    }
+  </div>`;
+
   const kindOptions = ["", "merchant", "operator_disable", "operator_enable", "dashboard_toggle"]
     .map((k) => `<option value="${escapeHtml(k)}" ${k === kindFilter ? "selected" : ""}>${k ? escapeHtml(k) : "all kinds"}</option>`)
     .join("");
@@ -138,7 +165,7 @@ export function renderAdminLogsPage(opts: {
     }</tbody></table></div>
   </div>`;
 
-  return `<h1>🪵 GuildScribe Operator Logs</h1><p class="muted">Auto-refreshes every 30s. Bookmark this URL with your key to check back later.</p>${statusCard}${overviewCard}${eventsCard}<style>
+  return `<h1>🪵 GuildScribe Operator Logs</h1><p class="muted">Auto-refreshes every 30s. Bookmark this URL with your key to check back later.</p>${statusCard}${overviewCard}${npcOverviewCard}${eventsCard}<style>
     body{max-width:1100px!important}
     .card{background:#211b16;border:1px solid #684632;border-radius:10px;padding:16px 20px;margin:18px 0}
     .card h2{color:#e6a56e;margin-top:0;font-size:1.15rem}

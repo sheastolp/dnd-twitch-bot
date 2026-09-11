@@ -27,6 +27,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Raids** | D&D-themed auto thank-you in chat when another channel raids in, naming the raiding channel and party size — no extra OAuth scope needed |
 | **Stewards** | Channel on/off, disconnect/purge, in-chat activity logs, OAuth connect |
 | **Custom commands** | Broadcasters/mods add their own `!commands` and passive keyword triggers from chat, no code required |
+| **NPC characters** | AI-voiced NPCs with an author-defined personality — chat with them via `!npc talk`. **Off by default**, toggled per channel with `!npc on`/`off`/`status` *(mod)*. Each channel can build its own roster, plus a shared "global" roster as a fallback |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
 | **Chronicle** | Randomly quotes a plain chat message back with a one-line D&D-flavored reply. **Off by default**, toggled per channel with `!chronicle on`/`off`/`status` *(mod)*; low odds per message, a per-channel cooldown, and a minimum-activity threshold keep it rare — bot messages count toward that activity but are never quoted |
@@ -51,6 +52,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
+| **npcs.ts** | AI-voiced NPC characters — roster CRUD, LLM reply generation (`generateNpcReply`), and the `!npc` Twitch command |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
 | **twitch.ts** | Tokens, multi-part chat send |
@@ -89,6 +91,9 @@ Chat: `!guide` or `!link` posts that same URL.
 | `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message gets chronicled in a channel with `!chronicle on`; default 3 |
 | `CHRONICLE_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between chronicle quotes; default 600000ms (10 min), floor 30000ms |
 | `CHRONICLE_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chronicle quote before another can fire; default 15 |
+| `PRIMARY_BROADCASTER_ID` | *(optional)* Twitch broadcaster ID allowed to manage the shared "global" NPC roster via `!npc global add/edit/remove`; unset means no channel can write to it |
+| `NPC_MODEL` | *(optional)* OpenAI model used for NPC replies; default `gpt-4o-mini` |
+| `MAX_NPCS_PER_OWNER` | *(optional)* NPC roster cap per channel; default 25 |
 
 4. Twitch Developer Console → OAuth Redirect URLs must include **both**:  
    `https://<your-val>.web.val.run/callback` (bot connect flow)  
@@ -102,7 +107,7 @@ The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter 
 
 ### Guild Dashboard (`/dashboard`)
 
-A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off` in chat.
+A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle, NPC characters) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off`, `!npc on/off` in chat.
 
 This is a **different Twitch login from `/connect`**: `/connect` authorizes the *bot* against a broadcaster's channel (`channel:bot` scope); `/dashboard` signs in the *viewer* so GuildScribe can check whether they moderate or broadcast a connected channel, using the `user:read:moderated_channels` scope and Twitch's Get Moderated Channels endpoint. Signing into the dashboard grants no bot permissions and doesn't touch `channel:bot` at all.
 
@@ -266,7 +271,25 @@ Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and the
 
 Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Example: `!dndbot add attack {user} swings for {d8} damage!` Example: `!dndbot add live {channel} is playing {game} — "{title}" — live for {uptime}!` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
-Not supported (would need new setup this bot doesn't have): changing the stream's game/title from chat or redeeming channel-point rewards (both need a broadcaster OAuth scope no connected channel has granted yet), a saved-quote system, named counters separate from a command's own use count (`{count}` already covers that), `$(if)`-style conditionals, and anything needing a paid third-party API key (stock prices, weather, AI chat replies) that isn't configured in this project.
+Not supported (would need new setup this bot doesn't have): changing the stream's game/title from chat or redeeming channel-point rewards (both need a broadcaster OAuth scope no connected channel has granted yet), a saved-quote system, named counters separate from a command's own use count (`{count}` already covers that), `$(if)`-style conditionals, and anything needing a paid third-party API key (stock prices, weather) that isn't configured in this project. AI chat replies **are** supported — see [NPC characters](#npc-characters) below, a separate system from custom commands.
+
+### NPC characters
+AI-voiced characters with an author-defined personality, powered by an LLM call per message (Val Town's built-in `std/openai` — no API key setup required). **Off by default per channel**, same pattern as the merchant and chronicle. Each Twitch channel gets its own roster; a shared **global** roster (managed only from the channel set as `PRIMARY_BROADCASTER_ID`) acts as a fallback for anyone who hasn't defined a same-named NPC locally. Conversation memory is kept per channel/character so an NPC remembers the last several exchanges.
+
+| Command | Description |
+|---------|-------------|
+| `!npc on` / `off` | Enable or disable NPCs in this channel. **Off by default** *(mod)* |
+| `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
+| `!npc list` | List NPCs available in this channel (own roster + global fallback) |
+| `!npc add <name> <personality>` | Create a channel-scoped NPC *(mod)* |
+| `!npc edit <name> <personality>` | Change an existing NPC's personality *(mod)* |
+| `!npc remove <name>` | Delete a channel-scoped NPC *(mod)* |
+| `!npc talk <name> <message>` | Talk to an NPC — it replies in character |
+| `!npc global add/edit/remove ...` | Same, but manages the shared global roster *(PRIMARY_BROADCASTER_ID's channel only)* |
+
+Turning NPCs off with `!npc off` doesn't delete the roster or any character's conversation memory — it just makes the whole `!npc` command (except `on`/`off`/`status`) unreachable until turned back on. `generateNpcReply()` in `npcs.ts` is written platform-agnostic (the roster's `ownerKey` isn't assumed to be a Twitch id) so another chat surface could reuse it later without changes here — none is wired up today.
+
+Per-channel NPC state (on/off, roster size, total uses) is visible to the operator on the [admin logs page](#operator-side-launch-requirements) at `/admin/logs`, next to the merchant's own overview table.
 
 ### Battle maps
 | Command | Description |
@@ -297,6 +320,8 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
 | `!chronicle on` / `off` | Enable or disable the chronicle's random chat-quoting. **Off by default** *(mod)* |
 | `!chronicle status` | Check whether the chronicle is currently active in this channel (open to everyone) |
+| `!npc on` / `off` | Enable or disable AI-voiced NPC characters in this channel. **Off by default** *(mod)* |
+| `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
 
 ### Passive chat (no command needed)
 | Trigger | Description |

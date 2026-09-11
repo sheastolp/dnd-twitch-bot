@@ -235,6 +235,13 @@ export async function ensureTables() {
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
     )`,
   );
+  // AI-voiced NPC characters: off by default per channel; toggled with !npc
+  // on/off/status, same pattern as merchant/chronicle. See npcs.ts.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS npc_settings (
+      broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
+    )`,
+  );
   // Web dashboard login sessions (/dashboard). A viewer logs in with Twitch
   // (scope user:read:moderated_channels) so we can prove they're a
   // moderator/broadcaster of a channel before letting them flip module
@@ -368,6 +375,31 @@ export async function ensureTables() {
   );
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_dice_roll_events_lookup ON dice_roll_events(broadcaster_id, kind, created_at)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_commands_channel ON custom_commands(broadcaster_id)`);
+  // AI-voiced NPC characters — see npcs.ts. owner_key scopes a roster to one
+  // tenant, currently always "twitch:<broadcasterId>" — or the literal
+  // "global" for the fixed roster available as a fallback everywhere (see
+  // PRIMARY_BROADCASTER_ID in npcs.ts). The format is deliberately opaque
+  // rather than assumed-Twitch so another surface could reuse this schema
+  // later. npc_conversations holds rolling per-channel context so a
+  // character remembers the last few exchanges; channel_id is currently
+  // always the broadcasterId, kept as its own column (rather than reusing
+  // owner_key) since a future non-Twitch tenant could have multiple
+  // channels sharing one roster.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS npc_characters (
+      owner_key TEXT, name TEXT, personality TEXT, created_by TEXT,
+      created_at INTEGER, updated_at INTEGER, uses INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (owner_key, name)
+    )`,
+  );
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS npc_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_key TEXT NOT NULL, channel_id TEXT NOT NULL, character_name TEXT NOT NULL,
+      role TEXT NOT NULL, author TEXT, content TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`,
+  );
+  await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_npc_conversations_lookup ON npc_conversations(owner_key, channel_id, character_name, created_at)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_triggers_channel ON custom_triggers(broadcaster_id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_channel_id ON activity_logs(broadcaster_id,id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at)`);
@@ -662,6 +694,7 @@ export async function purgeChannelData(broadcasterId: string) {
     "merchant_settings",
     "chronicle_settings",
     "chronicle_activity",
+    "npc_settings",
     "channel_characters",
     "characters",
     "character_backups",
@@ -673,6 +706,10 @@ export async function purgeChannelData(broadcasterId: string) {
   ]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
+  // npc_characters/npc_conversations are keyed by owner_key ("twitch:<id>"),
+  // not broadcaster_id directly, so they don't fit the generic loop above.
+  await sqlite.execute("DELETE FROM npc_characters WHERE owner_key = ?", [`twitch:${broadcasterId}`]);
+  await sqlite.execute("DELETE FROM npc_conversations WHERE owner_key = ?", [`twitch:${broadcasterId}`]);
   await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
@@ -682,6 +719,7 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
     await sqlite.execute("DELETE FROM channel_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
+    await sqlite.execute("DELETE FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   }
@@ -722,6 +760,19 @@ export async function isChronicleEnabled(broadcasterId: string) {
 export async function setChronicleEnabled(broadcasterId: string, enabled: boolean) {
   await sqlite.execute(
     "INSERT OR REPLACE INTO chronicle_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
+    [broadcasterId, enabled ? 1 : 0, Date.now()],
+  );
+}
+
+export async function isNpcEnabled(broadcasterId: string) {
+  const res = await sqlite.execute("SELECT enabled FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
+  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
+}
+
+/** Toggle AI-voiced NPC characters. Off by default. */
+export async function setNpcEnabled(broadcasterId: string, enabled: boolean) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO npc_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
     [broadcasterId, enabled ? 1 : 0, Date.now()],
   );
 }
@@ -903,6 +954,38 @@ export async function getMerchantOverview() {
      LEFT JOIN channel_blocks cb ON cb.broadcaster_id = m.broadcaster_id
      LEFT JOIN channel_settings cs ON cs.broadcaster_id = m.broadcaster_id
      ORDER BY (m.next_post_at IS NULL), m.next_post_at ASC`,
+  );
+  return res.rows;
+}
+
+/** Per-channel NPC overview for the admin logs page: on/off state, roster
+ * size, and total uses across the channel's own NPCs (global-roster NPCs
+ * aren't attributed to any one channel, so they're excluded from the count
+ * here). Only channels with an npc_settings row appear — i.e. at least one
+ * !npc on/off toggle has happened — same convention as getMerchantOverview. */
+export async function getNpcOverview() {
+  const res = await sqlite.execute(
+    `SELECT
+       n.broadcaster_id AS broadcaster_id,
+       b.login AS login,
+       b.display_name AS display_name,
+       n.enabled AS npc_enabled,
+       n.updated_at AS npc_updated_at,
+       b.connected AS connected,
+       CASE WHEN cb.broadcaster_id IS NULL THEN 0 ELSE 1 END AS blocked,
+       cb.reason AS block_reason,
+       COALESCE(cs.enabled, 1) AS bot_enabled,
+       COALESCE(nc.character_count, 0) AS character_count,
+       COALESCE(nc.total_uses, 0) AS total_uses
+     FROM npc_settings n
+     LEFT JOIN broadcasters b ON b.broadcaster_id = n.broadcaster_id
+     LEFT JOIN channel_blocks cb ON cb.broadcaster_id = n.broadcaster_id
+     LEFT JOIN channel_settings cs ON cs.broadcaster_id = n.broadcaster_id
+     LEFT JOIN (
+       SELECT owner_key, COUNT(*) AS character_count, SUM(uses) AS total_uses
+       FROM npc_characters GROUP BY owner_key
+     ) nc ON nc.owner_key = 'twitch:' || n.broadcaster_id
+     ORDER BY n.enabled DESC, n.updated_at DESC`,
   );
   return res.rows;
 }
@@ -1481,4 +1564,160 @@ export async function getDiceStatsForUser(
     else if (r.kind === "nat20") stats.nat20 = Number(r.count);
   }
   return stats;
+}
+
+// ── NPC characters (see npcs.ts) ──
+
+export interface NpcCharacterRow {
+  owner_key: string;
+  name: string;
+  personality: string;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
+  uses: number;
+}
+
+export async function countNpcCharacters(ownerKey: string): Promise<number> {
+  const res = await sqlite.execute("SELECT COUNT(*) AS count FROM npc_characters WHERE owner_key = ?", [ownerKey]);
+  return Number(res.rows[0]?.count ?? 0);
+}
+
+/** Exact lookup within one roster only — no global fallback. Name match is
+ * case-insensitive since chat input isn't reliably cased. */
+export async function getNpcCharacterExact(ownerKey: string, name: string): Promise<NpcCharacterRow | null> {
+  const res = await sqlite.execute(
+    "SELECT * FROM npc_characters WHERE owner_key = ? AND LOWER(name) = LOWER(?)",
+    [ownerKey, name],
+  );
+  return res.rows.length ? (res.rows[0] as NpcCharacterRow) : null;
+}
+
+/** Looks up a character in the caller's own roster first, falling back to
+ * the shared "global" roster if the tenant hasn't defined one by that name. */
+export async function getNpcCharacter(ownerKey: string, name: string): Promise<NpcCharacterRow | null> {
+  const own = await getNpcCharacterExact(ownerKey, name);
+  if (own) return own;
+  if (ownerKey === "global") return null;
+  return await getNpcCharacterExact("global", name);
+}
+
+/** Lists a tenant's own NPCs plus any global ones not shadowed by a
+ * same-named local one, name ascending. */
+export async function listNpcCharacters(ownerKey: string): Promise<NpcCharacterRow[]> {
+  const res = await sqlite.execute(
+    `SELECT * FROM npc_characters WHERE owner_key = ? OR owner_key = 'global' ORDER BY name ASC`,
+    [ownerKey],
+  );
+  const rows = res.rows as NpcCharacterRow[];
+  const seen = new Set<string>();
+  const merged: NpcCharacterRow[] = [];
+  // Prefer the tenant's own row over a same-named global one.
+  for (const r of rows.filter((r) => r.owner_key === ownerKey)) {
+    merged.push(r);
+    seen.add(r.name.toLowerCase());
+  }
+  for (const r of rows.filter((r) => r.owner_key === "global")) {
+    if (!seen.has(r.name.toLowerCase())) merged.push(r);
+  }
+  return merged.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function addNpcCharacter(
+  ownerKey: string,
+  name: string,
+  personality: string,
+  createdBy: string,
+  maxPerOwner: number,
+): Promise<{ ok: true } | { ok: false; error: "exists" | "cap"; max?: number }> {
+  if (await getNpcCharacterExact(ownerKey, name)) return { ok: false, error: "exists" };
+  if ((await countNpcCharacters(ownerKey)) >= maxPerOwner) return { ok: false, error: "cap", max: maxPerOwner };
+  const now = Date.now();
+  await sqlite.execute(
+    "INSERT INTO npc_characters (owner_key,name,personality,created_by,created_at,updated_at,uses) VALUES (?,?,?,?,?,?,0)",
+    [ownerKey, name, personality, createdBy, now, now],
+  );
+  return { ok: true };
+}
+
+export async function editNpcCharacter(ownerKey: string, name: string, personality: string): Promise<boolean> {
+  const row = await getNpcCharacterExact(ownerKey, name);
+  if (!row) return false;
+  await sqlite.execute(
+    "UPDATE npc_characters SET personality = ?, updated_at = ? WHERE owner_key = ? AND name = ?",
+    [personality, Date.now(), ownerKey, row.name],
+  );
+  return true;
+}
+
+export async function deleteNpcCharacter(ownerKey: string, name: string): Promise<boolean> {
+  const row = await getNpcCharacterExact(ownerKey, name);
+  if (!row) return false;
+  await sqlite.execute("DELETE FROM npc_characters WHERE owner_key = ? AND name = ?", [ownerKey, row.name]);
+  return true;
+}
+
+export async function bumpNpcCharacterUses(ownerKey: string, name: string): Promise<void> {
+  await sqlite.execute(
+    "UPDATE npc_characters SET uses = uses + 1 WHERE owner_key = ? AND LOWER(name) = LOWER(?)",
+    [ownerKey, name],
+  );
+}
+
+// ── NPC conversation history (see npcs.ts) ──
+
+export interface NpcConversationRow {
+  role: "user" | "assistant";
+  author: string | null;
+  content: string;
+  created_at: number;
+}
+
+export async function appendNpcConversationMessage(
+  ownerKey: string,
+  channelId: string,
+  characterName: string,
+  role: "user" | "assistant",
+  content: string,
+  author?: string,
+): Promise<void> {
+  await sqlite.execute(
+    "INSERT INTO npc_conversations (owner_key,channel_id,character_name,role,author,content,created_at) VALUES (?,?,?,?,?,?,?)",
+    [ownerKey, channelId, characterName.toLowerCase(), role, author ?? null, content, Date.now()],
+  );
+}
+
+/** Most recent turns for one character in one channel, oldest first (ready
+ * to drop straight into a chat-completion messages array). */
+export async function getRecentNpcConversation(
+  ownerKey: string,
+  channelId: string,
+  characterName: string,
+  limit: number,
+): Promise<NpcConversationRow[]> {
+  const res = await sqlite.execute(
+    `SELECT role, author, content, created_at FROM npc_conversations
+     WHERE owner_key = ? AND channel_id = ? AND LOWER(character_name) = LOWER(?)
+     ORDER BY created_at DESC LIMIT ?`,
+    [ownerKey, channelId, characterName, limit],
+  );
+  return (res.rows as NpcConversationRow[]).reverse();
+}
+
+/** Trims a conversation down to its most recent `keep` rows — call after
+ * appending so history can't grow unbounded in a chatty channel. */
+export async function trimNpcConversation(
+  ownerKey: string,
+  channelId: string,
+  characterName: string,
+  keep: number,
+): Promise<void> {
+  await sqlite.execute(
+    `DELETE FROM npc_conversations WHERE id IN (
+       SELECT id FROM npc_conversations
+       WHERE owner_key = ? AND channel_id = ? AND LOWER(character_name) = LOWER(?)
+       ORDER BY created_at DESC LIMIT -1 OFFSET ?
+     )`,
+    [ownerKey, channelId, characterName, keep],
+  );
 }

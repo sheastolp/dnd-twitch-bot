@@ -30,6 +30,7 @@ import {
   getMapTokens,
   getMerchantCronStatus,
   getMerchantOverview,
+  getNpcOverview,
   getMonitorEvents,
   getPendingEventSubCancellations,
   getRecentLogs,
@@ -37,6 +38,7 @@ import {
   isChannelEnabled,
   isChronicleEnabled,
   isMerchantEnabled,
+  isNpcEnabled,
   listMaps,
   loadBackup,
   markBroadcasterDisconnected,
@@ -52,12 +54,14 @@ import {
   setChannelEnabled,
   setChronicleEnabled,
   setMerchantEnabled,
+  setNpcEnabled,
   unblockChannel,
   updateDashboardSessionToken,
 } from "./db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand, randomMerchantIntervalMs } from "./merchant.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
+import { handleNpcCommand } from "./npcs.ts";
 import {
   handleCustomCommandInvocation,
   handleCustomCommandManagement,
@@ -281,6 +285,13 @@ const DASHBOARD_MODULES: {
     description: "Occasionally quotes a plain chat message back with a D&D-flavored reply.",
     isEnabled: isChronicleEnabled,
     setEnabled: setChronicleEnabled,
+  },
+  {
+    key: "npc",
+    label: "NPC characters",
+    description: "AI-voiced characters chat can talk to with !npc talk <name> <message>.",
+    isEnabled: isNpcEnabled,
+    setEnabled: setNpcEnabled,
   },
 ];
 
@@ -785,14 +796,16 @@ async function handleRequest(req: Request): Promise<Response> {
       );
     }
     const kindFilter = url.searchParams.get("kind") ?? "";
-    const [status, overview, events] = await Promise.all([
+    const [status, overview, npcOverview, events] = await Promise.all([
       getMerchantCronStatus(),
       getMerchantOverview(),
+      getNpcOverview(),
       getMonitorEvents(kindFilter || undefined, 100),
     ]);
     const body = renderAdminLogsPage({
       status,
       overview,
+      npcOverview,
       events,
       kindFilter,
       key: keyParam,
@@ -1212,6 +1225,9 @@ async function handleRequest(req: Request): Promise<Response> {
         isModerator,
       )
     ) return new Response("OK");
+    if (
+      await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
+    ) return new Response("OK");
 
     if (chatMessage === "!logs") {
       if (!isModerator) {
@@ -1257,7 +1273,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const help = category === "dice"
         ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
-        ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !help | !guide | !link"
+        ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !npc on | !npc off | !npc status (off by default) | !help | !guide | !link"
         : category === "character"
         ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar"
         : category === "party"
@@ -1270,7 +1286,9 @@ async function handleRequest(req: Request): Promise<Response> {
         ? "🗺️ Battle maps: !map create <name> [WxH] [template] (mod) | !map templates | !map list | !map view <name> | !map delete <name> / !map remove <name> (mod) | !map terrains | !map fill <name> <terrain> (mod) | !map paint <name> <x> <y> <terrain> (mod) | !map addchar <name> [x y] | !map addchar <name> @user [x y] (mod) | !map move <name> <x> <y> | !map move <name> @user <x> <y> (mod) | !map removechar <name> [@user]"
         : category === "custom"
         ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/edit/remove/cooldown are mod-only, list is open to everyone. Response placeholders: {user}/{sender} {target}/{touser} {count} {args} {random:a|b|c} {randnum:MIN-MAX} (e.g. {randnum:1-100}) {d4}/{d6}/{d8}/{d10}/{d12}/{d20}/{d100} {channel} {game} {title}/{status} {uptime} {time} {date} {repeat:N|text} {math:expr} {twitchemotes} {7tvemotes} {bttvemotes} {ffzemotes} — full list at ${PUBLIC_BASE_URL}/guide"
-        : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
+        : category === "npc"
+        ? "🎭 NPC characters (off by default — !npc on to enable, mod-only): !npc on | !npc off | !npc status | !npc list | !npc add <name> <personality> (mod) | !npc edit <name> <personality> (mod) | !npc remove <name> (mod) | !npc talk <name> <message> — talk to an AI-voiced NPC in character."
+        : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | npc | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
       const match = chatMessage.match(/^!levelup(?:\s+([+-]\d+))?$/i)!;
