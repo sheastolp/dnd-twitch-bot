@@ -169,6 +169,52 @@ export async function getAppToken() {
   return cachedAppToken.token;
 }
 
+// Public channel info (title/category) — works via app token whether or not
+// the channel is live. Used by custom-command placeholders like {game}/{title}.
+export async function getChannelInfo(broadcasterId: string): Promise<{ title: string; game: string } | null> {
+  try {
+    const token = await getAppToken();
+    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = data.data?.[0];
+    return row ? { title: String(row.title ?? ""), game: String(row.game_name ?? "") } : null;
+  } catch (err) {
+    console.error("getChannelInfo failed", err);
+    return null;
+  }
+}
+
+// Live stream info (viewer count, uptime) — only returns data while the
+// channel is actually live; `live: false` otherwise. Used by custom-command
+// placeholders like {uptime}/{viewers}.
+export async function getStreamInfo(
+  broadcasterId: string,
+): Promise<{ live: boolean; viewers?: number; startedAt?: number; game?: string; title?: string } | null> {
+  try {
+    const token = await getAppToken();
+    const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = data.data?.[0];
+    if (!row) return { live: false };
+    return {
+      live: true,
+      viewers: Number(row.viewer_count ?? 0),
+      startedAt: Date.parse(row.started_at ?? "") || undefined,
+      game: String(row.game_name ?? ""),
+      title: String(row.title ?? ""),
+    };
+  } catch (err) {
+    console.error("getStreamInfo failed", err);
+    return null;
+  }
+}
+
 export async function exchangeCode(code: string, redirectUri: string) {
   const body = new URLSearchParams({
     client_id: env("TWITCH_CLIENT_ID"),
@@ -184,65 +230,6 @@ export async function exchangeCode(code: string, redirectUri: string) {
   });
   if (!res.ok) throw new Error(`OAuth exchange failed: ${res.status} ${await res.text()}`);
   return await res.json();
-}
-
-// Used to keep a /dashboard login session alive past its ~4h access token
-// without asking the viewer to sign in again — refresh_token grant per
-// Twitch's OAuth docs. Twitch rotates the refresh token on every use, so
-// callers must persist the new one, not just the new access token.
-export async function refreshUserToken(refreshToken: string) {
-  const body = new URLSearchParams({
-    client_id: env("TWITCH_CLIENT_ID"),
-    client_secret: env("TWITCH_CLIENT_SECRET"),
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const res = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
-  return await res.json();
-}
-
-/** Identifies the viewer behind a user access token — used right after the
- * /dashboard OAuth exchange to learn who just logged in. Works with any
- * valid user token; no extra scope required. */
-export async function getSelfUser(userToken: string) {
-  const res = await fetch("https://api.twitch.tv/helix/users", {
-    headers: {
-      Authorization: `Bearer ${userToken}`,
-      "Client-Id": env("TWITCH_CLIENT_ID"),
-    },
-  });
-  if (!res.ok) throw new Error(`Could not identify user: ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  return data.data[0];
-}
-
-/** Every channel a Twitch user currently moderates (requires the
- * user:read:moderated_channels scope on their token) — does NOT include a
- * channel they broadcast themselves; callers should check that separately.
- * Paginated, capped at 500 channels as a sane ceiling for a single viewer. */
-export async function getModeratedChannelIds(userToken: string, userId: string): Promise<string[]> {
-  const ids: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const params = new URLSearchParams({ user_id: userId, first: "100" });
-    if (cursor) params.set("after", cursor);
-    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${userToken}`,
-        "Client-Id": env("TWITCH_CLIENT_ID"),
-      },
-    });
-    if (!res.ok) throw new Error(`Get Moderated Channels failed: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    for (const row of data.data ?? []) ids.push(String(row.broadcaster_id));
-    cursor = data.pagination?.cursor || undefined;
-  } while (cursor && ids.length < 500);
-  return ids;
 }
 
 async function createEventSubSubscription(

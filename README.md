@@ -17,7 +17,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Parchment** | Characters with level, XP, HP, race/class, save/load |
 | **Company** | Parties with invite, roster (members listed), disband |
 | **Archives** | Spells, items, classes, feats, races, **rules** (+ public links), plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
-| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!oracle <question>` to have a random recent chatter named as the answer, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
+| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
 | **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts** |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
 | **XP** | From **monster** victories only (not PvP) |
@@ -46,7 +46,6 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3data.ts** | Static Baldur's Gate 3 knowledgebase — companions, origins, classes, races, locations, factions, deities, villains, legendary items |
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
-| **oracle.ts** | `!oracle <question>` — names a random recently-active chatter as the answer, drawing from `activity_logs` via `db.ts` (no live Twitch chatters API / new OAuth scope needed) |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
@@ -134,7 +133,6 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!roll stealth` / `!roll animal handling` | **Skill check** — uses your saved character's modifier for that skill's ability |
 | `!roll @user dex` / `!roll @user stealth` | Saving throw / skill check using `@user`'s saved character instead of your own |
 | `!roll <question>?` | D&D-flavored yes/no fate verdict, e.g. `!roll is enya going to die this time?` |
-| `!oracle <question>` | The oracle names a random recently-active chatter as the answer, e.g. `!oracle who should stream next?` |
 | `!bg3roll` | Random Baldur's Gate 3 style character: race/subrace, class/subclass, background, alignment, BG3-style point-buy scores, and an origin hook |
 | `!bg3companion` | Rolls which BG3 companion you're traveling with (role, blurb, and an iconic line) |
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
@@ -204,7 +202,7 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
 
-Responses support `{user}`, `{target}` (first `@mention`, commands only), `{count}` (uses so far), and `{random:a|b|c}` (picks one option). Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
+Responses support a range of placeholders: `{user}`, `{target}`/`{touser}` (first `@mention`, commands only), `{count}` (uses so far), `{command}` (the name/keyword that fired), `{random:a|b|c}` (picks one option), `{number:1-20}` (random integer in range), `{args}`/`{arg1}`-`{arg9}` (a command's arguments, commands only), `{channel}`, `{time}`/`{date}`/`{day}`, `{level}`/`{class}`/`{race}`/`{hp}` (the triggering user's saved character, with `{target...}` variants), and `{game}`/`{title}`/`{uptime}`/`{viewers}` (live channel/stream info). Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
 ### Battle maps
 | Command | Description |
