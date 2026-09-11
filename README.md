@@ -248,8 +248,12 @@ Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and the
 | `{args}` | Everything typed after the command name (a `!command`'s own arguments) or, for a `!trigger`, the whole chat message that set it off — empty string if there's nothing to capture |
 | `{random:a\|b\|c}` | Picks one option at random (max 5 per response) |
 | `{randnum:MIN-MAX}` | A random whole number in that inclusive range, e.g. `{randnum:1-100}` (max 5 per response; `MIN`/`MAX` can be negative, e.g. `{randnum:-5-5}`) |
+| `{d4}` `{d6}` `{d8}` `{d10}` `{d12}` `{d20}` `{d100}` | Shorthand for a single roll of that standard die, e.g. `{d20}` → 1-20 (max 10 per response combined) |
+| `{channel}` | This channel's display name (falls back to "the channel" if it can't be looked up) |
+| `{time}` | Current time, HH:MM UTC |
+| `{date}` | Current date, YYYY-MM-DD (UTC) |
 
-Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
+Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Example: `!dndbot add attack {user} swings for {d8} damage!` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
 ### Battle maps
 | Command | Description |

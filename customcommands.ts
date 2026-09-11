@@ -30,6 +30,13 @@
 //   {randnum:MIN-MAX}    a random whole number in that inclusive range, e.g.
 //                        {randnum:1-100} (max 5 per response; MIN/MAX may be
 //                        negative, e.g. {randnum:-5-5})
+//   {d4} {d6} {d8} {d10} {d12} {d20} {d100}   shorthand for a single roll of
+//                        that standard die, e.g. {d20} → 1-20 (max 10 per
+//                        response combined)
+//   {channel}   this channel's display name (falls back to "the channel" if
+//               it can't be looked up)
+//   {time}      current time, HH:MM UTC
+//   {date}      current date, YYYY-MM-DD (UTC)
 
 import { pick, compactText } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
@@ -38,6 +45,7 @@ import {
   addCustomTrigger,
   deleteCustomCommand,
   deleteCustomTrigger,
+  getBroadcaster,
   listCustomCommands,
   listCustomTriggers,
   markCustomTriggerUsed,
@@ -51,6 +59,7 @@ const MAX_CUSTOM_RESPONSE_LEN = 400;
 const MAX_COOLDOWN_SECONDS = 3600;
 const MAX_RANDOM_BLOCKS = 5;
 const MAX_RANDNUM_BLOCKS = 5;
+const MAX_DIE_BLOCKS = 10;
 // Keeps {randnum:MIN-MAX} bounds sane regardless of what's typed — plenty of
 // range for loot rolls, gold drops, percentages, etc.
 const RANDNUM_ABS_LIMIT = 1_000_000;
@@ -80,7 +89,10 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
   return keyword;
 }
 
-function applyTemplate(response: string, vars: { user: string; target?: string; count?: number; args?: string }): string {
+function applyTemplate(
+  response: string,
+  vars: { user: string; target?: string; count?: number; args?: string; channel?: string },
+): string {
   let randomBlocks = 0;
   let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
     randomBlocks++;
@@ -100,11 +112,38 @@ function applyTemplate(response: string, vars: { user: string; target?: string; 
     max = Math.min(RANDNUM_ABS_LIMIT, max);
     return String(min + Math.floor(Math.random() * (max - min + 1)));
   });
+  let dieBlocks = 0;
+  out = out.replace(/\{d(4|6|8|10|12|20|100)\}/gi, (_match, sizeStr: string) => {
+    dieBlocks++;
+    if (dieBlocks > MAX_DIE_BLOCKS) return "";
+    const size = Number.parseInt(sizeStr, 10);
+    return String(1 + Math.floor(Math.random() * size));
+  });
   out = out.replaceAll("{user}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
   out = out.replaceAll("{count}", String(vars.count ?? ""));
   out = out.replaceAll("{args}", vars.args ?? "");
+  if (out.includes("{channel}")) {
+    out = out.replaceAll("{channel}", vars.channel ?? "the channel");
+  }
+  if (out.includes("{time}") || out.includes("{date}")) {
+    const now = new Date();
+    out = out.replaceAll(
+      "{time}",
+      `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")} UTC`,
+    );
+    out = out.replaceAll("{date}", now.toISOString().slice(0, 10));
+  }
   return out;
+}
+
+/** Best-effort channel display name for {channel} — falls back to the login,
+ * then to undefined (applyTemplate substitutes "the channel"), rather than
+ * failing the whole response if the broadcasters row is missing/stale. */
+async function resolveChannelName(broadcasterId: string): Promise<string | undefined> {
+  const broadcaster = await getBroadcaster(broadcasterId);
+  const name = broadcaster?.display_name || broadcaster?.login;
+  return name ? String(name) : undefined;
 }
 
 function buildKeywordRegex(keyword: string): RegExp {
@@ -356,11 +395,14 @@ export async function handleCustomCommandInvocation(
   const args = (match[2] ?? "").trim();
   const targetMatch = args.match(/@(\S+)/);
   const target = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : undefined;
-  const text = applyTemplate(String(result.row.response ?? ""), {
+  const responseText = String(result.row.response ?? "");
+  const channel = responseText.includes("{channel}") ? await resolveChannelName(broadcasterId) : undefined;
+  const text = applyTemplate(responseText, {
     user: display,
     target,
     count: Number(result.row.uses ?? 0),
     args,
+    channel,
   });
   await sendChatMessages(text, broadcasterId);
   return true;
@@ -388,10 +430,13 @@ export async function handleTriggerMatch(
     const lastUsedAt = Number(row.last_used_at ?? 0);
     if (cooldownMs > 0 && now - lastUsedAt < cooldownMs) continue; // on cooldown — see if another trigger matches
     await markCustomTriggerUsed(broadcasterId, keyword);
-    const rendered = applyTemplate(String(row.response ?? ""), {
+    const triggerResponseText = String(row.response ?? "");
+    const channel = triggerResponseText.includes("{channel}") ? await resolveChannelName(broadcasterId) : undefined;
+    const rendered = applyTemplate(triggerResponseText, {
       user: display,
       count: Number(row.uses ?? 0) + 1,
       args: text,
+      channel,
     });
     await sendChatMessages(rendered, broadcasterId);
     return true;
