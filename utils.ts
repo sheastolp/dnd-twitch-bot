@@ -23,29 +23,6 @@ export function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]!));
 }
 
-/** Minimal cookie parsing for the /dashboard login session — just enough to
- * read a single named cookie back out of a Request. */
-export function getCookie(req: Request, name: string): string | null {
-  const header = req.headers.get("Cookie");
-  if (!header) return null;
-  for (const part of header.split(";")) {
-    const eq = part.indexOf("=");
-    if (eq === -1) continue;
-    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
-  }
-  return null;
-}
-
-/** Builds a Set-Cookie header value for the /dashboard session cookie.
- * HttpOnly + Secure + SameSite=Lax: not readable from JS, not sent on
- * cross-site requests (the main defense against a forged toggle POST), but
- * still attached on a normal top-level link/redirect from Twitch's login. */
-export function sessionCookie(name: string, value: string, maxAgeSeconds: number): string {
-  const attrs = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "Secure", "SameSite=Lax"];
-  attrs.push(maxAgeSeconds > 0 ? `Max-Age=${maxAgeSeconds}` : "Max-Age=0");
-  return attrs.join("; ");
-}
-
 export function formatStatLine(c: Character) {
   return `Lv${c.level} XP ${c.xp ?? 0} | ${abilityNames
     .map((a) => `${a} ${c.scores[a]}(${modifier(c.scores[a]) >= 0 ? "+" : ""}${modifier(c.scores[a])})`)
@@ -482,6 +459,45 @@ export function rollFate(question: string): string {
   const pool = Math.random() < 0.5 ? FATE_YES : FATE_NO;
   const flavor = pool[Math.floor(Math.random() * pool.length)];
   return flavor(displayQuestion);
+}
+
+// !oracle <question> — like !roll's fate verdict, but instead of YES/NO the
+// "answer" is a randomly-chosen recent chatter's name. The pool of eligible
+// names is supplied by the caller (see getRecentChatters in db.ts); this
+// function only owns the flavor text around whichever name it's given.
+const ORACLE_LINES: Array<(q: string, name: string) => string> = [
+  (q, name) => `🔮 The crystal ball swirls and resolves into a face: @${name}, regarding "${q}"`,
+  (q, name) => `📜 You cast Augury. The vision names @${name} for "${q}"`,
+  (q, name) => `🎴 The Deck of Many Things turns up a familiar face: @${name}, on "${q}"`,
+  (q, name) => `👁️ The beholder's central eye fixes on @${name} for "${q}"`,
+  (q, name) => `✨ The bones scatter and spell out a name: @${name}, regarding "${q}"`,
+  (q, name) => `🕯️ The candle's smoke curls into the shape of @${name} for "${q}"`,
+  (q, name) => `🗿 The ancient statue's eyes swivel and lock onto @${name} for "${q}"`,
+  (q, name) => `🐉 The dragon exhales a name on the wind: @${name}, on "${q}"`,
+  (q, name) => `🧙 The wizard's crystal reveals @${name} at the heart of it — "${q}"`,
+  (q, name) => `📯 The horn sounds, summoning @${name} forth for "${q}"`,
+  (q, name) => `🌕 By the light of the full moon, @${name} is named for "${q}"`,
+  (q, name) => `🍀 Fate's coin lands heads-up on @${name} for "${q}"`,
+  (q, name) => `⚖️ The DM consults the notes behind the screen and points at @${name} for "${q}"`,
+  (q, name) => `🔥 The campfire pops and sends a spark toward @${name} — "${q}"`,
+  (q, name) => `🕊️ A raven circles the tavern and lands on @${name}'s shoulder for "${q}"`,
+  (q, name) => `🧿 The rune stones fall into the shape of a name: @${name}, on "${q}"`,
+  (q, name) => `⚔️ The blade points itself, unbidden, toward @${name} for "${q}"`,
+  (q, name) => `🃏 The tarot reveals The Adventurer: @${name}, regarding "${q}"`,
+  (q, name) => `🏰 The castle gates swing open before @${name} for "${q}"`,
+  (q, name) => `🐺 The wolves howl a name into the night: @${name}, on "${q}"`,
+  (q, name) => `🌟 The stars align and trace out @${name} for "${q}"`,
+  (q, name) => `📖 The tome of fate flips open to a page bearing @${name}'s name — "${q}"`,
+];
+
+const MAX_ORACLE_QUESTION_LEN = 200;
+
+/** Names a random recent chatter as the "answer" to a chat-supplied question. */
+export function rollOracle(question: string, chatterName: string): string {
+  const q = question.trim();
+  const displayQuestion = q.length > MAX_ORACLE_QUESTION_LEN ? q.slice(0, MAX_ORACLE_QUESTION_LEN) + "…" : q;
+  const flavor = pick(ORACLE_LINES);
+  return flavor(displayQuestion, chatterName);
 }
 
 // !hug — an undocumented, purely warm/supportive command. No dice, no

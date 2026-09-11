@@ -17,7 +17,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Parchment** | Characters with level, XP, HP, race/class, save/load |
 | **Company** | Parties with invite, roster (members listed), disband |
 | **Archives** | Spells, items, classes, feats, races, **rules** (+ public links), plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
-| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
+| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!oracle <question>` to have a random recent chatter named as the answer, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
 | **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts** |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
 | **XP** | From **monster** victories only (not PvP) |
@@ -27,7 +27,6 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Custom commands** | Broadcasters/mods add their own `!commands` and passive keyword triggers from chat, no code required |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
-| **Chronicle** | Randomly quotes a plain chat message back with a one-line D&D-flavored reply. **Off by default**, toggled per channel with `!chronicle on`/`off`/`status` *(mod)*; low odds per message, a per-channel cooldown, and a minimum-activity threshold keep it rare — bot messages count toward that activity but are never quoted |
 
 ---
 
@@ -38,7 +37,6 @@ Chat: `!guide` or `!link` posts that same URL.
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant.cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
-| **chronicle.ts** | `!chronicle on/off/status` toggle + the random chat-quoting roll/flavor generator (no cron — fires inline off the plain-chat message path) |
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration |
@@ -48,6 +46,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3data.ts** | Static Baldur's Gate 3 knowledgebase — companions, origins, classes, races, locations, factions, deities, villains, legendary items |
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
+| **oracle.ts** | `!oracle <question>` — names a random recently-active chatter as the answer, drawing from `activity_logs` via `db.ts` (no live Twitch chatters API / new OAuth scope needed) |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
@@ -84,41 +83,14 @@ Chat: `!guide` or `!link` posts that same URL.
 | `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Global bot-account chat-send spacing; default 1600ms. Lower only after Twitch confirms the account's applicable limit/verification. |
 | `MERCHANT_MIN_INTERVAL_MINUTES` | *(optional)* Shortest gap between open-stall merchant ads in a channel with `!market on`; default 25, floor 5 |
 | `MERCHANT_MAX_INTERVAL_MINUTES` | *(optional)* Longest gap between open-stall merchant ads; default 60, floored at the min above |
-| `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message gets chronicled in a channel with `!chronicle on`; default 3 |
-| `CHRONICLE_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between chronicle quotes; default 600000ms (10 min), floor 30000ms |
-| `CHRONICLE_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chronicle quote before another can fire; default 15 |
 
-4. Twitch Developer Console → OAuth Redirect URLs must include **both**:  
-   `https://<your-val>.web.val.run/callback` (bot connect flow)  
-   `https://<your-val>.web.val.run/dashboard/callback` (mod/broadcaster login for the Guild Dashboard — see below)  
-   (or your custom domain's equivalents, e.g. `https://guildscribe.val.run/callback` and `https://guildscribe.val.run/dashboard/callback`)
+4. Twitch Developer Console → OAuth Redirect URL must be exactly:  
+   `https://<your-val>.web.val.run/callback` (or your custom domain's `/callback`, e.g. `https://guildscribe.val.run/callback`)
 5. Set `PUBLIC_BASE_URL` as an environment variable to your public HTTPS URL (used by `!guide` / `!link`). This deployment defaults to `https://guildscribe.val.run` when the env var isn't set.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
 The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter powers the sub/resub thank-you (see below). **Channels that connected before this scope was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous to start firing; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
-
-### Continuous deployment (GitHub → Val Town)
-
-This repo is the source of truth; `.vt/state.json` links it to the live val (see the [Val Town CLI docs](https://www.val.town/docs)). `.github/workflows/deploy.yml` pushes every commit on `main` to that val automatically via `vt push`, so merging to `main` is what ships to `guildscribe.val.run`.
-
-Setup (one-time, on GitHub):
-1. Generate an API key at [val.town/settings/api](https://www.val.town/settings/api) with val read+write permission.
-2. Add it as a repository secret named `VAL_TOWN_API_KEY` (Settings → Secrets and variables → Actions).
-
-After that, every push to `main` deploys automatically; you can also trigger a deploy manually from the Actions tab (`Deploy to Val Town` → Run workflow).
-
-### Guild Dashboard (`/dashboard`)
-
-A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off` in chat.
-
-This is a **different Twitch login from `/connect`**: `/connect` authorizes the *bot* against a broadcaster's channel (`channel:bot` scope); `/dashboard` signs in the *viewer* so GuildScribe can check whether they moderate or broadcast a connected channel, using the `user:read:moderated_channels` scope and Twitch's Get Moderated Channels endpoint. Signing into the dashboard grants no bot permissions and doesn't touch `channel:bot` at all.
-
-- `GET /dashboard` redirects to Twitch sign-in if there's no session cookie; afterward it shows a channel picker (if the viewer moderates/broadcasts more than one connected channel) or goes straight to the single channel's switches.
-- Moderator status is re-checked against the Twitch API on every dashboard view and every toggle — a demotion in Twitch takes effect immediately rather than trusting a cached claim.
-- Sessions live in the `dashboard_sessions` table (access + refresh token, never exposed to the browser — only an opaque session id is cookied) and last up to 30 days, refreshing the underlying Twitch token transparently.
-- `GET /dashboard/logout` clears the session.
-- The module list is data-driven: `DASHBOARD_MODULES` in `main.ts` is the single source of truth (key, label, description, and the `isEnabled`/`setEnabled` functions to call). Adding a future module's switch to the dashboard means adding one entry to that array — the status page, the toggle handler, and key validation all read from it, so nothing else needs to change.
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
@@ -162,6 +134,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!roll stealth` / `!roll animal handling` | **Skill check** — uses your saved character's modifier for that skill's ability |
 | `!roll @user dex` / `!roll @user stealth` | Saving throw / skill check using `@user`'s saved character instead of your own |
 | `!roll <question>?` | D&D-flavored yes/no fate verdict, e.g. `!roll is enya going to die this time?` |
+| `!oracle <question>` | The oracle names a random recently-active chatter as the answer, e.g. `!oracle who should stream next?` |
 | `!bg3roll` | Random Baldur's Gate 3 style character: race/subrace, class/subclass, background, alignment, BG3-style point-buy scores, and an origin hook |
 | `!bg3companion` | Rolls which BG3 companion you're traveling with (role, blurb, and an iconic line) |
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
@@ -260,14 +233,11 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/logs/gameplay state |
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
-| `!chronicle on` / `off` | Enable or disable the chronicle's random chat-quoting. **Off by default** *(mod)* |
-| `!chronicle status` | Check whether the chronicle is currently active in this channel (open to everyone) |
 
 ### Passive chat (no command needed)
 | Trigger | Description |
 |---------|-------------|
 | "goodnight" / "gn" / "gnite" / "nighty night" / etc. | Bot replies with a themed send-off. One reply per channel per cooldown window (`GOODNIGHT_COOLDOWN_MS`, default 5 min) so a wave of goodnights from chat only draws a single response. |
-| Any plain chat message (when `!chronicle on`) | Small random chance (`CHRONICLE_QUOTE_CHANCE_PERCENT`, default 3%) per qualifying message of being quoted back with a D&D-flavored reply. Skips very short messages, single-word/emote spam, and links. Gated by a per-channel cooldown (`CHRONICLE_COOLDOWN_MS`, default 10 min) and a minimum-activity threshold (`CHRONICLE_MIN_MESSAGES`, default 15 messages since the last quote) so it can't fire back-to-back or in a dead-quiet channel. Bot accounts (Nightbot, StreamElements, GuildScribe itself, etc.) count toward that message minimum but are never selected as the one quoted. |
 
 ---
 
@@ -295,10 +265,6 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /` | Guild hall — info page, links to `/connect` |
 | `GET /connect` | Starts Twitch OAuth — generates state, redirects straight to Twitch's authorize page (no intermediate GuildScribe page) |
 | `GET /callback` | Twitch OAuth return |
-| `GET /dashboard` | Guild Dashboard — mod/broadcaster-only module on/off switches; redirects to Twitch sign-in if not already logged in |
-| `GET /dashboard/callback` | Twitch OAuth return for the dashboard's viewer login (separate from `/callback` above) |
-| `GET /dashboard/logout` | Clears the dashboard session cookie |
-| `POST /dashboard/toggle` | Flips one module for one channel; requires a valid dashboard session and re-verified mod/broadcaster status |
 | `GET /guide` · `/commands` | **Guild Codex** |
 | `GET /donate` | Support the Guild |
 | `GET /privacy` | Privacy policy |

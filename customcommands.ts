@@ -52,7 +52,7 @@ const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
-  "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
+  "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide", "oracle",
   "cmd", "trigger", "command", "commands", "hug", "map", "mod", "admin", "bot",
 ]);
 
