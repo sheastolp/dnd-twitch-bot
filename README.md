@@ -162,9 +162,11 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!leaderboard` | Natural 20 leaderboard, top 3 for the past hour/day/week in one line |
 | `!leaderboard nat1` | Natural 1 leaderboard instead of nat 20 |
 | `!leaderboard nat20 week` / `!leaderboard nat1 hour` | One time frame only (`hour`, `day`, or `week`), top 5 instead of top 3 |
+| `!leaderboard @user` | One player's own nat 20 **and** nat 1 counts across hour/day/week, instead of the channel-wide top list |
+| `!leaderboard @user week` | Same, but just the one time frame |
 
 ### Dice roller leaderboard
-Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!leaderboard` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed).
+Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!leaderboard` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed). Add `@user` instead to look up one player directly — `!leaderboard @user` shows their own nat 20 **and** nat 1 counts side by side across all three windows (no need to pick a kind), and `!leaderboard @user week` narrows it to one window.
 
 ### Guild archives (lookups)
 | Command | Example |
@@ -209,7 +211,7 @@ Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving th
 | `!dndduel party hunt classic <party> [monster]` | Classic hunt — same optional targeting |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
-| `!leaderboard [nat1\|nat20] [hour\|day\|week]` | Dice roller standings — see [Dice roller leaderboard](#dice-roller-leaderboard) below |
+| `!leaderboard [nat1\|nat20] [hour\|day\|week]` / `!leaderboard @user [hour\|day\|week]` | Dice roller standings — see [Dice roller leaderboard](#dice-roller-leaderboard) below |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
 

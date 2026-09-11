@@ -1459,3 +1459,26 @@ export async function getDiceLeaderboard(
     count: Number(r.count),
   }));
 }
+
+/** One player's own natural 1 and natural 20 counts in one channel/window,
+ * for `!leaderboard @user`. Always returns both kinds (0 if they have none)
+ * rather than requiring two separate calls. */
+export async function getDiceStatsForUser(
+  broadcasterId: string,
+  username: string,
+  sinceMs: number,
+): Promise<{ nat1: number; nat20: number }> {
+  const res = await sqlite.execute(
+    `SELECT kind, COUNT(*) AS count
+     FROM dice_roll_events
+     WHERE broadcaster_id = ? AND username = ? AND created_at >= ?
+     GROUP BY kind`,
+    [broadcasterId, username.toLowerCase(), sinceMs],
+  );
+  const stats = { nat1: 0, nat20: 0 };
+  for (const r of res.rows as any[]) {
+    if (r.kind === "nat1") stats.nat1 = Number(r.count);
+    else if (r.kind === "nat20") stats.nat20 = Number(r.count);
+  }
+  return stats;
+}

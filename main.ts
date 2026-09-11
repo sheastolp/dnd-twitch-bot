@@ -23,6 +23,7 @@ import {
   getConnections,
   getDashboardSession,
   getDiceLeaderboard,
+  getDiceStatsForUser,
   getExtraEventSubSubscriptions,
   getMap,
   getMapCells,
@@ -1254,7 +1255,7 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help = category === "dice"
-        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !leaderboard [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !leaderboard [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !leaderboard @user [hour/day/week] for one player's own nat1/nat20 counts | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
         ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !help | !guide | !link"
         : category === "character"
@@ -1458,8 +1459,15 @@ async function handleRequest(req: Request): Promise<Response> {
       // defaults to nat20; with no time frame given, shows a compact top-3
       // across all three windows in one line, otherwise a bigger top-5 for
       // just the requested window.
-      const lbWords = chatMessage.replace(/^!leaderboard\s*/i, "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const kind: "nat1" | "nat20" = lbWords.includes("nat1") || lbWords.includes("1") ? "nat1" : "nat20";
+      //
+      // !leaderboard @user [hour|day|week] — one player's own nat1 AND nat20
+      // counts instead of the channel-wide top list. No kind filter here
+      // since the point is seeing both side by side for that person.
+      const rawArgs = chatMessage.replace(/^!leaderboard\s*/i, "").trim();
+      const targetMatch = rawArgs.match(/@(\S+)/);
+      const targetDisplay = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : null;
+      const targetUser = targetDisplay ? targetDisplay.toLowerCase() : null;
+      const lbWords = rawArgs.replace(/@\S+/g, "").toLowerCase().split(/\s+/).filter(Boolean);
       const windowMs: Record<"hour" | "day" | "week", number> = {
         hour: 60 * 60 * 1000,
         day: 24 * 60 * 60 * 1000,
@@ -1471,29 +1479,51 @@ async function handleRequest(req: Request): Promise<Response> {
         week: "week", "1w": "week",
       };
       const requestedWindow = lbWords.map((w) => windowAliases[w]).find(Boolean);
-      const label = kind === "nat20" ? "Natural 20" : "Natural 1";
-      const emoji = kind === "nat20" ? "🌟" : "💀";
-      const formatEntries = (rows: { displayName: string; count: number }[]) =>
-        rows.length ? rows.map((r) => `${r.displayName} x${r.count}`).join(", ") : "none yet";
 
-      if (requestedWindow) {
-        const rows = await getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs[requestedWindow], 5);
-        await sendChatMessage(
-          `@${display} ${emoji} ${label} leaderboard (past ${requestedWindow}): ${formatEntries(rows)}`,
-          broadcasterId,
-        );
+      if (targetUser) {
+        if (requestedWindow) {
+          const stats = await getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs[requestedWindow]);
+          await sendChatMessage(
+            `@${display} 🎲 @${targetDisplay}'s rolls (past ${requestedWindow}): 🌟 Nat20 x${stats.nat20} | 💀 Nat1 x${stats.nat1}`,
+            broadcasterId,
+          );
+        } else {
+          const [hourStats, dayStats, weekStats] = await Promise.all([
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.hour),
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.day),
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.week),
+          ]);
+          await sendChatMessage(
+            `@${display} 🎲 @${targetDisplay}'s rolls — 🌟 Nat20 (Hour ${hourStats.nat20}, Day ${dayStats.nat20}, Week ${weekStats.nat20}) | 💀 Nat1 (Hour ${hourStats.nat1}, Day ${dayStats.nat1}, Week ${weekStats.nat1})`,
+            broadcasterId,
+          );
+        }
       } else {
-        const [hourRows, dayRows, weekRows] = await Promise.all([
-          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.hour, 3),
-          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.day, 3),
-          getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
-        ]);
-        await sendChatMessages(
-          `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !leaderboard ${
-            kind === "nat20" ? "nat1" : "nat20"
-          }, or !leaderboard ${kind} week for a bigger top 5.`,
-          broadcasterId,
-        );
+        const kind: "nat1" | "nat20" = lbWords.includes("nat1") || lbWords.includes("1") ? "nat1" : "nat20";
+        const label = kind === "nat20" ? "Natural 20" : "Natural 1";
+        const emoji = kind === "nat20" ? "🌟" : "💀";
+        const formatEntries = (rows: { displayName: string; count: number }[]) =>
+          rows.length ? rows.map((r) => `${r.displayName} x${r.count}`).join(", ") : "none yet";
+
+        if (requestedWindow) {
+          const rows = await getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs[requestedWindow], 5);
+          await sendChatMessage(
+            `@${display} ${emoji} ${label} leaderboard (past ${requestedWindow}): ${formatEntries(rows)}`,
+            broadcasterId,
+          );
+        } else {
+          const [hourRows, dayRows, weekRows] = await Promise.all([
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.hour, 3),
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.day, 3),
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
+          ]);
+          await sendChatMessages(
+            `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !leaderboard ${
+              kind === "nat20" ? "nat1" : "nat20"
+            }, !leaderboard ${kind} week for a bigger top 5, or !leaderboard @user for one player's stats.`,
+            broadcasterId,
+          );
+        }
       }
     } else if (chatMessage === "!bg3roll") {
       await sendChatMessage(rollBG3Character(display), broadcasterId);
