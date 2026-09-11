@@ -1065,25 +1065,6 @@ export async function withColumnHeal<T>(
   }
 }
 
-/**
- * Distinct usernames who've used a bot command recently in this channel,
- * most-recently-active first. Powers !oracle's random-chatter pick — reuses
- * the existing activity_logs table rather than requiring a live Twitch
- * chatters-list API call (which would need a new OAuth scope + re-auth).
- */
-export async function getRecentChatters(broadcasterId: string, limit = 50) {
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
-  const res = await sqlite.execute(
-    `SELECT username, MAX(created_at) AS last_seen
-     FROM (SELECT username, created_at FROM activity_logs WHERE broadcaster_id = ? ORDER BY id DESC LIMIT 500) AS recent
-     GROUP BY username
-     ORDER BY last_seen DESC
-     LIMIT ${safeLimit}`,
-    [broadcasterId],
-  );
-  return res.rows.map((r: any) => String(r.username));
-}
-
 export { sqlite };
 
 export async function queueEventSubCancellation(subscriptionId: string, broadcasterId: string, error: string) {

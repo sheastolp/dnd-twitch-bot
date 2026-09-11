@@ -73,7 +73,6 @@ import {
   handlePartyDuelCommand,
 } from "./combat.ts";
 import { formatLookup, formatSpellSections, lookup5e } from "./lookups.ts";
-import { handleOracleCommand } from "./oracle.ts";
 import {
   createChatSubscription,
   createRaidEventSubscription,
@@ -1210,9 +1209,6 @@ async function handleRequest(req: Request): Promise<Response> {
         isModerator,
       )
     ) return new Response("OK");
-    if (
-      await handleOracleCommand(chatMessage, chatter, display, broadcasterId)
-    ) return new Response("OK");
 
     if (chatMessage === "!logs") {
       if (!isModerator) {
@@ -1256,7 +1252,7 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help = category === "dice"
-        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+        ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
         ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !help | !guide | !link"
         : category === "character"
