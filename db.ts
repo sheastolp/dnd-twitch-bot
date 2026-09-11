@@ -242,6 +242,17 @@ export async function ensureTables() {
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
     )`,
   );
+  // Passive NPC chatter: an NPC occasionally chimes into plain chat
+  // unprompted, mirroring chronicle_settings/chronicle_activity/
+  // chronicle_cooldowns exactly. Off by default and requires npc_settings to
+  // also be enabled — toggled with !npc chatter on/off/status. See npcs.ts.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS npc_chatter_settings (
+      broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
+    )`,
+  );
+  await sqlite.execute(`CREATE TABLE IF NOT EXISTS npc_chatter_cooldowns (broadcaster_id TEXT PRIMARY KEY, last_at INTEGER NOT NULL)`);
+  await sqlite.execute(`CREATE TABLE IF NOT EXISTS npc_chatter_activity (broadcaster_id TEXT PRIMARY KEY, message_count INTEGER NOT NULL DEFAULT 0)`);
   // Web dashboard login sessions (/dashboard). A viewer logs in with Twitch
   // (scope user:read:moderated_channels) so we can prove they're a
   // moderator/broadcaster of a channel before letting them flip module
@@ -695,6 +706,8 @@ export async function purgeChannelData(broadcasterId: string) {
     "chronicle_settings",
     "chronicle_activity",
     "npc_settings",
+    "npc_chatter_settings",
+    "npc_chatter_activity",
     "channel_characters",
     "characters",
     "character_backups",
@@ -720,6 +733,7 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
+    await sqlite.execute("DELETE FROM npc_chatter_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   }
@@ -775,6 +789,53 @@ export async function setNpcEnabled(broadcasterId: string, enabled: boolean) {
     "INSERT OR REPLACE INTO npc_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
     [broadcasterId, enabled ? 1 : 0, Date.now()],
   );
+}
+
+export async function isNpcChatterEnabled(broadcasterId: string) {
+  const res = await sqlite.execute("SELECT enabled FROM npc_chatter_settings WHERE broadcaster_id = ?", [broadcasterId]);
+  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
+}
+
+/** Toggle passive/random NPC chatter. Off by default, independent of
+ * npc_settings (both must be on for an NPC to actually chime in). */
+export async function setNpcChatterEnabled(broadcasterId: string, enabled: boolean) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO npc_chatter_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
+    [broadcasterId, enabled ? 1 : 0, Date.now()],
+  );
+}
+
+/** Per-channel cooldown gate for random NPC chatter, mirrors
+ * checkChronicleCooldown. */
+export async function checkNpcChatterCooldown(broadcasterId: string, cooldownMs: number) {
+  const now = Date.now();
+  const res = await sqlite.execute("SELECT last_at FROM npc_chatter_cooldowns WHERE broadcaster_id = ?", [broadcasterId]);
+  const last = Number(res.rows[0]?.last_at ?? 0);
+  if (now - last < cooldownMs) return false;
+  await sqlite.execute("INSERT OR REPLACE INTO npc_chatter_cooldowns (broadcaster_id,last_at) VALUES (?,?)", [broadcasterId, now]);
+  return true;
+}
+
+/** Increments the running count of chat messages seen since an NPC last
+ * chimed in unprompted in this channel — mirrors bumpChronicleMessageCount,
+ * including bot accounts in the count (see recordNpcChatterBotMessage). */
+export async function bumpNpcChatterMessageCount(broadcasterId: string): Promise<number> {
+  await sqlite.execute(
+    "INSERT OR IGNORE INTO npc_chatter_activity (broadcaster_id, message_count) VALUES (?, 0)",
+    [broadcasterId],
+  );
+  await sqlite.execute(
+    "UPDATE npc_chatter_activity SET message_count = message_count + 1 WHERE broadcaster_id = ?",
+    [broadcasterId],
+  );
+  const res = await sqlite.execute("SELECT message_count FROM npc_chatter_activity WHERE broadcaster_id = ?", [broadcasterId]);
+  return Number(res.rows[0]?.message_count ?? 0);
+}
+
+/** Resets a channel's NPC-chatter activity count to 0, called right after a
+ * random chime-in actually posts. */
+export async function resetNpcChatterMessageCount(broadcasterId: string) {
+  await sqlite.execute("UPDATE npc_chatter_activity SET message_count = 0 WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
 /** Create a /dashboard login session after a successful Twitch OAuth
@@ -971,6 +1032,7 @@ export async function getNpcOverview() {
        b.display_name AS display_name,
        n.enabled AS npc_enabled,
        n.updated_at AS npc_updated_at,
+       COALESCE(nch.enabled, 0) AS chatter_enabled,
        b.connected AS connected,
        CASE WHEN cb.broadcaster_id IS NULL THEN 0 ELSE 1 END AS blocked,
        cb.reason AS block_reason,
@@ -981,6 +1043,7 @@ export async function getNpcOverview() {
      LEFT JOIN broadcasters b ON b.broadcaster_id = n.broadcaster_id
      LEFT JOIN channel_blocks cb ON cb.broadcaster_id = n.broadcaster_id
      LEFT JOIN channel_settings cs ON cs.broadcaster_id = n.broadcaster_id
+     LEFT JOIN npc_chatter_settings nch ON nch.broadcaster_id = n.broadcaster_id
      LEFT JOIN (
        SELECT owner_key, COUNT(*) AS character_count, SUM(uses) AS total_uses
        FROM npc_characters GROUP BY owner_key

@@ -27,7 +27,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Raids** | D&D-themed auto thank-you in chat when another channel raids in, naming the raiding channel and party size — no extra OAuth scope needed |
 | **Stewards** | Channel on/off, disconnect/purge, in-chat activity logs, OAuth connect |
 | **Custom commands** | Broadcasters/mods add their own `!commands` and passive keyword triggers from chat, no code required |
-| **NPC characters** | AI-voiced NPCs with an author-defined personality — chat with them via `!npc talk`. **Off by default**, toggled per channel with `!npc on`/`off`/`status` *(mod)*. Each channel can build its own roster, plus a shared "global" roster as a fallback |
+| **NPC characters** | AI-voiced NPCs with an author-defined personality — chat with them via `!npc talk`, or let one randomly chime into chat unprompted with `!npc chatter on`. **Off by default**, toggled per channel with `!npc on`/`off`/`status` *(mod)*. Each channel can build its own roster, plus a shared "global" roster as a fallback |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
 | **Chronicle** | Randomly quotes a plain chat message back with a one-line D&D-flavored reply. **Off by default**, toggled per channel with `!chronicle on`/`off`/`status` *(mod)*; low odds per message, a per-channel cooldown, and a minimum-activity threshold keep it rare — bot messages count toward that activity but are never quoted |
@@ -52,7 +52,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
-| **npcs.ts** | AI-voiced NPC characters — roster CRUD, LLM reply generation (`generateNpcReply`), and the `!npc` Twitch command |
+| **npcs.ts** | AI-voiced NPC characters — roster CRUD, LLM reply generation (`generateNpcReply`), the `!npc` Twitch command, and random unprompted chatter (`maybeNpcChatter`) |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
 | **twitch.ts** | Tokens, multi-part chat send |
@@ -94,6 +94,9 @@ Chat: `!guide` or `!link` posts that same URL.
 | `PRIMARY_BROADCASTER_ID` | *(optional)* Twitch broadcaster ID allowed to manage the shared "global" NPC roster via `!npc global add/edit/remove`; unset means no channel can write to it |
 | `NPC_MODEL` | *(optional)* OpenAI model used for NPC replies; default `gpt-4o-mini` |
 | `MAX_NPCS_PER_OWNER` | *(optional)* NPC roster cap per channel; default 25 |
+| `NPC_CHATTER_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message triggers a random NPC chime-in in a channel with `!npc chatter on`; default 4 |
+| `NPC_CHATTER_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between random NPC chime-ins; default 900000ms (15 min), floor 60000ms |
+| `NPC_CHATTER_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chime-in before another can fire; default 20 |
 
 4. Twitch Developer Console → OAuth Redirect URLs must include **both**:  
    `https://<your-val>.web.val.run/callback` (bot connect flow)  
@@ -107,7 +110,7 @@ The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter 
 
 ### Guild Dashboard (`/dashboard`)
 
-A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle, NPC characters) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off`, `!npc on/off` in chat.
+A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle, NPC characters, NPC random chatter) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off`, `!npc on/off`, `!npc chatter on/off` in chat.
 
 This is a **different Twitch login from `/connect`**: `/connect` authorizes the *bot* against a broadcaster's channel (`channel:bot` scope); `/dashboard` signs in the *viewer* so GuildScribe can check whether they moderate or broadcast a connected channel, using the `user:read:moderated_channels` scope and Twitch's Get Moderated Channels endpoint. Signing into the dashboard grants no bot permissions and doesn't touch `channel:bot` at all.
 
@@ -280,6 +283,8 @@ AI-voiced characters with an author-defined personality, powered by an LLM call 
 |---------|-------------|
 | `!npc on` / `off` | Enable or disable NPCs in this channel. **Off by default** *(mod)* |
 | `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
+| `!npc chatter on` / `off` | Let a random NPC chime into plain chat unprompted. **Off by default**, also requires `!npc on` *(mod)* |
+| `!npc chatter status` | Check whether random chatter is currently enabled (open to everyone) |
 | `!npc list` | List NPCs available in this channel (own roster + global fallback) |
 | `!npc add <name> <personality>` | Create a channel-scoped NPC *(mod)* |
 | `!npc edit <name> <personality>` | Change an existing NPC's personality *(mod)* |
@@ -289,7 +294,9 @@ AI-voiced characters with an author-defined personality, powered by an LLM call 
 
 Turning NPCs off with `!npc off` doesn't delete the roster or any character's conversation memory — it just makes the whole `!npc` command (except `on`/`off`/`status`) unreachable until turned back on. `generateNpcReply()` in `npcs.ts` is written platform-agnostic (the roster's `ownerKey` isn't assumed to be a Twitch id) so another chat surface could reuse it later without changes here — none is wired up today.
 
-Per-channel NPC state (on/off, roster size, total uses) is visible to the operator on the [admin logs page](#operator-side-launch-requirements) at `/admin/logs`, next to the merchant's own overview table.
+**Random chatter** (`!npc chatter on`) mirrors the chronicle's random quote-back almost exactly: a low-odds roll against every qualifying plain chat message (min length, no links, at least two words), gated by a per-channel cooldown and a minimum-activity threshold since the last chime-in — so it's an occasional flourish, not a running commentary. On a hit, a random NPC from the channel's own roster (not the global fallback) replies to the message in character, using the same conversation memory as `!npc talk`. It needs both `!npc on` and `!npc chatter on`, and at least one NPC in `!npc list`, to ever fire.
+
+Per-channel NPC state (on/off, chatter on/off, roster size, total uses) is visible to the operator on the [admin logs page](#operator-side-launch-requirements) at `/admin/logs`, next to the merchant's own overview table.
 
 ### Battle maps
 | Command | Description |
@@ -322,12 +329,15 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!chronicle status` | Check whether the chronicle is currently active in this channel (open to everyone) |
 | `!npc on` / `off` | Enable or disable AI-voiced NPC characters in this channel. **Off by default** *(mod)* |
 | `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
+| `!npc chatter on` / `off` | Let a random NPC chime into plain chat unprompted. **Off by default** *(mod)* |
+| `!npc chatter status` | Check whether random NPC chatter is currently enabled (open to everyone) |
 
 ### Passive chat (no command needed)
 | Trigger | Description |
 |---------|-------------|
 | "goodnight" / "gn" / "gnite" / "nighty night" / etc. | Bot replies with a themed send-off. One reply per channel per cooldown window (`GOODNIGHT_COOLDOWN_MS`, default 5 min) so a wave of goodnights from chat only draws a single response. |
 | Any plain chat message (when `!chronicle on`) | Small random chance (`CHRONICLE_QUOTE_CHANCE_PERCENT`, default 3%) per qualifying message of being quoted back with a D&D-flavored reply. Skips very short messages, single-word/emote spam, and links. Gated by a per-channel cooldown (`CHRONICLE_COOLDOWN_MS`, default 10 min) and a minimum-activity threshold (`CHRONICLE_MIN_MESSAGES`, default 15 messages since the last quote) so it can't fire back-to-back or in a dead-quiet channel. Bot accounts (Nightbot, StreamElements, GuildScribe itself, etc.) count toward that message minimum but are never selected as the one quoted. |
+| Any plain chat message (when `!npc on` AND `!npc chatter on`) | Same shape as the chronicle roll above (`NPC_CHATTER_CHANCE_PERCENT` default 4%, `NPC_CHATTER_COOLDOWN_MS` default 15 min, `NPC_CHATTER_MIN_MESSAGES` default 20), but instead of quoting the message back, a random NPC from the channel's own roster replies to it in character — using the same conversation memory `!npc talk` does. Needs at least one NPC in `!npc list` to ever fire. |
 
 ---
 

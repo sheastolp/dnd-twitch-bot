@@ -38,6 +38,7 @@ import {
   isChannelEnabled,
   isChronicleEnabled,
   isMerchantEnabled,
+  isNpcChatterEnabled,
   isNpcEnabled,
   listMaps,
   loadBackup,
@@ -54,6 +55,7 @@ import {
   setChannelEnabled,
   setChronicleEnabled,
   setMerchantEnabled,
+  setNpcChatterEnabled,
   setNpcEnabled,
   unblockChannel,
   updateDashboardSessionToken,
@@ -61,7 +63,7 @@ import {
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand, randomMerchantIntervalMs } from "./merchant.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
-import { handleNpcCommand } from "./npcs.ts";
+import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
   handleCustomCommandInvocation,
   handleCustomCommandManagement,
@@ -292,6 +294,13 @@ const DASHBOARD_MODULES: {
     description: "AI-voiced characters chat can talk to with !npc talk <name> <message>.",
     isEnabled: isNpcEnabled,
     setEnabled: setNpcEnabled,
+  },
+  {
+    key: "npc-chatter",
+    label: "NPC random chatter",
+    description: "Lets an NPC occasionally chime into plain chat unprompted. Also requires NPC characters to be on.",
+    isEnabled: isNpcChatterEnabled,
+    setEnabled: setNpcChatterEnabled,
   },
 ];
 
@@ -1027,9 +1036,11 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) {
       // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
-      // never get processed as commands or quoted by the chronicle, but they
-      // still count as chat activity toward its minimum-messages gate.
+      // never get processed as commands, quoted by the chronicle, or replied
+      // to by random NPC chatter, but they still count as chat activity
+      // toward each feature's own minimum-messages gate.
       await recordChronicleBotMessage(broadcasterId);
+      await recordNpcChatterBotMessage(broadcasterId);
       return new Response("OK");
     }
 
@@ -1273,7 +1284,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const help = category === "dice"
         ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
         : category === "settings"
-        ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !npc on | !npc off | !npc status (off by default) | !help | !guide | !link"
+        ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !chronicle on | !chronicle off | !chronicle status (off by default) | !npc on | !npc off | !npc status (off by default) | !npc chatter on | !npc chatter off | !npc chatter status (off by default) | !help | !guide | !link"
         : category === "character"
         ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar"
         : category === "party"
@@ -1287,7 +1298,7 @@ async function handleRequest(req: Request): Promise<Response> {
         : category === "custom"
         ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/edit/remove/cooldown are mod-only, list is open to everyone. Response placeholders: {user}/{sender} {target}/{touser} {count} {args} {random:a|b|c} {randnum:MIN-MAX} (e.g. {randnum:1-100}) {d4}/{d6}/{d8}/{d10}/{d12}/{d20}/{d100} {channel} {game} {title}/{status} {uptime} {time} {date} {repeat:N|text} {math:expr} {twitchemotes} {7tvemotes} {bttvemotes} {ffzemotes} — full list at ${PUBLIC_BASE_URL}/guide"
         : category === "npc"
-        ? "🎭 NPC characters (off by default — !npc on to enable, mod-only): !npc on | !npc off | !npc status | !npc list | !npc add <name> <personality> (mod) | !npc edit <name> <personality> (mod) | !npc remove <name> (mod) | !npc talk <name> <message> — talk to an AI-voiced NPC in character."
+        ? "🎭 NPC characters (off by default — !npc on to enable, mod-only): !npc on | !npc off | !npc status | !npc list | !npc add <name> <personality> (mod) | !npc edit <name> <personality> (mod) | !npc remove <name> (mod) | !npc talk <name> <message> — talk to an AI-voiced NPC in character. !npc chatter on | !npc chatter off | !npc chatter status (mod, off by default) — lets an NPC occasionally chime into plain chat unprompted, no !npc talk needed."
         : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | npc | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
@@ -1667,10 +1678,15 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     } else {
       // Plain (non-"!") chat — check passive keyword triggers first; only
-      // roll the chronicle's random quote-back if no trigger already replied.
+      // roll the chronicle's random quote-back (then NPC chatter) if no
+      // trigger already replied, so a single message never draws two
+      // separate unprompted replies.
       const triggerFired = await handleTriggerMatch(chatMessage, display, broadcasterId);
       if (!triggerFired) {
-        await maybeChronicleQuote(chatMessage, display, broadcasterId);
+        const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId);
+        if (!chronicleFired) {
+          await maybeNpcChatter(chatMessage, display, broadcasterId);
+        }
       }
     }
   }

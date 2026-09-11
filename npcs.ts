@@ -4,6 +4,11 @@
 //   !npc on / off / status             (on/off mod-only) toggle for this
 //                                       channel — off by default, same
 //                                       pattern as !market / !chronicle
+//   !npc chatter on / off / status     (on/off mod-only) lets an NPC chime
+//                                       into plain chat unprompted at random
+//                                       — off by default, requires !npc on
+//                                       too. Mirrors chronicle.ts's random
+//                                       quote-back (see maybeNpcChatter).
 //   !npc list                          anyone — names available in this channel
 //   !npc add <name> <personality>      (mod) create a channel-scoped NPC
 //   !npc edit <name> <personality>     (mod) change one's personality
@@ -26,18 +31,23 @@
 
 import { OpenAI } from "https://esm.town/v/std/openai";
 import { sendChatMessages } from "./twitch.ts";
-import { compactText } from "./utils.ts";
+import { compactText, pick } from "./utils.ts";
 import {
   addNpcCharacter,
   appendNpcConversationMessage,
   bumpNpcCharacterUses,
+  bumpNpcChatterMessageCount,
+  checkNpcChatterCooldown,
   deleteNpcCharacter,
   editNpcCharacter,
   getNpcCharacter,
   getRecentNpcConversation,
+  isNpcChatterEnabled,
   isNpcEnabled,
   listNpcCharacters,
   recordMonitorEvent,
+  resetNpcChatterMessageCount,
+  setNpcChatterEnabled,
   setNpcEnabled,
   trimNpcConversation,
   type NpcCharacterRow,
@@ -56,6 +66,16 @@ const CONTEXT_TURN_PAIRS = 6;
 // How many rows to retain in the DB per (owner, channel, character) — a bit
 // more than we feed as context, so trimming doesn't fire on every message.
 const CONVERSATION_KEEP_ROWS = CONTEXT_TURN_PAIRS * 2 + 6;
+
+// Odds that any single qualifying plain chat message gets an NPC chiming in,
+// once chatter is on. Kept low — an occasional flourish, not commentary.
+const CHATTER_CHANCE_PERCENT = Math.min(100, Math.max(0, Number(Deno.env.get("NPC_CHATTER_CHANCE_PERCENT") ?? "4")));
+// Minimum gap between random chime-ins in a given channel.
+const CHATTER_COOLDOWN_MS = Math.max(60_000, Number(Deno.env.get("NPC_CHATTER_COOLDOWN_MS") ?? "900000"));
+// Minimum chat messages (any account, bots included) since the last chime-in
+// before another can fire.
+const CHATTER_MIN_MESSAGES = Math.max(0, Math.floor(Number(Deno.env.get("NPC_CHATTER_MIN_MESSAGES") ?? "20")));
+const CHATTER_MIN_MESSAGE_LEN = 8;
 
 const NAME_RE = /^[\p{L}\p{N}' -]{2,30}$/u;
 
@@ -157,6 +177,66 @@ export async function generateNpcReply(
   }
 }
 
+// ── Passive/random NPC chatter ──
+// Mirrors chronicle.ts's maybeChronicleQuote/recordChronicleBotMessage
+// almost exactly: a random roll against every qualifying plain chat message,
+// gated by a per-channel enable flag (two flags here — !npc on AND !npc
+// chatter on both have to be set), a minimum-content filter, a minimum
+// amount of chat activity since the last chime-in, and a cooldown.
+
+/** True if the message is worth possibly chiming in on — long enough to be
+ * interesting, not a link, not just emote spam. Doesn't need to be directed
+ * at anyone; the NPC is reacting to ordinary chat the way a bystander would. */
+function isChatterworthy(message: string): boolean {
+  const text = message.trim();
+  if (text.length < CHATTER_MIN_MESSAGE_LEN) return false;
+  if (/https?:\/\/|www\./i.test(text)) return false;
+  if (text.split(/\s+/).filter(Boolean).length < 2) return false;
+  return true;
+}
+
+/** Rolls the dice for a plain chat message and, on a hit, has a random NPC
+ * from the channel's roster reply to it unprompted. No-op (and no DB writes
+ * beyond the activity counter) unless both !npc and !npc chatter are on for
+ * this channel. Returns true if an NPC actually chimed in. */
+export async function maybeNpcChatter(
+  chatMessage: string,
+  display: string,
+  broadcasterId: string,
+): Promise<boolean> {
+  if (!(await isNpcEnabled(broadcasterId))) return false;
+  if (!(await isNpcChatterEnabled(broadcasterId))) return false;
+
+  const messageCount = await bumpNpcChatterMessageCount(broadcasterId);
+  if (messageCount < CHATTER_MIN_MESSAGES) return false;
+
+  if (!isChatterworthy(chatMessage)) return false;
+  if (Math.random() * 100 >= CHATTER_CHANCE_PERCENT) return false;
+  if (!(await checkNpcChatterCooldown(broadcasterId, CHATTER_COOLDOWN_MS))) return false;
+
+  const ownerKey = twitchOwnerKey(broadcasterId);
+  const roster = await listNpcCharacters(ownerKey);
+  if (!roster.length) return false; // nothing to chime in with
+
+  const chosen = pick(roster.map((r) => r.name));
+  const result = await generateNpcReply(ownerKey, broadcasterId, chosen, chatMessage, display);
+  if (!result.ok) return false; // generation failures are already logged to monitor_events
+
+  await sendChatMessages(`🎭 ${result.characterName}: ${result.reply}`, broadcasterId);
+  await resetNpcChatterMessageCount(broadcasterId);
+  return true;
+}
+
+/** Counts a bot account's message toward the chatter activity minimum
+ * without ever considering it for a chime-in. Cheap no-op when chatter isn't
+ * enabled, so it's safe to call unconditionally for every bot message the
+ * bot ever sees — mirrors recordChronicleBotMessage. */
+export async function recordNpcChatterBotMessage(broadcasterId: string): Promise<void> {
+  if (!(await isNpcEnabled(broadcasterId))) return;
+  if (!(await isNpcChatterEnabled(broadcasterId))) return;
+  await bumpNpcChatterMessageCount(broadcasterId);
+}
+
 // ── Twitch chat command handler ──
 
 async function requireModerator(display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
@@ -195,6 +275,32 @@ export async function handleNpcCommand(
         : `@${display} the NPC hall is closed. Existing NPCs and their memories are kept, just not reachable until !npc on.`,
       broadcasterId,
     );
+    return true;
+  }
+
+  if (firstAction === "chatter") {
+    const chatterAction = (parts[2] ?? "").toLowerCase();
+    if (chatterAction === "status") {
+      const enabled = await isNpcChatterEnabled(broadcasterId);
+      await sendChatMessages(
+        `@${display} random NPC chatter is currently ${enabled ? "on" : "off"} in this channel — when on, an NPC may occasionally chime into plain chat unprompted (also requires !npc on). Toggle with !npc chatter on or !npc chatter off (mod only).`,
+        broadcasterId,
+      );
+      return true;
+    }
+    if (chatterAction === "on" || chatterAction === "off") {
+      if (!(await requireModerator(display, broadcasterId, isModerator))) return true;
+      const enabled = chatterAction === "on";
+      await setNpcChatterEnabled(broadcasterId, enabled);
+      await sendChatMessages(
+        enabled
+          ? `@${display} random NPC chatter is on — an NPC from this channel's roster may occasionally chime into plain chat unprompted. Requires !npc on too, and at least one NPC in !npc list.`
+          : `@${display} random NPC chatter is off. Direct !npc talk still works as long as !npc itself is on.`,
+        broadcasterId,
+      );
+      return true;
+    }
+    await sendChatMessages(`@${display} usage: !npc chatter on | off | status`, broadcasterId);
     return true;
   }
 
