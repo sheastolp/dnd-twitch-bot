@@ -252,8 +252,21 @@ Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and the
 | `{channel}` | This channel's display name (falls back to "the channel" if it can't be looked up) |
 | `{time}` | Current time, HH:MM UTC |
 | `{date}` | Current date, YYYY-MM-DD (UTC) |
+| `{sender}` | Same as `{user}` |
+| `{touser}` | First word of the command's arguments with any leading `@` stripped, or `{user}` if there wasn't one |
+| `{game}` | The channel's current game/category (falls back to "no game set") |
+| `{title}` / `{status}` | The channel's current stream title (falls back to "no title set") |
+| `{uptime}` | How long the channel has been live, e.g. "2h 15m" (falls back to "offline") |
+| `{repeat:N\|text}` | Repeats `text` N times, space-separated, e.g. `{repeat:3\|Ho}` (N capped 1-20) |
+| `{math:expression}` | Evaluates simple arithmetic, e.g. `{math:(3+4)*2}` — only digits, `+ - * / ( ) .` and spaces are allowed (max 5 per response) |
+| `{twitchemotes}` | This channel's active Twitch subscriber emotes (up to 15, space-separated) |
+| `{7tvemotes}` | This channel's active 7TV emotes (up to 15) |
+| `{bttvemotes}` | This channel's active BetterTTV emotes (up to 15) |
+| `{ffzemotes}` | This channel's active FrankerFaceZ emotes (up to 15) |
 
-Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Example: `!dndbot add attack {user} swings for {d8} damage!` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
+Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Example: `!dndbot add attack {user} swings for {d8} damage!` Example: `!dndbot add live {channel} is playing {game} — "{title}" — live for {uptime}!` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
+
+Not supported (would need new setup this bot doesn't have): changing the stream's game/title from chat or redeeming channel-point rewards (both need a broadcaster OAuth scope no connected channel has granted yet), a saved-quote system, named counters separate from a command's own use count (`{count}` already covers that), `$(if)`-style conditionals, and anything needing a paid third-party API key (stock prices, weather, AI chat replies) that isn't configured in this project.
 
 ### Battle maps
 | Command | Description |

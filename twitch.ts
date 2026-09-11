@@ -339,6 +339,117 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** Current game/category and title for a channel — public Helix data, app
+ * token only, no extra broadcaster scope required. Used by the {game} and
+ * {title}/{status} custom-command placeholders. */
+export async function getChannelInfo(
+  broadcasterId: string,
+): Promise<{ gameName: string; title: string } | null> {
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const row = data.data?.[0];
+    if (!row) return null;
+    return { gameName: String(row.game_name ?? ""), title: String(row.title ?? "") };
+  } catch (err) {
+    console.error("getChannelInfo failed", err);
+    return null;
+  }
+}
+
+/** Human-readable stream uptime (e.g. "2h 15m"), or null if the channel is
+ * not currently live. Used by the {uptime} placeholder. */
+export async function getStreamUptime(broadcasterId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const startedAt = data.data?.[0]?.started_at;
+    if (!startedAt) return null;
+    const ms = Date.now() - Date.parse(startedAt);
+    if (!Number.isFinite(ms) || ms < 0) return null;
+    const totalMinutes = Math.floor(ms / 60_000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  } catch (err) {
+    console.error("getStreamUptime failed", err);
+    return null;
+  }
+}
+
+/** Names of this channel's active subscriber/bits emotes — public Helix
+ * data, app token only. Used by the {twitchemotes} placeholder. */
+export async function getSubscriberEmoteNames(broadcasterId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/chat/emotes?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data ?? []).map((e: any) => String(e.name)).filter(Boolean);
+  } catch (err) {
+    console.error("getSubscriberEmoteNames failed", err);
+    return [];
+  }
+}
+
+/** Active 7TV emote names for a channel, via 7TV's public (unauthenticated)
+ * API. Used by the {7tvemotes} placeholder. */
+export async function get7tvEmoteNames(broadcasterId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://7tv.io/v3/users/twitch/${encodeURIComponent(broadcasterId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const emotes = data?.emote_set?.emotes ?? [];
+    return emotes.map((e: any) => String(e.name)).filter(Boolean);
+  } catch (err) {
+    console.error("get7tvEmoteNames failed", err);
+    return [];
+  }
+}
+
+/** Active BetterTTV emote names (channel + shared) via BTTV's public API.
+ * Used by the {bttvemotes} placeholder. */
+export async function getBttvEmoteNames(broadcasterId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${encodeURIComponent(broadcasterId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const emotes = [...(data?.channelEmotes ?? []), ...(data?.sharedEmotes ?? [])];
+    return emotes.map((e: any) => String(e.code)).filter(Boolean);
+  } catch (err) {
+    console.error("getBttvEmoteNames failed", err);
+    return [];
+  }
+}
+
+/** Active FrankerFaceZ emote names via FFZ's public API. Used by the
+ * {ffzemotes} placeholder. */
+export async function getFfzEmoteNames(broadcasterId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`https://api.frankerfacez.com/v1/room/id/${encodeURIComponent(broadcasterId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const sets = data?.sets ?? {};
+    const names: string[] = [];
+    for (const key of Object.keys(sets)) {
+      for (const e of sets[key]?.emoticons ?? []) {
+        if (e?.name) names.push(String(e.name));
+      }
+    }
+    return names;
+  } catch (err) {
+    console.error("getFfzEmoteNames failed", err);
+    return [];
+  }
+}
+
 export async function verifyEventSub(req: Request, rawBody: string) {
   const id = req.headers.get("Twitch-Eventsub-Message-Id") ?? "";
   const timestamp = req.headers.get("Twitch-Eventsub-Message-Timestamp") ?? "";

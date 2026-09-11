@@ -37,9 +37,46 @@
 //               it can't be looked up)
 //   {time}      current time, HH:MM UTC
 //   {date}      current date, YYYY-MM-DD (UTC)
+//   {sender}    same as {user} — display name of whoever triggered it
+//   {touser}    first word of the command's arguments (@ stripped), falling
+//               back to {user} if there wasn't one — handy for "aim this at
+//               someone" responses that don't require an @mention
+//   {game}      the channel's current game/category (falls back to "no game
+//               set" if it can't be looked up)
+//   {title}     the channel's current stream title (also {status}; falls
+//               back to "no title set")
+//   {uptime}    how long the channel has been live, e.g. "2h 15m" (falls
+//               back to "offline" if it isn't live)
+//   {repeat:N|text}   repeats text N times, space-separated (N capped 1-20)
+//   {math:expression} evaluates simple arithmetic, e.g. {math:(3+4)*2} — only
+//               digits, + - * / ( ) . and spaces are allowed (max 5 per
+//               response)
+//   {twitchemotes}   this channel's active Twitch subscriber emotes
+//   {7tvemotes}      this channel's active 7TV emotes
+//   {bttvemotes}     this channel's active BetterTTV emotes
+//   {ffzemotes}      this channel's active FrankerFaceZ emotes
+//               (each emote list falls back to "no emotes found" and is
+//               capped to the first 15 names to keep the message short)
+//
+// Not supported (would need new setup this bot doesn't have yet): changing
+// the stream's game/title from chat (needs a broadcaster OAuth scope no
+// connected channel has granted), redeeming channel-point rewards from chat,
+// a saved-quote system (!quote add/get), named counters separate from a
+// command's own use count ({count} already covers "how many times has this
+// fired"), conditional/$(if) logic, and anything needing a paid API key
+// (stock prices, weather, AI chat replies) that isn't configured here.
 
 import { pick, compactText } from "./utils.ts";
-import { sendChatMessage, sendChatMessages } from "./twitch.ts";
+import {
+  sendChatMessage,
+  sendChatMessages,
+  getChannelInfo,
+  getStreamUptime,
+  getSubscriberEmoteNames,
+  get7tvEmoteNames,
+  getBttvEmoteNames,
+  getFfzEmoteNames,
+} from "./twitch.ts";
 import {
   addCustomCommand,
   addCustomTrigger,
@@ -63,6 +100,15 @@ const MAX_DIE_BLOCKS = 10;
 // Keeps {randnum:MIN-MAX} bounds sane regardless of what's typed — plenty of
 // range for loot rolls, gold drops, percentages, etc.
 const RANDNUM_ABS_LIMIT = 1_000_000;
+const MAX_REPEAT_BLOCKS = 5;
+const MAX_REPEAT_N = 20;
+const MAX_MATH_BLOCKS = 5;
+// Only characters an arithmetic expression could legitimately need — keeps
+// {math:...} safe to evaluate without a full expression parser.
+const MATH_EXPR_RE = /^[0-9+\-*/().\s]{1,100}$/;
+// Long emote lists blow past Twitch's chat message length fast — cap how
+// many names a single {Xemotes} placeholder lists.
+const MAX_EMOTES_LISTED = 15;
 
 // Every built-in command word (and a few words reserved for future/adjacent
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
@@ -91,7 +137,20 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
 
 function applyTemplate(
   response: string,
-  vars: { user: string; target?: string; count?: number; args?: string; channel?: string },
+  vars: {
+    user: string;
+    target?: string;
+    count?: number;
+    args?: string;
+    channel?: string;
+    game?: string;
+    title?: string;
+    uptime?: string;
+    twitchEmotes?: string[];
+    sevenTvEmotes?: string[];
+    bttvEmotes?: string[];
+    ffzEmotes?: string[];
+  },
 ): string {
   let randomBlocks = 0;
   let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
@@ -119,12 +178,57 @@ function applyTemplate(
     const size = Number.parseInt(sizeStr, 10);
     return String(1 + Math.floor(Math.random() * size));
   });
+  let repeatBlocks = 0;
+  out = out.replace(/\{repeat:(\d{1,2})\|([^{}]{1,100})\}/gi, (_match, nStr: string, text: string) => {
+    repeatBlocks++;
+    if (repeatBlocks > MAX_REPEAT_BLOCKS) return "";
+    const n = Math.max(1, Math.min(MAX_REPEAT_N, Number.parseInt(nStr, 10) || 1));
+    return Array(n).fill(text.trim()).join(" ");
+  });
+  let mathBlocks = 0;
+  out = out.replace(/\{math:([^{}]{1,100})\}/gi, (_match, expr: string) => {
+    mathBlocks++;
+    if (mathBlocks > MAX_MATH_BLOCKS) return "";
+    const trimmed = expr.trim();
+    if (!MATH_EXPR_RE.test(trimmed)) return "?";
+    try {
+      // deno-lint-ignore no-explicit-any
+      const result = Function(`"use strict"; return (${trimmed});`)();
+      return Number.isFinite(result) ? String(result) : "?";
+    } catch {
+      return "?";
+    }
+  });
   out = out.replaceAll("{user}", vars.user);
+  out = out.replaceAll("{sender}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
+  out = out.replaceAll("{touser}", vars.target ?? ((vars.args ?? "").trim().split(/\s+/)[0]?.replace(/^@/, "") || vars.user));
   out = out.replaceAll("{count}", String(vars.count ?? ""));
   out = out.replaceAll("{args}", vars.args ?? "");
   if (out.includes("{channel}")) {
     out = out.replaceAll("{channel}", vars.channel ?? "the channel");
+  }
+  if (out.includes("{game}")) {
+    out = out.replaceAll("{game}", vars.game || "no game set");
+  }
+  if (out.includes("{title}") || out.includes("{status}")) {
+    out = out.replaceAll("{title}", vars.title || "no title set");
+    out = out.replaceAll("{status}", vars.title || "no title set");
+  }
+  if (out.includes("{uptime}")) {
+    out = out.replaceAll("{uptime}", vars.uptime || "offline");
+  }
+  if (out.includes("{twitchemotes}")) {
+    out = out.replaceAll("{twitchemotes}", formatEmoteList(vars.twitchEmotes));
+  }
+  if (out.includes("{7tvemotes}")) {
+    out = out.replaceAll("{7tvemotes}", formatEmoteList(vars.sevenTvEmotes));
+  }
+  if (out.includes("{bttvemotes}")) {
+    out = out.replaceAll("{bttvemotes}", formatEmoteList(vars.bttvEmotes));
+  }
+  if (out.includes("{ffzemotes}")) {
+    out = out.replaceAll("{ffzemotes}", formatEmoteList(vars.ffzEmotes));
   }
   if (out.includes("{time}") || out.includes("{date}")) {
     const now = new Date();
@@ -137,6 +241,11 @@ function applyTemplate(
   return out;
 }
 
+function formatEmoteList(names: string[] | undefined): string {
+  if (!names || !names.length) return "no emotes found";
+  return names.slice(0, MAX_EMOTES_LISTED).join(" ");
+}
+
 /** Best-effort channel display name for {channel} — falls back to the login,
  * then to undefined (applyTemplate substitutes "the channel"), rather than
  * failing the whole response if the broadcasters row is missing/stale. */
@@ -144,6 +253,37 @@ async function resolveChannelName(broadcasterId: string): Promise<string | undef
   const broadcaster = await getBroadcaster(broadcasterId);
   const name = broadcaster?.display_name || broadcaster?.login;
   return name ? String(name) : undefined;
+}
+
+/** Extra template vars that require a network call — only fetched when the
+ * response text actually references one of them, so an ordinary custom
+ * command with no {game}/{uptime}/emote placeholders stays a pure DB read. */
+async function resolveExtraTemplateVars(broadcasterId: string, responseText: string) {
+  const needsChannelInfo = responseText.includes("{game}") || responseText.includes("{title}") || responseText.includes("{status}");
+  const needsUptime = responseText.includes("{uptime}");
+  const needsTwitchEmotes = responseText.includes("{twitchemotes}");
+  const needsSevenTv = responseText.includes("{7tvemotes}");
+  const needsBttv = responseText.includes("{bttvemotes}");
+  const needsFfz = responseText.includes("{ffzemotes}");
+
+  const [channelInfo, uptime, twitchEmotes, sevenTvEmotes, bttvEmotes, ffzEmotes] = await Promise.all([
+    needsChannelInfo ? getChannelInfo(broadcasterId) : Promise.resolve(null),
+    needsUptime ? getStreamUptime(broadcasterId) : Promise.resolve(null),
+    needsTwitchEmotes ? getSubscriberEmoteNames(broadcasterId) : Promise.resolve(undefined),
+    needsSevenTv ? get7tvEmoteNames(broadcasterId) : Promise.resolve(undefined),
+    needsBttv ? getBttvEmoteNames(broadcasterId) : Promise.resolve(undefined),
+    needsFfz ? getFfzEmoteNames(broadcasterId) : Promise.resolve(undefined),
+  ]);
+
+  return {
+    game: channelInfo?.gameName,
+    title: channelInfo?.title,
+    uptime: uptime ?? undefined,
+    twitchEmotes,
+    sevenTvEmotes,
+    bttvEmotes,
+    ffzEmotes,
+  };
 }
 
 function buildKeywordRegex(keyword: string): RegExp {
@@ -397,12 +537,14 @@ export async function handleCustomCommandInvocation(
   const target = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : undefined;
   const responseText = String(result.row.response ?? "");
   const channel = responseText.includes("{channel}") ? await resolveChannelName(broadcasterId) : undefined;
+  const extra = await resolveExtraTemplateVars(broadcasterId, responseText);
   const text = applyTemplate(responseText, {
     user: display,
     target,
     count: Number(result.row.uses ?? 0),
     args,
     channel,
+    ...extra,
   });
   await sendChatMessages(text, broadcasterId);
   return true;
@@ -432,11 +574,13 @@ export async function handleTriggerMatch(
     await markCustomTriggerUsed(broadcasterId, keyword);
     const triggerResponseText = String(row.response ?? "");
     const channel = triggerResponseText.includes("{channel}") ? await resolveChannelName(broadcasterId) : undefined;
+    const triggerExtra = await resolveExtraTemplateVars(broadcasterId, triggerResponseText);
     const rendered = applyTemplate(triggerResponseText, {
       user: display,
       count: Number(row.uses ?? 0) + 1,
       args: text,
       channel,
+      ...triggerExtra,
     });
     await sendChatMessages(rendered, broadcasterId);
     return true;
