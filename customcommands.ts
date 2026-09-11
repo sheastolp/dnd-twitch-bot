@@ -18,50 +18,20 @@
 //   !trigger cooldown <keyword> <seconds>  (mod)
 //   !trigger list                          anyone
 //
-// Responses support a bunch of placeholders:
-//   {user}      display name of whoever triggered it
-//   {target}    the first @mentioned user in a !command's arguments (falls
-//   {touser}    back to {user} for triggers, which have no arguments) —
-//               {touser} is just an alias for {target}
-//   {count}     how many times this command/trigger has now fired
-//   {command}   the command name or trigger keyword that fired, no "!"
-//   {random:a|b|c}    picks one option at random (max 5 per response)
-//   {number:1-20}     random whole number in the given range (inclusive)
-//
-//   {args}      everything typed after a !command's name, verbatim
-//   {arg1}..{arg9}    that same text split on whitespace, one word each
-//               (args/argN are always empty for passive triggers, which
-//               have no arguments)
-//
-//   {channel}   the broadcaster's channel/display name
-//   {time}      current UTC clock time, e.g. "14:32 UTC"
-//   {date}      current UTC date, e.g. "2026-09-10"
-//   {day}       current day of the week, e.g. "Thursday"
-//
-//   {level} {class} {race} {hp}              the triggering user's own
-//                                             saved D&D character
-//   {targetlevel} {targetclass} {targetrace} {targethp}   same, but for
-//                                             {target}/{touser} instead
-//               (all fall back to a friendly "no character" message)
-//
-//   {game}      current stream category/game (works whether live or not)
-//   {title}     current stream title (works whether live or not)
-//   {uptime}    how long the channel has been live, or "offline"
-//   {viewers}   current viewer count, or "0" while offline
-//
-// Lookups (character/channel/stream) only run when their placeholder is
-// actually present in the response, so plain responses stay fast and don't
-// spend extra DB/API calls they don't need.
+// Responses support a few placeholders:
+//   {user}    display name of whoever triggered it
+//   {target}  the first @mentioned user in a !command's arguments (falls
+//             back to {user} for triggers, which have no arguments)
+//   {count}   how many times this command/trigger has now fired
+//   {random:a|b|c}  picks one option at random (max 5 per response)
 
 import { pick, compactText } from "./utils.ts";
-import { sendChatMessage, sendChatMessages, getChannelInfo, getStreamInfo } from "./twitch.ts";
+import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import {
   addCustomCommand,
   addCustomTrigger,
   deleteCustomCommand,
   deleteCustomTrigger,
-  getBroadcaster,
-  getCharacter,
   listCustomCommands,
   listCustomTriggers,
   markCustomTriggerUsed,
@@ -74,7 +44,6 @@ import {
 const MAX_CUSTOM_RESPONSE_LEN = 400;
 const MAX_COOLDOWN_SECONDS = 3600;
 const MAX_RANDOM_BLOCKS = 5;
-const MAX_NUMBER_BLOCKS = 5;
 
 // Every built-in command word (and a few words reserved for future/adjacent
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
@@ -83,7 +52,7 @@ const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
-  "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
+  "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide", "oracle",
   "cmd", "trigger", "command", "commands", "hug", "map", "mod", "admin", "bot",
 ]);
 
@@ -101,44 +70,7 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
   return keyword;
 }
 
-function formatUptime(startedAt: number): string {
-  const totalMinutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
-
-function formatClockTime(): string {
-  return `${new Date().toISOString().slice(11, 16)} UTC`;
-}
-
-function formatDateStr(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatDayName(): string {
-  return new Date().toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
-}
-
-function characterLine(field: "level" | "class" | "race" | "hp", c: Awaited<ReturnType<typeof getCharacter>>): string {
-  if (!c) return "no character on file";
-  if (field === "level") return String(c.level);
-  if (field === "class") return c.cls;
-  if (field === "race") return c.race;
-  return `${c.hpCurrent}/${c.hpMax}`;
-}
-
-interface TemplateVars {
-  user: string;
-  target?: string;
-  count?: number;
-  command: string;
-  broadcasterId: string;
-  chatter?: string; // lowercase login of whoever triggered it, for character lookups
-  args?: string; // raw text after a !command's name (undefined for passive triggers)
-}
-
-async function applyTemplate(response: string, vars: TemplateVars): Promise<string> {
+function applyTemplate(response: string, vars: { user: string; target?: string; count?: number }): string {
   let randomBlocks = 0;
   let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
     randomBlocks++;
@@ -146,67 +78,9 @@ async function applyTemplate(response: string, vars: TemplateVars): Promise<stri
     const choices = options.split("|").map((s) => s.trim()).filter(Boolean);
     return choices.length ? pick(choices) : "";
   });
-
-  let numberBlocks = 0;
-  out = out.replace(/\{number:(-?\d{1,6})-(-?\d{1,6})\}/gi, (_match, a: string, b: string) => {
-    numberBlocks++;
-    if (numberBlocks > MAX_NUMBER_BLOCKS) return "";
-    const lo = Math.min(Number(a), Number(b));
-    const hi = Math.max(Number(a), Number(b));
-    return String(lo + Math.floor(Math.random() * (hi - lo + 1)));
-  });
-
   out = out.replaceAll("{user}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
-  out = out.replaceAll("{touser}", vars.target ?? vars.user);
   out = out.replaceAll("{count}", String(vars.count ?? ""));
-  out = out.replaceAll("{command}", vars.command);
-
-  if (out.includes("{args}")) out = out.replaceAll("{args}", vars.args ?? "");
-  if (/\{arg\d\}/.test(out)) {
-    const words = (vars.args ?? "").trim().split(/\s+/).filter(Boolean);
-    for (let i = 1; i <= 9; i++) out = out.replaceAll(`{arg${i}}`, words[i - 1] ?? "");
-  }
-
-  if (out.includes("{channel}")) {
-    const broadcaster = await getBroadcaster(vars.broadcasterId);
-    out = out.replaceAll("{channel}", String(broadcaster?.display_name || broadcaster?.login || "the channel"));
-  }
-
-  if (out.includes("{time}")) out = out.replaceAll("{time}", formatClockTime());
-  if (out.includes("{date}")) out = out.replaceAll("{date}", formatDateStr());
-  if (out.includes("{day}")) out = out.replaceAll("{day}", formatDayName());
-
-  if (/\{(level|class|race|hp)\}/.test(out) && vars.chatter) {
-    const c = await getCharacter(vars.chatter, vars.broadcasterId);
-    out = out
-      .replaceAll("{level}", characterLine("level", c))
-      .replaceAll("{class}", characterLine("class", c))
-      .replaceAll("{race}", characterLine("race", c))
-      .replaceAll("{hp}", characterLine("hp", c));
-  }
-  if (/\{target(level|class|race|hp)\}/.test(out)) {
-    const targetUser = (vars.target ?? vars.chatter ?? "").toLowerCase();
-    const c = targetUser ? await getCharacter(targetUser, vars.broadcasterId) : null;
-    out = out
-      .replaceAll("{targetlevel}", characterLine("level", c))
-      .replaceAll("{targetclass}", characterLine("class", c))
-      .replaceAll("{targetrace}", characterLine("race", c))
-      .replaceAll("{targethp}", characterLine("hp", c));
-  }
-
-  if (/\{(game|title)\}/.test(out)) {
-    const info = await getChannelInfo(vars.broadcasterId);
-    out = out.replaceAll("{game}", info?.game || "nothing right now").replaceAll("{title}", info?.title || "");
-  }
-  if (/\{(uptime|viewers)\}/.test(out)) {
-    const stream = await getStreamInfo(vars.broadcasterId);
-    const live = stream?.live === true;
-    out = out
-      .replaceAll("{uptime}", live && stream?.startedAt ? formatUptime(stream.startedAt) : "offline")
-      .replaceAll("{viewers}", live ? String(stream?.viewers ?? 0) : "0");
-  }
-
   return out;
 }
 
@@ -447,7 +321,6 @@ export async function handleCustomCommandInvocation(
   chatMessage: string,
   display: string,
   broadcasterId: string,
-  chatter?: string,
 ): Promise<boolean> {
   const match = chatMessage.trim().match(/^!(\S+)(?:\s+(.*))?$/);
   if (!match) return false;
@@ -460,14 +333,10 @@ export async function handleCustomCommandInvocation(
   const args = (match[2] ?? "").trim();
   const targetMatch = args.match(/@(\S+)/);
   const target = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : undefined;
-  const text = await applyTemplate(String(result.row.response ?? ""), {
+  const text = applyTemplate(String(result.row.response ?? ""), {
     user: display,
     target,
     count: Number(result.row.uses ?? 0),
-    command: name,
-    broadcasterId,
-    chatter,
-    args,
   });
   await sendChatMessages(text, broadcasterId);
   return true;
@@ -481,7 +350,6 @@ export async function handleTriggerMatch(
   chatMessage: string,
   display: string,
   broadcasterId: string,
-  chatter?: string,
 ): Promise<boolean> {
   const text = chatMessage.trim();
   if (!text) return false;
@@ -496,13 +364,7 @@ export async function handleTriggerMatch(
     const lastUsedAt = Number(row.last_used_at ?? 0);
     if (cooldownMs > 0 && now - lastUsedAt < cooldownMs) continue; // on cooldown — see if another trigger matches
     await markCustomTriggerUsed(broadcasterId, keyword);
-    const rendered = await applyTemplate(String(row.response ?? ""), {
-      user: display,
-      count: Number(row.uses ?? 0) + 1,
-      command: keyword,
-      broadcasterId,
-      chatter,
-    });
+    const rendered = applyTemplate(String(row.response ?? ""), { user: display, count: Number(row.uses ?? 0) + 1 });
     await sendChatMessages(rendered, broadcasterId);
     return true;
   }
