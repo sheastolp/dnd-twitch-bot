@@ -119,7 +119,7 @@ export async function generateNpcReply(
   try {
     const completion = await openai.chat.completions.create({
       model: MODEL,
-      max_tokens: REPLY_MAX_TOKENS,
+      max_completion_tokens: REPLY_MAX_TOKENS,
       temperature: 0.9,
       messages: [
         { role: "system", content: buildSystemPrompt(character) },
