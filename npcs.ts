@@ -222,8 +222,8 @@ export async function handleNpcCommand(
   if (action === "add" || action === "edit") {
     if (!(await requireModerator(display, broadcasterId, isModerator))) return true;
     const re = isGlobal
-      ? /^!npc\s+global\s+(?:add|edit)\s+(\S[\S ]{0,29})\s+([\s\S]+)$/i
-      : /^!npc\s+(?:add|edit)\s+(\S[\S ]{0,29})\s+([\s\S]+)$/i;
+      ? /^!npc\s+global\s+(?:add|edit)\s+(\S[\S ]{0,29}?)\s+([\s\S]+)$/i
+      : /^!npc\s+(?:add|edit)\s+(\S[\S ]{0,29}?)\s+([\s\S]+)$/i;
     const match = chatMessage.match(re);
     if (!match) {
       await sendChatMessages(`@${display} usage: !npc ${action} <name> <personality description>`, broadcasterId);
