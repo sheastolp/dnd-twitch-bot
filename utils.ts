@@ -758,6 +758,59 @@ export function goodnightReply(display: string): string {
   return pick(display);
 }
 
+// ── Central Time formatting ──
+// Every human-facing timestamp in GuildScribe (admin logs, map "updated"
+// times, the {time}/{date} custom-command placeholders) goes through these
+// three functions so they can't drift out of sync with each other. Uses the
+// IANA zone "America/Chicago" rather than a fixed UTC-6 offset, so it
+// correctly shows CDT in summer and CST in winter (the same distinction a
+// clock on the wall in Chicago/Dallas/Kansas City would make) — the
+// timezone abbreviation in the output tells you which is currently active.
+const CENTRAL_TIME_ZONE = "America/Chicago";
+
+function centralParts(ts: number | Date) {
+  const date = typeof ts === "number" ? new Date(ts) : ts;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CENTRAL_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23", // avoids the Intl "24:00" quirk hour12:false has for midnight
+    timeZoneName: "short",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+    second: get("second"),
+    zoneAbbr: get("timeZoneName"), // "CDT" or "CST"
+  };
+}
+
+/** Full date + time for logs/admin pages, e.g. "07/04/2026, 13:00:00 CDT". */
+export function formatCentralDateTime(ts: number | Date): string {
+  const p = centralParts(ts);
+  return `${p.month}/${p.day}/${p.year}, ${p.hour}:${p.minute}:${p.second} ${p.zoneAbbr}`;
+}
+
+/** HH:MM plus zone abbreviation, for the {time} custom-command placeholder. */
+export function formatCentralClock(ts: number | Date = Date.now()): string {
+  const p = centralParts(ts);
+  return `${p.hour}:${p.minute} ${p.zoneAbbr}`;
+}
+
+/** YYYY-MM-DD in Central time, for the {date} custom-command placeholder. */
+export function formatCentralDate(ts: number | Date = Date.now()): string {
+  const p = centralParts(ts);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
 export function compactText(value: unknown, max = 240) {
   return String(value ?? "")
     .replace(/\s+/g, " ")
@@ -784,5 +837,5 @@ export function firstAlive(members: string[], hp: Record<string, number>) {
 }
 
 export function logRowText(r: any) {
-  return `${new Date(Number(r.created_at)).toISOString()} | @${r.username} | ${r.action} | ${r.detail}`;
+  return `${formatCentralDateTime(Number(r.created_at))} | @${r.username} | ${r.action} | ${r.detail}`;
 }

@@ -44,7 +44,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **chronicle.ts** | `!chronicle on/off/status` toggle + the random chat-quoting roll/flavor generator (no cron — fires inline off the plain-chat message path) |
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
-| **utils.ts** | Dice, formatting, narration |
+| **utils.ts** | Dice, formatting, narration, Central Time helpers (`formatCentralDateTime`/`Clock`/`Date`) |
 | **db.ts** | SQLite schema + persistence |
 | **characters.ts** | Generation, XP, leveling, `!newchar` wizard |
 | **bg3.ts** | `!bg3roll`, `!bg3companion`, `!bg3origin`, `!bg3loot`, `!bg3camp` — standalone Baldur's Gate 3 flavor generators (no DB); `!bg3` — random race/class + player-chosen BG3 point-buy scores, saved via db.ts |
@@ -255,8 +255,8 @@ Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and the
 | `{randnum:MIN-MAX}` | A random whole number in that inclusive range, e.g. `{randnum:1-100}` (max 5 per response; `MIN`/`MAX` can be negative, e.g. `{randnum:-5-5}`) |
 | `{d4}` `{d6}` `{d8}` `{d10}` `{d12}` `{d20}` `{d100}` | Shorthand for a single roll of that standard die, e.g. `{d20}` → 1-20 (max 10 per response combined) |
 | `{channel}` | This channel's display name (falls back to "the channel" if it can't be looked up) |
-| `{time}` | Current time, HH:MM UTC |
-| `{date}` | Current date, YYYY-MM-DD (UTC) |
+| `{time}` | Current time, HH:MM Central Time (CST/CDT, DST-aware) |
+| `{date}` | Current date, YYYY-MM-DD (Central Time) |
 | `{sender}` | Same as `{user}` |
 | `{touser}` | First word of the command's arguments with any leading `@` stripped, or `{user}` if there wasn't one |
 | `{game}` | The channel's current game/category (falls back to "no game set") |

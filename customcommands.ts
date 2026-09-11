@@ -35,8 +35,8 @@
 //                        response combined)
 //   {channel}   this channel's display name (falls back to "the channel" if
 //               it can't be looked up)
-//   {time}      current time, HH:MM UTC
-//   {date}      current date, YYYY-MM-DD (UTC)
+//   {time}      current time, HH:MM Central Time (CST/CDT, DST-aware)
+//   {date}      current date, YYYY-MM-DD (Central Time)
 //   {sender}    same as {user} — display name of whoever triggered it
 //   {touser}    first word of the command's arguments (@ stripped), falling
 //               back to {user} if there wasn't one — handy for "aim this at
@@ -68,7 +68,7 @@
 // now supported, just not through this system — see npcs.ts's !npc command
 // (AI-voiced NPC characters, via Val Town's built-in std/openai wrapper).
 
-import { pick, compactText } from "./utils.ts";
+import { pick, compactText, formatCentralClock, formatCentralDate } from "./utils.ts";
 import {
   sendChatMessage,
   sendChatMessages,
@@ -233,12 +233,9 @@ function applyTemplate(
     out = out.replaceAll("{ffzemotes}", formatEmoteList(vars.ffzEmotes));
   }
   if (out.includes("{time}") || out.includes("{date}")) {
-    const now = new Date();
-    out = out.replaceAll(
-      "{time}",
-      `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")} UTC`,
-    );
-    out = out.replaceAll("{date}", now.toISOString().slice(0, 10));
+    const now = Date.now();
+    out = out.replaceAll("{time}", formatCentralClock(now));
+    out = out.replaceAll("{date}", formatCentralDate(now));
   }
   return out;
 }
