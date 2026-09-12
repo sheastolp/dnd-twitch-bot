@@ -13,7 +13,7 @@ import {
   getBroadcasterAdToken,
   recordManualAdTrigger,
   saveBroadcasterAdToken,
-} from "./db.ts";
+} from "./ads_db.ts";
 import { fetchAdSchedule, refreshUserToken, sendChatMessage } from "./twitch.ts";
 
 const AD_REMINDER_MINUTES = Math.max(1, Number(Deno.env.get("AD_REMINDER_MINUTES") ?? "20"));

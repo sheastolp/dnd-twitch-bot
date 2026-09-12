@@ -49,7 +49,6 @@ import {
   recordDiceRollEvent,
   recordMonitorEvent,
   resetCharacter,
-  saveBroadcasterAdToken,
   saveCharacter,
   saveCreationSession,
   saveExtraEventSubSubscription,
@@ -62,6 +61,12 @@ import {
   updateDashboardSessionToken,
 } from "./db.ts";
 import { handleAdCommand } from "./ads.ts";
+import {
+  disconnectAdToken,
+  ensureAdTables,
+  purgeAdData,
+  saveBroadcasterAdToken,
+} from "./ads_db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand, randomMerchantIntervalMs } from "./merchant.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
@@ -308,6 +313,7 @@ const DASHBOARD_MODULES: {
 
 async function handleRequest(req: Request): Promise<Response> {
   await ensureTables();
+  await ensureAdTables();
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -1122,8 +1128,13 @@ async function handleRequest(req: Request): Promise<Response> {
         }.`,
         broadcasterId,
       );
-      if (purge) await purgeChannelData(broadcasterId);
-      else await disconnectBroadcasterData(broadcasterId, false);
+      if (purge) {
+        await purgeChannelData(broadcasterId);
+        await purgeAdData(broadcasterId);
+      } else {
+        await disconnectBroadcasterData(broadcasterId, false);
+        await disconnectAdToken(broadcasterId);
+      }
       return new Response("OK");
     }
 
