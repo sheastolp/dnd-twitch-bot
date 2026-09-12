@@ -87,7 +87,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `PUBLIC_BASE_URL` | *(recommended)* Public HTTPS URL used in chat links; must match the deployed Val URL |
 | `COMMAND_COOLDOWN_MS` | *(optional)* Durable per-channel/user command cooldown; default 1200ms |
 | `GOODNIGHT_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between "goodnight" auto-replies; default 300000ms (5 min), floor 30000ms |
-| `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Global bot-account chat-send spacing; default 1600ms. Lower only after Twitch confirms the account's applicable limit/verification. |
+| `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Per-channel chat-send spacing; default 320ms (~100 msgs/30s, the modded-bot limit). Raise it back toward 1600ms for any channel where the bot isn't modded. |
 | `MERCHANT_MIN_INTERVAL_MINUTES` | *(optional)* Shortest gap between open-stall merchant ads in a channel with `!market on`; default 25, floor 5 |
 | `MERCHANT_MAX_INTERVAL_MINUTES` | *(optional)* Longest gap between open-stall merchant ads; default 60, floored at the min above |
 | `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message gets chronicled in a channel with `!chronicle on`; default 3 |
@@ -469,4 +469,4 @@ The public character sheet is channel-scoped and requires a currently connected 
 - Set `PUBLIC_BASE_URL` to the exact public HTTPS URL.
 - Configure an external uptime monitor against `/healthz`; the endpoint also retries transient EventSub cancellations.
 - Review the current Twitch developer/bot verification requirements and complete Twitch's verification process separately. Code cannot grant Twitch verification.
-- Keep the conservative `CHAT_GLOBAL_MIN_INTERVAL_MS=1600` until Twitch confirms the account's applicable chat rate limit; lower it only with that confirmation.
+- The chat-send queue is now per-channel and defaults to `CHAT_GLOBAL_MIN_INTERVAL_MS=320`, matching the modded-bot limit (100 msgs/30s). If the bot is added to a channel where it isn't modded, raise this back toward 1600ms (unverified/non-mod limit is ~20 msgs/30s) until Twitch verification is granted.
