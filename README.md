@@ -31,6 +31,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
 | **Chronicle** | Randomly quotes a plain chat message back with a one-line D&D-flavored reply. **Off by default**, toggled per channel with `!chronicle on`/`off`/`status` *(mod)*; low odds per message, a per-channel cooldown, and a minimum-activity threshold keep it rare — bot messages count toward that activity but are never quoted |
+| **Ad reminders** | `!adcheck` *(mod)* reports Twitch's real ad-schedule status (next ad, duration, snoozes left, time since last ad) with a ⚠️ reminder once too long has passed; `!adslogged` *(mod)* manually marks an ad break for channels without the `channel:read:ads` scope granted yet. Not the same feature as Market above, which is flavor text only |
 
 ---
 
@@ -42,6 +43,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant.cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
 | **chronicle.ts** | `!chronicle on/off/status` toggle + the random chat-quoting roll/flavor generator (no cron — fires inline off the plain-chat message path) |
+| **ads.ts** | `!adcheck`/`!adslogged` — real Twitch ad-schedule status + manual fallback tracking (uses the broadcaster's own `channel:read:ads` token, refreshed as needed) |
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration, Central Time helpers (`formatCentralDateTime`/`Clock`/`Date`) |
@@ -55,7 +57,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **npcs.ts** | AI-voiced NPC characters — roster CRUD, LLM reply generation (`generateNpcReply`), the `!npc` Twitch command, and random unprompted chatter (`maybeNpcChatter`) |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
-| **twitch.ts** | Tokens, multi-part chat send |
+| **twitch.ts** | Tokens (app + broadcaster user tokens, refresh), multi-part chat send, ad-schedule fetch |
 | **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page |
 | **README.md** | This document |
 
@@ -97,6 +99,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `NPC_CHATTER_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message triggers a random NPC chime-in in a channel with `!npc chatter on`; default 4 |
 | `NPC_CHATTER_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between random NPC chime-ins; default 900000ms (15 min), floor 60000ms |
 | `NPC_CHATTER_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chime-in before another can fire; default 20 |
+| `AD_REMINDER_MINUTES` | *(optional)* Minutes since the last known ad break before `!adcheck` flags a ⚠️ reminder; default 20 |
 
 4. Twitch Developer Console → OAuth Redirect URLs must include **both**:  
    `https://<your-val>.web.val.run/callback` (bot connect flow)  
@@ -106,7 +109,7 @@ Chat: `!guide` or `!link` posts that same URL.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
-The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter powers the sub/resub thank-you (see below). **Channels that connected before this scope was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous to start firing; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
+The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads` — the sub scope powers the sub/resub thank-you (see below), and the ads scope powers `!adcheck`'s real Twitch ad-schedule lookup (see below). **Channels that connected before one of these scopes was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for the corresponding feature to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
 ### Guild Dashboard (`/dashboard`)
 
@@ -325,6 +328,8 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/logs/gameplay state |
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
+| `!adcheck` | Report Twitch's real ad-schedule status — next ad, duration, snoozes left, time since the last ad, with a ⚠️ reminder once it's overdue *(mod)* |
+| `!adslogged` | Manually mark an ad break just run — fallback for channels that haven't (re)granted `channel:read:ads` yet *(mod)* |
 | `!chronicle on` / `off` | Enable or disable the chronicle's random chat-quoting. **Off by default** *(mod)* |
 | `!chronicle status` | Check whether the chronicle is currently active in this channel (open to everyone) |
 | `!npc on` / `off` | Enable or disable AI-voiced NPC characters in this channel. **Off by default** *(mod)* |

@@ -49,6 +49,7 @@ import {
   recordDiceRollEvent,
   recordMonitorEvent,
   resetCharacter,
+  saveBroadcasterAdToken,
   saveCharacter,
   saveCreationSession,
   saveExtraEventSubSubscription,
@@ -60,6 +61,7 @@ import {
   unblockChannel,
   updateDashboardSessionToken,
 } from "./db.ts";
+import { handleAdCommand } from "./ads.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand, randomMerchantIntervalMs } from "./merchant.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
@@ -390,7 +392,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -479,6 +481,22 @@ async function handleRequest(req: Request): Promise<Response> {
           null,
         ],
       );
+      // Best-effort: powers !adcheck's real Twitch ad-schedule lookup.
+      // Requires channel:read:ads, now requested above, but a save failure
+      // here should never block the core chat connection — !adcheck simply
+      // falls back to the manually-logged !adslogged timestamp until the
+      // channel reconnects.
+      try {
+        await saveBroadcasterAdToken(
+          user.id,
+          token.access_token,
+          token.refresh_token,
+          Array.isArray(token.scope) ? token.scope.join(" ") : String(token.scope ?? ""),
+          Date.now() + Math.max(0, Number(token.expires_in ?? 0) * 1000 - 60_000),
+        );
+      } catch (e) {
+        await recordMonitorEvent("ad_token_save_failed", `${user.id}: ${String(e)}`);
+      }
       // Best-effort: powers the D&D-themed !hug-style new-sub/resub thank
       // you. Requires channel:read:subscriptions, which is now requested
       // above, but shouldn't block the core chat connection if it fails
@@ -1238,6 +1256,9 @@ async function handleRequest(req: Request): Promise<Response> {
     ) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
+    ) return new Response("OK");
+    if (
+      await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
     ) return new Response("OK");
 
     if (chatMessage === "!logs") {
