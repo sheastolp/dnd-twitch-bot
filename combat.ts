@@ -1,6 +1,10 @@
 // Duels, party combat, monster duels, and initiative tracker
 
-import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, type SoloMonster } from "./data.ts";
+import {
+  findMonsterByName,
+  pickMonsterForLevel,
+  scaleMonsterForLevel,
+} from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
 import {
   createPartyInvite,
@@ -17,7 +21,6 @@ import {
   getPartyMonsterDuel,
   saveEncounter,
   sqlite,
-  withColumnHeal,
 } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -195,45 +198,6 @@ function resolvePlayerDuel(
   return { winner, log, rounds };
 }
 
-/**
- * When a player tries !dndduel accept/decline with no pending PvP challenge
- * waiting on them, check whether they're actually mid-fight somewhere else
- * (solo monster, PvP classic, party duel, or party hunt) and nudge them
- * toward the right next command instead of leaving them with a dead end.
- */
-async function noPendingChallengeNudge(
-  broadcasterId: string,
-  username: string,
-  display: string,
-): Promise<string> {
-  const monsterActive = await getMonsterDuel(broadcasterId);
-  if (monsterActive && monsterActive.player === username) {
-    return `@${display} no pending duel challenge waiting on you — but your fight with ${monsterActive.monster_name} is already underway! Press on with !dndduel attack, check the field with !dndduel monster status, or retreat with !dndduel monster end.`;
-  }
-
-  const pvpActive = await getDuel(broadcasterId);
-  if (pvpActive && (pvpActive.challenger === username || pvpActive.defender === username)) {
-    const foe = pvpActive.challenger === username ? pvpActive.defender : pvpActive.challenger;
-    return `@${display} no pending duel challenge waiting on you — you're already blade-to-blade with ${foe}! Use !dndduel attack on your turn, !dndduel status to check the field, or !dndduel end to withdraw.`;
-  }
-
-  const huntActive = await getPartyMonsterDuel(broadcasterId);
-  if (huntActive && huntActive.members.includes(username)) {
-    return `@${display} no pending duel challenge waiting on you — your party is already deep in a hunt against ${huntActive.monster_name}! Use !dndduel party hunt attack on your turn, or !dndduel party hunt status to check the field.`;
-  }
-
-  const partyDuelActive = await getPartyDuel(broadcasterId);
-  if (
-    partyDuelActive &&
-    (partyDuelActive.challenger_members.includes(username) ||
-      partyDuelActive.defender_members.includes(username))
-  ) {
-    return `@${display} no pending duel challenge waiting on you — your party duel is already underway! Use !dndduel party attack on your turn, or !dndduel party status to check the field.`;
-  }
-
-  return `@${display} you have no pending duel challenge.`;
-}
-
 export async function handleDuelCommand(
   chatMessage: string,
   username: string,
@@ -253,7 +217,7 @@ export async function handleDuelCommand(
     );
     if (!res.rows.length) {
       await sendChatMessage(
-        await noPendingChallengeNudge(broadcasterId, username, display),
+        `@${display} you have no pending duel challenge.`,
         broadcasterId,
       );
       return true;
@@ -531,26 +495,80 @@ export async function handleMonsterDuelCommand(
   display: string,
   broadcasterId: string,
 ) {
-  const normalized = chatMessage.trim().toLowerCase();
-  if (
-    !(
-      normalized === "!dndduel" ||
-      normalized === "!dndduel attack" ||
-      normalized === "!dndduel monster" ||
-      normalized === "!dndduel monster classic" ||
-      normalized === "!dndduel monster attack" ||
-      normalized === "!dndduel monster status" ||
-      normalized === "!dndduel monster end"
-    )
-  ) {
+  const trimmed = chatMessage.trim();
+  const normalized = trimmed.toLowerCase();
+
+  // Words reserved for other !dndduel subcommands (PvP challenges, party
+  // duels/hunts, etc.) — a bare "!dndduel <word...>" is only ever a
+  // named-monster fight when the first word isn't one of these, so
+  // "!dndduel @friend" and "!dndduel party ..." keep working unaffected.
+  const RESERVED_FIRST_WORDS = new Set([
+    "party",
+    "accept",
+    "decline",
+    "attack",
+    "status",
+    "show",
+    "end",
+    "cancel",
+    "classic",
+    "turn",
+    "manual",
+    "auto",
+    "quick",
+  ]);
+
+  const monsterPrefixMatch = /^!dndduel\s+monster\b(.*)$/i.exec(trimmed);
+  const isMonsterForm = !!monsterPrefixMatch;
+
+  // A directed monster name, e.g. "!dndduel adult red dragon" or
+  // "!dndduel monster goblin" / "!dndduel monster classic goblin".
+  let nameQuery = "";
+  if (monsterPrefixMatch) {
+    let rest = monsterPrefixMatch[1].trim();
+    if (/^classic\b/i.test(rest)) rest = rest.replace(/^classic\b/i, "").trim();
+    if (!["status", "end", "attack", ""].includes(rest.toLowerCase())) {
+      nameQuery = rest;
+    }
+  } else {
+    const bareMatch = /^!dndduel\b(.*)$/i.exec(trimmed);
+    const rest = bareMatch ? bareMatch[1].trim() : "";
+    const firstWord = rest.split(/\s+/)[0]?.toLowerCase();
+    if (rest && firstWord && !RESERVED_FIRST_WORDS.has(firstWord)) {
+      nameQuery = rest;
+    }
+  }
+  const namedMonster = nameQuery ? findMonsterByName(nameQuery) : null;
+
+  const claimsExact = (
+    normalized === "!dndduel" ||
+    normalized === "!dndduel attack" ||
+    normalized === "!dndduel monster" ||
+    normalized === "!dndduel monster classic" ||
+    normalized === "!dndduel monster attack" ||
+    normalized === "!dndduel monster status" ||
+    normalized === "!dndduel monster end"
+  );
+
+  if (!claimsExact && !(isMonsterForm && nameQuery) && !namedMonster) {
     return false;
+  }
+
+  // The "monster"-prefixed form can only ever mean a monster fight, so an
+  // unrecognized name is reported directly instead of silently falling
+  // through (unlike the bare form, which falls through to a PvP challenge).
+  if (isMonsterForm && nameQuery && !namedMonster) {
+    await sendChatMessage(
+      `@${display} no bestiary match for "${nameQuery}". Try !dndduel monster [classic] <name>, or leave the name off for a random pick.`,
+      broadcasterId,
+    );
+    return true;
   }
 
   let active = await getMonsterDuel(broadcasterId);
   if (await forfeitIfIdleMonsterDuel(broadcasterId, active)) active = null;
 
   if (
-    normalized === "!dndduel attack" ||
     normalized === "!dndduel monster status" ||
     normalized === "!dndduel monster end" ||
     normalized === "!dndduel monster attack"
@@ -582,11 +600,8 @@ export async function handleMonsterDuelCommand(
     }
   }
 
-  // Classic turn-based monster: !dndduel monster [classic]
-  if (
-    normalized === "!dndduel monster" ||
-    normalized === "!dndduel monster classic"
-  ) {
+  // Classic turn-based monster: !dndduel monster [classic] [name]
+  if (isMonsterForm) {
     if (active && active.player === username) {
       await sendChatMessage(
         `@${display} ${await monsterDuelText(active)} Use !dndduel attack.`,
@@ -602,7 +617,9 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const monster = pickMonsterForLevel(c.level);
+    const monster = namedMonster
+      ? scaleMonsterForLevel(namedMonster, c.level)
+      : pickMonsterForLevel(c.level);
     await sqlite.execute(
       "INSERT OR REPLACE INTO monster_duels (broadcaster_id,player,monster_name,monster_cr,monster_ac,monster_hp,monster_hp_max,monster_attack,monster_damage_die,monster_damage_bonus,current_turn,active,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
@@ -630,8 +647,8 @@ export async function handleMonsterDuelCommand(
     return true;
   }
 
-  // Auto monster: bare !dndduel
-  if (normalized === "!dndduel") {
+  // Auto monster: bare !dndduel [name]
+  if (normalized === "!dndduel" || (!isMonsterForm && namedMonster)) {
     const c = await getCharacter(username, broadcasterId);
     if (!c) {
       await sendChatMessage(
@@ -640,7 +657,9 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const monster = pickMonsterForLevel(c.level);
+    const monster = namedMonster
+      ? scaleMonsterForLevel(namedMonster, c.level)
+      : pickMonsterForLevel(c.level);
     let playerHp = c.hpMax;
     let monsterHp = monster.hp;
     const pStats = combatStats(c);
@@ -836,16 +855,9 @@ export async function handleMonsterDuelCommand(
         broadcasterId,
       );
     } else {
-      // Wrapped in withColumnHeal: this UPDATE is the exact query that's
-      // intermittently failed with "no such column: player_hp" even though
-      // ensureTables() is supposed to keep this column present — see the
-      // comment on that migration in db.ts. This heals in place instead of
-      // throwing and leaving the player mid-duel with no reply.
-      await withColumnHeal("monster_duels", "player_hp", "INTEGER", () =>
-        sqlite.execute(
-          "UPDATE monster_duels SET player_hp = ?, monster_hp = ?, current_turn = ?, updated_at = ? WHERE broadcaster_id = ?",
-          [nextPlayerHp, active.monster_hp, "player", Date.now(), broadcasterId],
-        )
+      await sqlite.execute(
+        "UPDATE monster_duels SET player_hp = ?, monster_hp = ?, current_turn = ?, updated_at = ? WHERE broadcaster_id = ?",
+        [nextPlayerHp, active.monster_hp, "player", Date.now(), broadcasterId],
       );
       await sendChatMessages(
         `@${display} ${playerResult} ${monsterResult} ${await monsterDuelText({
@@ -1422,29 +1434,21 @@ export async function handlePartyDuelCommand(
       return true;
     }
 
-    // Start hunt: !dndduel party hunt [classic] <party-name> [monster name]
-    // The optional trailing monster name targets a specific bestiary entry
-    // (matched the same way as !monster <name>) instead of a random pick —
-    // e.g. !dndduel party hunt myparty remorhaz or
-    // !dndduel party hunt classic myparty adult red dragon.
+    // Start hunt: !dndduel party hunt [classic] <party-name>
     let classic = false;
     let partyName = "";
-    let monsterNameWords: string[] = [];
     if (
       huntAction === "classic" || huntAction === "turn" ||
       huntAction === "manual"
     ) {
       classic = true;
       partyName = (parts[4] ?? "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
-      monsterNameWords = parts.slice(5);
     } else {
       partyName = huntAction.replace(/[^a-z0-9_-]/g, "");
-      monsterNameWords = parts.slice(4);
     }
-    const requestedMonsterName = monsterNameWords.join(" ").trim();
     if (!partyName) {
       await sendChatMessage(
-        `@${display} Party hunt: !dndduel party hunt <party> [monster] (auto) | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack | status | end`,
+        `@${display} Party hunt: !dndduel party hunt <party> (auto) | !dndduel party hunt classic <party> | !dndduel party hunt attack | status | end`,
         broadcasterId,
       );
       return true;
@@ -1496,21 +1500,8 @@ export async function handlePartyDuelCommand(
       return true;
     }
     const avgLevel = Math.max(1, Math.round(levelSum / livingMembers.length));
-    let monster: SoloMonster;
-    if (requestedMonsterName) {
-      const targetedBase = findMonsterByName(requestedMonsterName);
-      if (!targetedBase) {
-        await sendChatMessage(
-          `@${display} no bestiary match for "${requestedMonsterName}" — check the spelling with !monster <name>, or leave it off for a random encounter.`,
-          broadcasterId,
-        );
-        return true;
-      }
-      monster = scaleMonsterForLevel(targetedBase, avgLevel);
-    } else {
-      // Scale monster gently for group size (still player-favored).
-      monster = pickMonsterForLevel(avgLevel);
-    }
+    // Scale monster gently for group size (still player-favored).
+    const monster = pickMonsterForLevel(avgLevel);
     const sizeScale = 0.5 + livingMembers.length * 0.22; // 1p~0.72, 2p~0.94, 3p~1.16
     monster.hp = Math.max(10, Math.round(monster.hp * sizeScale));
     monster.attack = Math.max(
