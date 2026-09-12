@@ -2,6 +2,7 @@
 
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
+import { recordMonitorEvent } from "./db.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -20,12 +21,28 @@ const PART_DELAY_MS = 450;
 // never throttle chat sends in a different channel.
 const GLOBAL_CHAT_MIN_INTERVAL_MS = Math.max(50, Number(Deno.env.get("CHAT_GLOBAL_MIN_INTERVAL_MS") ?? "320"));
 const nextChatSendAtByChannel = new Map<string, number>();
+// Operator-log guard so a sustained burst logs one "queue is backing up"
+// event, not one per queued message.
+const BACKLOG_LOG_THRESHOLD_MS = 3000;
+const BACKLOG_LOG_COOLDOWN_MS = 60_000;
+const lastBacklogLogAt = new Map<string, number>();
+const lastRateLimitLogAt = new Map<string, number>();
 
 async function waitForChatSlot(broadcasterId: string) {
   const now = Date.now();
   const nextAt = nextChatSendAtByChannel.get(broadcasterId) ?? 0;
   const wait = Math.max(0, nextAt - now);
   nextChatSendAtByChannel.set(broadcasterId, Math.max(now, nextAt) + GLOBAL_CHAT_MIN_INTERVAL_MS);
+  if (wait > BACKLOG_LOG_THRESHOLD_MS) {
+    const lastLogged = lastBacklogLogAt.get(broadcasterId) ?? 0;
+    if (now - lastLogged > BACKLOG_LOG_COOLDOWN_MS) {
+      lastBacklogLogAt.set(broadcasterId, now);
+      await recordMonitorEvent(
+        "chat_queue_backlog",
+        `${broadcasterId}: next send delayed ${wait}ms (interval=${GLOBAL_CHAT_MIN_INTERVAL_MS}ms)`,
+      );
+    }
+  }
   if (wait) await sleep(wait);
 }
 
@@ -93,6 +110,15 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
     }
     // Brief backoff on rate limit so following parts can still send
     if (res.status === 429) {
+      const now = Date.now();
+      const lastLogged = lastRateLimitLogAt.get(broadcasterId) ?? 0;
+      if (now - lastLogged > BACKLOG_LOG_COOLDOWN_MS) {
+        lastRateLimitLogAt.set(broadcasterId, now);
+        await recordMonitorEvent(
+          "chat_rate_limited",
+          `${broadcasterId}: Twitch returned 429 (client-side interval=${GLOBAL_CHAT_MIN_INTERVAL_MS}ms may be too low for this channel's grant)`,
+        );
+      }
       await sleep(1100);
       return false;
     }
