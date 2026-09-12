@@ -235,32 +235,6 @@ export function formatLookup(kind: string, data: any, bonus: number | null = nul
       `${name}: ${bonusText}bonuses ${bonuses}; speed ${data.speed ?? "?"} ft; size ${data.size ?? "?"}${parent}; languages ${languages || "not listed"}; traits ${traits || "none listed"}`,
     );
   }
-  if (kind === "monster") {
-    const acEntries = Array.isArray(data.armor_class) ? data.armor_class : [];
-    const ac = acEntries.length
-      ? `${acEntries[0].value ?? "?"}${acEntries[0].type ? ` (${acEntries[0].type})` : ""}`
-      : String(data.armor_class ?? "?");
-    const speedObj = data.speed ?? {};
-    const speed =
-      Object.entries(speedObj)
-        .map(([mode, value]) => `${mode} ${value}`)
-        .join(", ") || "30 ft.";
-    const typeLine = `${data.size ?? "?"} ${data.type ?? "creature"}${
-      data.alignment ? `, ${data.alignment}` : ""
-    }`;
-    const actionsList = Array.isArray(data.actions) ? data.actions : [];
-    const actionText = actionsList.length
-      ? compactText(
-          actionsList.map((a: any) => `${a.name}: ${a.desc}`).join(" | "),
-          200,
-        )
-      : "no notable actions listed";
-    return withLink(
-      kind,
-      data,
-      `${name}: ${typeLine} | AC ${ac} | HP ${data.hit_points ?? "?"} (${data.hit_dice ?? "?"}) | Speed ${speed} | CR ${data.challenge_rating ?? "?"} (XP ${data.xp ?? "?"}) | Actions: ${actionText}`,
-    );
-  }
   if (kind === "rule" || kind === "rules") {
     // Cap for 3 chat messages (~480 each, leave room for @user in outer send)
     const MAX_RULE_CHARS = 1200;

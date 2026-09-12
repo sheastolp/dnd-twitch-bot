@@ -2,7 +2,6 @@
 
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { recordMonitorEvent } from "./db.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -14,35 +13,16 @@ const CHAT_MAX = Math.min(MAX_LOOKUP_MESSAGE_LENGTH, 480);
 // Rules need more parts than other lookups; spells use sendSpellSections separately.
 const MAX_PARTS = 5;
 const PART_DELAY_MS = 450;
-// Twitch chat-send limits apply per channel, not bot-account-wide. With the
-// bot modded in its channels, the applicable limit is 100 messages/30s
-// (~300ms/message); default sits a little above that floor for safety.
-// Each channel gets its own queue slot so a busy channel's duels/lookups
-// never throttle chat sends in a different channel.
-const GLOBAL_CHAT_MIN_INTERVAL_MS = Math.max(50, Number(Deno.env.get("CHAT_GLOBAL_MIN_INTERVAL_MS") ?? "320"));
-const nextChatSendAtByChannel = new Map<string, number>();
-// Operator-log guard so a sustained burst logs one "queue is backing up"
-// event, not one per queued message.
-const BACKLOG_LOG_THRESHOLD_MS = 3000;
-const BACKLOG_LOG_COOLDOWN_MS = 60_000;
-const lastBacklogLogAt = new Map<string, number>();
-const lastRateLimitLogAt = new Map<string, number>();
+// Twitch chat-send limits are shared by the bot account. Keep a conservative
+// global queue by default; operators can lower this after Twitch grants the
+// appropriate bot rate limit/verification.
+const GLOBAL_CHAT_MIN_INTERVAL_MS = Math.max(50, Number(Deno.env.get("CHAT_GLOBAL_MIN_INTERVAL_MS") ?? "1600"));
+let nextChatSendAt = 0;
 
-async function waitForChatSlot(broadcasterId: string) {
+async function waitForGlobalChatSlot() {
   const now = Date.now();
-  const nextAt = nextChatSendAtByChannel.get(broadcasterId) ?? 0;
-  const wait = Math.max(0, nextAt - now);
-  nextChatSendAtByChannel.set(broadcasterId, Math.max(now, nextAt) + GLOBAL_CHAT_MIN_INTERVAL_MS);
-  if (wait > BACKLOG_LOG_THRESHOLD_MS) {
-    const lastLogged = lastBacklogLogAt.get(broadcasterId) ?? 0;
-    if (now - lastLogged > BACKLOG_LOG_COOLDOWN_MS) {
-      lastBacklogLogAt.set(broadcasterId, now);
-      await recordMonitorEvent(
-        "chat_queue_backlog",
-        `${broadcasterId}: next send delayed ${wait}ms (interval=${GLOBAL_CHAT_MIN_INTERVAL_MS}ms)`,
-      );
-    }
-  }
+  const wait = Math.max(0, nextChatSendAt - now);
+  nextChatSendAt = Math.max(now, nextChatSendAt) + GLOBAL_CHAT_MIN_INTERVAL_MS;
   if (wait) await sleep(wait);
 }
 
@@ -82,7 +62,7 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
   const message = text.slice(0, 500);
   if (!message.trim()) return true;
   try {
-    await waitForChatSlot(broadcasterId);
+    await waitForGlobalChatSlot();
     const send = async (token: string) =>
       fetch("https://api.twitch.tv/helix/chat/messages", {
         method: "POST",
@@ -102,7 +82,7 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
     if (res.status === 401) {
       // Cached token was rejected (expired/revoked) — drop it and get a fresh one, once.
       invalidateAppToken();
-      await waitForChatSlot(broadcasterId);
+      await waitForGlobalChatSlot();
       res = await send(await getAppToken());
     }
     if (!res.ok && res.status !== 429) {
@@ -110,15 +90,6 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
     }
     // Brief backoff on rate limit so following parts can still send
     if (res.status === 429) {
-      const now = Date.now();
-      const lastLogged = lastRateLimitLogAt.get(broadcasterId) ?? 0;
-      if (now - lastLogged > BACKLOG_LOG_COOLDOWN_MS) {
-        lastRateLimitLogAt.set(broadcasterId, now);
-        await recordMonitorEvent(
-          "chat_rate_limited",
-          `${broadcasterId}: Twitch returned 429 (client-side interval=${GLOBAL_CHAT_MIN_INTERVAL_MS}ms may be too low for this channel's grant)`,
-        );
-      }
       await sleep(1100);
       return false;
     }
@@ -215,104 +186,6 @@ export async function exchangeCode(code: string, redirectUri: string) {
   return await res.json();
 }
 
-// Used to keep a /dashboard login session alive past its ~4h access token
-// without asking the viewer to sign in again — refresh_token grant per
-// Twitch's OAuth docs. Twitch rotates the refresh token on every use, so
-// callers must persist the new one, not just the new access token.
-export async function refreshUserToken(refreshToken: string) {
-  const body = new URLSearchParams({
-    client_id: env("TWITCH_CLIENT_ID"),
-    client_secret: env("TWITCH_CLIENT_SECRET"),
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const res = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
-  return await res.json();
-}
-
-export interface AdSchedule {
-  snoozeCount: number;
-  snoozeRefreshAt: string;
-  nextAdAt: string;
-  lastAdAt: string;
-  durationSeconds: number;
-  prerollFreeTime: number;
-}
-
-/** Twitch's real ad schedule for a channel (Get Ad Schedule) — requires the
- * broadcaster's own user access token with the channel:read:ads scope
- * (requested during /connect, stored in broadcaster_ad_tokens). Returns
- * null if Twitch has nothing to report (e.g. stream offline / not yet
- * monetized) or the token was rejected (expired/revoked) — callers should
- * treat a rejected token as "needs reconnect", not a hard failure. */
-export async function fetchAdSchedule(userAccessToken: string, broadcasterId: string): Promise<AdSchedule | null> {
-  const res = await fetch(
-    `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(broadcasterId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${userAccessToken}`,
-        "Client-Id": env("TWITCH_CLIENT_ID"),
-      },
-    },
-  );
-  if (res.status === 401 || res.status === 403) return null;
-  if (!res.ok) throw new Error(`Ad schedule fetch failed: ${res.status} ${await res.text()}`);
-  const row = (await res.json()).data?.[0];
-  if (!row) return null;
-  return {
-    snoozeCount: Number(row.snooze_count ?? 0),
-    snoozeRefreshAt: String(row.snooze_refresh_at ?? ""),
-    nextAdAt: String(row.next_ad_at ?? ""),
-    lastAdAt: String(row.last_ad_at ?? ""),
-    durationSeconds: Number(row.duration ?? 0),
-    prerollFreeTime: Number(row.preroll_free_time ?? 0),
-  };
-}
-
-/** Identifies the viewer behind a user access token — used right after the
- * /dashboard OAuth exchange to learn who just logged in. Works with any
- * valid user token; no extra scope required. */
-export async function getSelfUser(userToken: string) {
-  const res = await fetch("https://api.twitch.tv/helix/users", {
-    headers: {
-      Authorization: `Bearer ${userToken}`,
-      "Client-Id": env("TWITCH_CLIENT_ID"),
-    },
-  });
-  if (!res.ok) throw new Error(`Could not identify user: ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  return data.data[0];
-}
-
-/** Every channel a Twitch user currently moderates (requires the
- * user:read:moderated_channels scope on their token) — does NOT include a
- * channel they broadcast themselves; callers should check that separately.
- * Paginated, capped at 500 channels as a sane ceiling for a single viewer. */
-export async function getModeratedChannelIds(userToken: string, userId: string): Promise<string[]> {
-  const ids: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const params = new URLSearchParams({ user_id: userId, first: "100" });
-    if (cursor) params.set("after", cursor);
-    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
-      headers: {
-        Authorization: `Bearer ${userToken}`,
-        "Client-Id": env("TWITCH_CLIENT_ID"),
-      },
-    });
-    if (!res.ok) throw new Error(`Get Moderated Channels failed: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    for (const row of data.data ?? []) ids.push(String(row.broadcaster_id));
-    cursor = data.pagination?.cursor || undefined;
-  } while (cursor && ids.length < 500);
-  return ids;
-}
-
 async function createEventSubSubscription(
   type: string,
   version: string,
@@ -397,125 +270,15 @@ export async function deleteEventSubSubscription(subscriptionId: string) {
 
 /** Constant-time string compare — doesn't branch/short-circuit on content,
  * only on length (which isn't secret), so it doesn't leak how many leading
- * characters of the signature matched via response timing. */
-function timingSafeEqual(a: string, b: string): boolean {
+ * characters of the signature matched via response timing. Exported for
+ * reuse by dashboard.ts's session cookie verification. */
+export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
-}
-
-/** Current game/category and title for a channel — public Helix data, app
- * token only, no extra broadcaster scope required. Used by the {game} and
- * {title}/{status} custom-command placeholders. */
-export async function getChannelInfo(
-  broadcasterId: string,
-): Promise<{ gameName: string; title: string } | null> {
-  try {
-    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
-      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const row = data.data?.[0];
-    if (!row) return null;
-    return { gameName: String(row.game_name ?? ""), title: String(row.title ?? "") };
-  } catch (err) {
-    console.error("getChannelInfo failed", err);
-    return null;
-  }
-}
-
-/** Human-readable stream uptime (e.g. "2h 15m"), or null if the channel is
- * not currently live. Used by the {uptime} placeholder. */
-export async function getStreamUptime(broadcasterId: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(broadcasterId)}`, {
-      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const startedAt = data.data?.[0]?.started_at;
-    if (!startedAt) return null;
-    const ms = Date.now() - Date.parse(startedAt);
-    if (!Number.isFinite(ms) || ms < 0) return null;
-    const totalMinutes = Math.floor(ms / 60_000);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  } catch (err) {
-    console.error("getStreamUptime failed", err);
-    return null;
-  }
-}
-
-/** Names of this channel's active subscriber/bits emotes — public Helix
- * data, app token only. Used by the {twitchemotes} placeholder. */
-export async function getSubscriberEmoteNames(broadcasterId: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://api.twitch.tv/helix/chat/emotes?broadcaster_id=${encodeURIComponent(broadcasterId)}`, {
-      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.data ?? []).map((e: any) => String(e.name)).filter(Boolean);
-  } catch (err) {
-    console.error("getSubscriberEmoteNames failed", err);
-    return [];
-  }
-}
-
-/** Active 7TV emote names for a channel, via 7TV's public (unauthenticated)
- * API. Used by the {7tvemotes} placeholder. */
-export async function get7tvEmoteNames(broadcasterId: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://7tv.io/v3/users/twitch/${encodeURIComponent(broadcasterId)}`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const emotes = data?.emote_set?.emotes ?? [];
-    return emotes.map((e: any) => String(e.name)).filter(Boolean);
-  } catch (err) {
-    console.error("get7tvEmoteNames failed", err);
-    return [];
-  }
-}
-
-/** Active BetterTTV emote names (channel + shared) via BTTV's public API.
- * Used by the {bttvemotes} placeholder. */
-export async function getBttvEmoteNames(broadcasterId: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${encodeURIComponent(broadcasterId)}`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const emotes = [...(data?.channelEmotes ?? []), ...(data?.sharedEmotes ?? [])];
-    return emotes.map((e: any) => String(e.code)).filter(Boolean);
-  } catch (err) {
-    console.error("getBttvEmoteNames failed", err);
-    return [];
-  }
-}
-
-/** Active FrankerFaceZ emote names via FFZ's public API. Used by the
- * {ffzemotes} placeholder. */
-export async function getFfzEmoteNames(broadcasterId: string): Promise<string[]> {
-  try {
-    const res = await fetch(`https://api.frankerfacez.com/v1/room/id/${encodeURIComponent(broadcasterId)}`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const sets = data?.sets ?? {};
-    const names: string[] = [];
-    for (const key of Object.keys(sets)) {
-      for (const e of sets[key]?.emoticons ?? []) {
-        if (e?.name) names.push(String(e.name));
-      }
-    }
-    return names;
-  } catch (err) {
-    console.error("getFfzEmoteNames failed", err);
-    return [];
-  }
 }
 
 export async function verifyEventSub(req: Request, rawBody: string) {
@@ -538,4 +301,46 @@ export async function verifyEventSub(req: Request, rawBody: string) {
   const hex = [...signature].map((b) => b.toString(16).padStart(2, "0")).join("");
   const expected = `sha256=${hex}`;
   return timingSafeEqual(expected, received);
+}
+
+// ── Dashboard login (viewer-side OAuth, separate from the broadcaster
+// connect flow above) — used by dashboard.ts to verify that whoever is
+// sitting at the web dashboard is actually a moderator/broadcaster of the
+// channel, not just someone who found the link. ──
+
+/** The logged-in viewer's own Twitch identity, from their own access token
+ * (no user_id param needed — Helix defaults to the token's owner). */
+export async function getViewerIdentity(accessToken: string): Promise<{ id: string; login: string; display_name: string } | null> {
+  const res = await fetch("https://api.twitch.tv/helix/users", {
+    headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const user = data.data?.[0];
+  if (!user) return null;
+  return { id: String(user.id), login: String(user.login), display_name: String(user.display_name ?? user.login) };
+}
+
+// Get Moderated Channels only returns channels the viewer moderates for
+// *someone else* — the broadcaster of their own channel is never in this
+// list, so callers must check viewerId === broadcasterId separately.
+// Requires the viewer's own token with scope user:read:moderated_channels.
+const MAX_MODERATED_CHANNELS_PAGES = 10;
+
+export async function isUserModeratorOfChannel(accessToken: string, viewerId: string, broadcasterId: string): Promise<boolean> {
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_MODERATED_CHANNELS_PAGES; page++) {
+    const params = new URLSearchParams({ user_id: viewerId, first: "100" });
+    if (cursor) params.set("after", cursor);
+    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const rows: any[] = data.data ?? [];
+    if (rows.some((r) => String(r.broadcaster_id) === broadcasterId)) return true;
+    cursor = data.pagination?.cursor;
+    if (!cursor) break;
+  }
+  return false;
 }

@@ -1183,35 +1183,6 @@ export const SOLO_MONSTERS: SoloMonster[] = [
 ];
 
 /**
- * Scale a base bestiary entry to a player's level. Factored out of
- * pickMonsterForLevel so a named/targeted monster (findMonsterByName) can be
- * leveled the same way a randomly-picked one is, instead of fighting at its
- * raw base stats regardless of the player's level.
- *
- * Player-favoring scale — the growth tracks how much the PLAYER's own combat
- * math grows with level (proficiency feeds both their to-hit and their AC in
- * combat.ts; their ability modifier is fixed at creation and doesn't grow
- * further). `growth` ramps smoothly from 0 at level 1 to 1 at level 20 so
- * early fights stay forgiving while high-level ones are a real, losable
- * fight (~90% win rate at L1 tapering to ~65% at L20 in simulation).
- */
-export function scaleMonsterForLevel(
-  base: SoloMonster,
-  level: number,
-): SoloMonster {
-  const lv = Math.max(1, Math.min(20, Math.floor(level || 1)));
-  const growth = (lv - 1) / 19; // 0 at L1 → 1 at L20
-  const hpScale = 0.8 + growth * 0.5; // ~0.80–1.30
-  return {
-    ...base,
-    hp: Math.max(6, Math.round(base.hp * hpScale)),
-    attack: Math.max(2, Math.round(base.attack * 1.1 + growth * 7.5)),
-    bonus: Math.max(0, Math.round(base.bonus * 1.1 + growth * 4.2)),
-    ac: Math.min(24, Math.max(10, Math.round(base.ac + 2.5 + growth * 9))),
-  };
-}
-
-/**
  * Pick a monster appropriate for the player's level.
  * Tuned so solo heroes win often at low level, but face a genuinely losable
  * fight at high level — not a guaranteed win.
@@ -1252,30 +1223,27 @@ export function pickMonsterForLevel(level: number): SoloMonster {
     }
   }
 
-  return scaleMonsterForLevel(base, lv);
-}
-
-/**
- * Look up a bestiary entry by name for a directed (targeted) monster duel,
- * e.g. "!dndduel adult red dragon" or "!dndduel monster goblin". Tries an
- * exact (case-insensitive) name match first, then falls back to a substring
- * match so partial names like "dragon" still resolve to something. Returns
- * the raw, unscaled entry — pass it through scaleMonsterForLevel before use.
- */
-export function findMonsterByName(query: string): SoloMonster | null {
-  const q = query.trim().toLowerCase();
-  if (!q) return null;
-  const exact = SOLO_MONSTERS.find((m) => m.name.toLowerCase() === q);
-  if (exact) return exact;
-  const partial = SOLO_MONSTERS.filter((m) =>
-    m.name.toLowerCase().includes(q)
-  );
-  if (!partial.length) return null;
-  // Prefer the shortest matching name (closest to what was typed) when a
-  // substring matches more than one entry, e.g. "dragon" vs "adult red
-  // dragon" both containing "dragon".
-  partial.sort((a, b) => a.name.length - b.name.length);
-  return partial[0];
+  // Player-favoring scale — but the growth now tracks how much the PLAYER's
+  // own combat math grows with level (proficiency feeds both their to-hit
+  // and their AC in combat.ts; their ability modifier is fixed at creation
+  // and doesn't grow further). The old flat multipliers here (attack *0.9 +
+  // (lv-1)*0.08, ac capped at 18) grew far slower than the player's
+  // proficiency, so by roughly level 5 the character's to-hit and AC had
+  // already outpaced them — solo duels simulated out to a ~99–100% player
+  // win rate from level 5 through 20, i.e. functionally unloseable despite
+  // the table picking higher-CR monsters at higher levels. `growth` ramps
+  // smoothly from 0 at level 1 to 1 at level 20 so early fights stay
+  // forgiving while high-level ones are a real, losable fight (~90% win
+  // rate at L1 tapering to ~65% at L20 in simulation).
+  const growth = (lv - 1) / 19; // 0 at L1 → 1 at L20
+  const hpScale = 0.8 + growth * 0.5; // ~0.80–1.30
+  return {
+    ...base,
+    hp: Math.max(6, Math.round(base.hp * hpScale)),
+    attack: Math.max(2, Math.round(base.attack * 1.1 + growth * 7.5)),
+    bonus: Math.max(0, Math.round(base.bonus * 1.1 + growth * 4.2)),
+    ac: Math.min(24, Math.max(10, Math.round(base.ac + 2.5 + growth * 9))),
+  };
 }
 
 export const knownBotAccounts = new Set([

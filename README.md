@@ -1,7 +1,5 @@
 # GuildScribe — Guild Hall for Twitch D&D
 
-*Part of the **GuildForge** suite — Forge your stream. Command your chat.*
-
 **GuildScribe** is a Dungeons & Dragons 5e (2014 SRD-style) **guild hall** that lives in Twitch chat.  
 Adventurers create characters, form companies, consult the archives, roll fate's dice, duel in the arena, and hunt monsters in the wilds.
 
@@ -27,11 +25,10 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Raids** | D&D-themed auto thank-you in chat when another channel raids in, naming the raiding channel and party size — no extra OAuth scope needed |
 | **Stewards** | Channel on/off, disconnect/purge, in-chat activity logs, OAuth connect |
 | **Custom commands** | Broadcasters/mods add their own `!commands` and passive keyword triggers from chat, no code required |
-| **NPC characters** | AI-voiced NPCs with an author-defined personality — chat with them via `!npc talk`, or let one randomly chime into chat unprompted with `!npc chatter on`. **Off by default**, toggled per channel with `!npc on`/`off`/`status` *(mod)*. Each channel can build its own roster, plus a shared "global" roster as a fallback |
+| **Timed messages** | Broadcasters/mods schedule recurring announcements (`!timedmsg`) that post automatically on their own rotating interval |
+| **Web dashboard** | `!dashboard` hands out a private link for managing custom commands, triggers, and timed messages from a browser instead of chat syntax |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
-| **Chronicle** | Randomly quotes a plain chat message back with a one-line D&D-flavored reply. **Off by default**, toggled per channel with `!chronicle on`/`off`/`status` *(mod)*; low odds per message, a per-channel cooldown, and a minimum-activity threshold keep it rare — bot messages count toward that activity but are never quoted |
-| **Ad reminders** | `!adcheck` *(mod)* reports Twitch's real ad-schedule status (next ad, duration, snoozes left, time since last ad) with a ⚠️ reminder once too long has passed; `!adslogged` *(mod)* manually marks an ad break for channels without the `channel:read:ads` scope granted yet. Not the same feature as Market above, which is flavor text only |
 
 ---
 
@@ -42,11 +39,9 @@ Chat: `!guide` or `!link` posts that same URL.
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant.cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
-| **chronicle.ts** | `!chronicle on/off/status` toggle + the random chat-quoting roll/flavor generator (no cron — fires inline off the plain-chat message path) |
-| **ads.ts** | `!adcheck`/`!adslogged` — real Twitch ad-schedule status + manual fallback tracking (uses the broadcaster's own `channel:read:ads` token, refreshed as needed) |
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
-| **utils.ts** | Dice, formatting, narration, Central Time helpers (`formatCentralDateTime`/`Clock`/`Date`) |
+| **utils.ts** | Dice, formatting, narration |
 | **db.ts** | SQLite schema + persistence |
 | **characters.ts** | Generation, XP, leveling, `!newchar` wizard |
 | **bg3.ts** | `!bg3roll`, `!bg3companion`, `!bg3origin`, `!bg3loot`, `!bg3camp` — standalone Baldur's Gate 3 flavor generators (no DB); `!bg3` — random race/class + player-chosen BG3 point-buy scores, saved via db.ts |
@@ -54,11 +49,13 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
-| **npcs.ts** | AI-voiced NPC characters — roster CRUD, LLM reply generation (`generateNpcReply`), the `!npc` Twitch command, and random unprompted chatter (`maybeNpcChatter`) |
+| **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
+| **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant.cron.ts` |
+| **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
-| **twitch.ts** | Tokens (app + broadcaster user tokens, refresh), multi-part chat send, ad-schedule fetch |
-| **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page |
+| **twitch.ts** | Tokens, multi-part chat send |
+| **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page, web dashboard page |
 | **README.md** | This document |
 
 ---
@@ -68,6 +65,7 @@ Chat: `!guide` or `!link` posts that same URL.
 1. Upload all modules into one Val project.
 2. Point the **HTTP trigger** at **`main.ts`**.
 2a. Point a **cron trigger** at **`merchant.cron.ts`** (every 5-10 minutes is plenty — the merchant's own per-channel posting cadence is randomized independently, see `MERCHANT_MIN_INTERVAL_MINUTES`/`MERCHANT_MAX_INTERVAL_MINUTES` below). The market is off by default in every channel regardless of whether this trigger is set up; without it, `!market on` will simply never produce a post.
+2b. Point a **cron trigger** at **`timedmessages_cron.ts`** (every 5-10 minutes is plenty — each timed message schedules its own next-post time independently, see `!timedmsg add`). Without this trigger, `!timedmsg add` will store messages but they'll never post.
 3. Environment variables:
 
 | Variable | Purpose |
@@ -82,46 +80,26 @@ Chat: `!guide` or `!link` posts that same URL.
 | `MAX_MAPS_PER_CHANNEL` | *(optional)* Battle map cap per channel; default 25 |
 | `MAX_CUSTOM_COMMANDS_PER_CHANNEL` | *(optional)* Custom `!dndbot` command cap per channel; default 100 |
 | `MAX_CUSTOM_TRIGGERS_PER_CHANNEL` | *(optional)* Custom `!trigger` cap per channel; default 50 |
+| `MAX_TIMED_MESSAGES_PER_CHANNEL` | *(optional)* Timed message cap per channel; default 20 |
+| `TIMED_MESSAGE_MIN_INTERVAL_MINUTES` | *(optional)* Shortest allowed interval for a timed message; default 10 |
+| `TIMED_MESSAGE_MAX_INTERVAL_MINUTES` | *(optional)* Longest allowed interval for a timed message; default 10080 (1 week), floored at the min above |
 | `ADMIN_API_SECRET` | **Required for operator override**; secret bearer token for `/admin/channels/<broadcaster_id>/(disable|enable)`, `/admin/merchant/status`, and `/admin/logs` |
 | `SUPPORT_URL` | *(recommended)* Support/contact URL shown in the privacy policy and home page |
 | `PUBLIC_BASE_URL` | *(recommended)* Public HTTPS URL used in chat links; must match the deployed Val URL |
 | `COMMAND_COOLDOWN_MS` | *(optional)* Durable per-channel/user command cooldown; default 1200ms |
 | `GOODNIGHT_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between "goodnight" auto-replies; default 300000ms (5 min), floor 30000ms |
-| `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Per-channel chat-send spacing; default 320ms (~100 msgs/30s, the modded-bot limit). Raise it back toward 1600ms for any channel where the bot isn't modded. |
+| `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Global bot-account chat-send spacing; default 1600ms. Lower only after Twitch confirms the account's applicable limit/verification. |
 | `MERCHANT_MIN_INTERVAL_MINUTES` | *(optional)* Shortest gap between open-stall merchant ads in a channel with `!market on`; default 25, floor 5 |
 | `MERCHANT_MAX_INTERVAL_MINUTES` | *(optional)* Longest gap between open-stall merchant ads; default 60, floored at the min above |
-| `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message gets chronicled in a channel with `!chronicle on`; default 3 |
-| `CHRONICLE_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between chronicle quotes; default 600000ms (10 min), floor 30000ms |
-| `CHRONICLE_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chronicle quote before another can fire; default 15 |
-| `PRIMARY_BROADCASTER_ID` | *(optional)* Twitch broadcaster ID allowed to manage the shared "global" NPC roster via `!npc global add/edit/remove`; unset means no channel can write to it |
-| `NPC_MODEL` | *(optional)* OpenAI model used for NPC replies; default `gpt-4o-mini` |
-| `MAX_NPCS_PER_OWNER` | *(optional)* NPC roster cap per channel; default 25 |
-| `NPC_CHATTER_CHANCE_PERCENT` | *(optional)* Odds (0-100) that any single qualifying plain chat message triggers a random NPC chime-in in a channel with `!npc chatter on`; default 4 |
-| `NPC_CHATTER_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between random NPC chime-ins; default 900000ms (15 min), floor 60000ms |
-| `NPC_CHATTER_MIN_MESSAGES` | *(optional)* Minimum chat messages (any account, bots included) since the last chime-in before another can fire; default 20 |
-| `AD_REMINDER_MINUTES` | *(optional)* Minutes since the last known ad break before `!adcheck` flags a ⚠️ reminder; default 20 |
 
-4. Twitch Developer Console → OAuth Redirect URLs must include **both**:  
-   `https://<your-val>.web.val.run/callback` (bot connect flow)  
-   `https://<your-val>.web.val.run/dashboard/callback` (mod/broadcaster login for the Guild Dashboard — see below)  
-   (or your custom domain's equivalents, e.g. `https://guildscribe.val.run/callback` and `https://guildscribe.val.run/dashboard/callback`)
+4. Twitch Developer Console → add **both** OAuth Redirect URLs exactly:  
+   `https://<your-val>.web.val.run/callback` (broadcaster connect flow) and  
+   `https://<your-val>.web.val.run/dashboard/callback` (viewer "log in with Twitch" check for the web dashboard — see below; the dashboard's login step will fail with a Twitch redirect_uri mismatch error until this second one is added)
 5. Set `PUBLIC_BASE_URL` as an environment variable to your public HTTPS URL (used by `!guide` / `!link`). This deployment defaults to `https://guildscribe.val.run` when the env var isn't set.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
-The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads` — the sub scope powers the sub/resub thank-you (see below), and the ads scope powers `!adcheck`'s real Twitch ad-schedule lookup (see below). **Channels that connected before one of these scopes was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for the corresponding feature to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
-
-### Guild Dashboard (`/dashboard`)
-
-A separate, mod/broadcaster-gated web page with on/off switches for each module (bot, open-stall merchant, chronicle, NPC characters, NPC random chatter) — an alternative to `!dndbot on/off`, `!market on/off`, `!chronicle on/off`, `!npc on/off`, `!npc chatter on/off` in chat.
-
-This is a **different Twitch login from `/connect`**: `/connect` authorizes the *bot* against a broadcaster's channel (`channel:bot` scope); `/dashboard` signs in the *viewer* so GuildScribe can check whether they moderate or broadcast a connected channel, using the `user:read:moderated_channels` scope and Twitch's Get Moderated Channels endpoint. Signing into the dashboard grants no bot permissions and doesn't touch `channel:bot` at all.
-
-- `GET /dashboard` redirects to Twitch sign-in if there's no session cookie; afterward it shows a channel picker (if the viewer moderates/broadcasts more than one connected channel) or goes straight to the single channel's switches.
-- Moderator status is re-checked against the Twitch API on every dashboard view and every toggle — a demotion in Twitch takes effect immediately rather than trusting a cached claim.
-- Sessions live in the `dashboard_sessions` table (access + refresh token, never exposed to the browser — only an opaque session id is cookied) and last up to 30 days, refreshing the underlying Twitch token transparently.
-- `GET /dashboard/logout` clears the session.
-- The module list is data-driven: `DASHBOARD_MODULES` in `main.ts` is the single source of truth (key, label, description, and the `isEnabled`/`setEnabled` functions to call). Adding a future module's switch to the dashboard means adding one entry to that array — the status page, the toggle handler, and key validation all read from it, so nothing else needs to change.
+The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter powers the sub/resub thank-you (see below). **Channels that connected before this scope was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous to start firing; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
@@ -170,14 +148,6 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
 | `!bg3loot` | Random magic item drop with a BG3-style rarity tier (Common → Legendary) |
 | `!bg3camp` | Random camp-night vignette featuring one of the BG3 companions |
-| `!rollcall` | Natural 20 leaderboard, top 3 for the past hour/day/week in one line |
-| `!rollcall nat1` | Natural 1 leaderboard instead of nat 20 |
-| `!rollcall nat20 week` / `!rollcall nat1 hour` | One time frame only (`hour`, `day`, or `week`), top 5 instead of top 3 |
-| `!rollcall @user` | One player's own nat 20 **and** nat 1 counts across hour/day/week, instead of the channel-wide top list |
-| `!rollcall @user week` | Same, but just the one time frame |
-
-### Dice roller leaderboard
-Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving throws and skill checks, since those are `1d20` plus a modifier under the hood — is checked for a natural 1 or natural 20 and logged per channel. `!roll 2d6+3` and other multi-die expressions aren't "natural" rolls and are never logged. `!rollcall` (optionally `nat1` or `nat20`, defaulting to `nat20`) with no time frame shows a compact top 3 across all three windows at once; add `hour`, `day`, or `week` to see a bigger top 5 for just that window. Standings are per-channel and per-username (one entry per player even if their display name's capitalization has changed). Add `@user` instead to look up one player directly — `!rollcall @user` shows their own nat 20 **and** nat 1 counts side by side across all three windows (no need to pick a kind), and `!rollcall @user week` narrows it to one window.
 
 ### Guild archives (lookups)
 | Command | Example |
@@ -206,7 +176,7 @@ Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving th
 | `!party leave <name>` | Leave |
 | `!party disband <name>` | Leader dissolves the company |
 
-### Player duels & hunts
+### Arena & wilds (combat)
 | Command | Description |
 |---------|-------------|
 | `!dndduel @user` | Auto PvP challenge |
@@ -218,20 +188,14 @@ Every plain `1d20` roll from `!d20`/`!roll`/`!r` — including ability saving th
 | `!dndduel party A B` | Auto party vs party |
 | `!dndduel party classic A B` | Classic party vs party |
 | `!dndduel party accept` / `decline` / `attack` / `status` / `end` | Party duel flow |
-| `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random encounter, or a specific bestiary entry if you name one |
-| `!dndduel party hunt classic <party> [monster]` | Classic hunt — same optional targeting |
+| `!dndduel party hunt <party>` | Auto **company vs monster** |
+| `!dndduel party hunt classic <party>` | Classic hunt |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
+| `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
 
-**Targeted hunts:** the optional `[monster]` on `!dndduel party hunt` matches the same way as `!monster <name>` — an exact name wins, otherwise the first bestiary entry whose name contains what you typed (case-insensitive), e.g. `!dndduel party hunt myparty remorhaz` or `!dndduel party hunt classic myparty adult red dragon`. The named monster is still scaled to the party's average level exactly like a random pick — naming one only picks *which* monster, not its stats. If nothing matches, the bot tells you and the hunt doesn't start; leave the monster name off for a random, level-appropriate pick.
-
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
-
-### Initiative tracker
-| Command | Description |
-|---------|-------------|
-| `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 
 ### Custom commands & triggers
 Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but different subcommands (`add`/`edit`/`remove`/`cooldown`/`list` vs. `on`/`off`/`status`/`leave`), so there's no collision.
@@ -248,58 +212,34 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
 
-#### Response placeholders
-Drop any of these into a `!dndbot add`/`edit` or `!trigger add` response and they're filled in when it fires:
+Responses support `{user}`, `{target}` (first `@mention`, commands only), `{count}` (uses so far), and `{random:a|b|c}` (picks one option). Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
-| Placeholder | Expands to |
-|---|---|
-| `{user}` | Display name of whoever triggered it |
-| `{target}` | First `@mention` in a `!command`'s arguments (falls back to `{user}` for triggers, which have no arguments) |
-| `{count}` | How many times this command/trigger has now fired |
-| `{args}` | Everything typed after the command name (a `!command`'s own arguments) or, for a `!trigger`, the whole chat message that set it off — empty string if there's nothing to capture |
-| `{random:a\|b\|c}` | Picks one option at random (max 5 per response) |
-| `{randnum:MIN-MAX}` | A random whole number in that inclusive range, e.g. `{randnum:1-100}` (max 5 per response; `MIN`/`MAX` can be negative, e.g. `{randnum:-5-5}`) |
-| `{d4}` `{d6}` `{d8}` `{d10}` `{d12}` `{d20}` `{d100}` | Shorthand for a single roll of that standard die, e.g. `{d20}` → 1-20 (max 10 per response combined) |
-| `{channel}` | This channel's display name (falls back to "the channel" if it can't be looked up) |
-| `{time}` | Current time, HH:MM Central Time (CST/CDT, DST-aware) |
-| `{date}` | Current date, YYYY-MM-DD (Central Time) |
-| `{sender}` | Same as `{user}` |
-| `{touser}` | First word of the command's arguments with any leading `@` stripped, or `{user}` if there wasn't one |
-| `{game}` | The channel's current game/category (falls back to "no game set") |
-| `{title}` / `{status}` | The channel's current stream title (falls back to "no title set") |
-| `{uptime}` | How long the channel has been live, e.g. "2h 15m" (falls back to "offline") |
-| `{repeat:N\|text}` | Repeats `text` N times, space-separated, e.g. `{repeat:3\|Ho}` (N capped 1-20) |
-| `{math:expression}` | Evaluates simple arithmetic, e.g. `{math:(3+4)*2}` — only digits, `+ - * / ( ) .` and spaces are allowed (max 5 per response) |
-| `{twitchemotes}` | This channel's active Twitch subscriber emotes (up to 15, space-separated) |
-| `{7tvemotes}` | This channel's active 7TV emotes (up to 15) |
-| `{bttvemotes}` | This channel's active BetterTTV emotes (up to 15) |
-| `{ffzemotes}` | This channel's active FrankerFaceZ emotes (up to 15) |
-
-Example: `!dndbot add loot You dig through the rubble and find {randnum:1-50} gold, {user}! {random:Lucky|Not bad|Could be worse}.` Example: `!dndbot add attack {user} swings for {d8} damage!` Example: `!dndbot add live {channel} is playing {game} — "{title}" — live for {uptime}!` Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
-
-Not supported (would need new setup this bot doesn't have): changing the stream's game/title from chat or redeeming channel-point rewards (both need a broadcaster OAuth scope no connected channel has granted yet), a saved-quote system, named counters separate from a command's own use count (`{count}` already covers that), `$(if)`-style conditionals, and anything needing a paid third-party API key (stock prices, weather) that isn't configured in this project. AI chat replies **are** supported — see [NPC characters](#npc-characters) below, a separate system from custom commands.
-
-### NPC characters
-AI-voiced characters with an author-defined personality, powered by an LLM call per message (Val Town's built-in `std/openai` — no API key setup required). **Off by default per channel**, same pattern as the merchant and chronicle. Each Twitch channel gets its own roster; a shared **global** roster (managed only from the channel set as `PRIMARY_BROADCASTER_ID`) acts as a fallback for anyone who hasn't defined a same-named NPC locally. Conversation memory is kept per channel/character so an NPC remembers the last several exchanges.
+### Timed messages
+Recurring announcements, posted automatically by a separate cron trigger (`timedmessages_cron.ts`) rather than in response to anything in chat. Each message keeps its own schedule, so several messages with different intervals in the same channel rotate independently instead of firing together.
 
 | Command | Description |
 |---------|-------------|
-| `!npc on` / `off` | Enable or disable NPCs in this channel. **Off by default** *(mod)* |
-| `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
-| `!npc chatter on` / `off` | Let a random NPC chime into plain chat unprompted. **Off by default**, also requires `!npc on` *(mod)* |
-| `!npc chatter status` | Check whether random chatter is currently enabled (open to everyone) |
-| `!npc list` | List NPCs available in this channel (own roster + global fallback) |
-| `!npc add <name> <personality>` | Create a channel-scoped NPC *(mod)* |
-| `!npc edit <name> <personality>` | Change an existing NPC's personality *(mod)* |
-| `!npc remove <name>` | Delete a channel-scoped NPC *(mod)* |
-| `!npc talk <name> <message>` | Talk to an NPC — it replies in character |
-| `!npc global add/edit/remove ...` | Same, but manages the shared global roster *(PRIMARY_BROADCASTER_ID's channel only)* |
+| `!timedmsg add <minutes> <message>` | Schedule a new recurring message *(mod)* |
+| `!timedmsg edit <id> <message>` | Change an existing message's text *(mod)* |
+| `!timedmsg interval <id> <minutes>` | Change how often it posts *(mod)* |
+| `!timedmsg enable <id>` / `disable <id>` | Resume or pause without deleting *(mod)* |
+| `!timedmsg remove <id>` | Delete a timed message *(mod)* |
+| `!timedmsg list` | List configured timed messages, their id, interval, and on/off state |
 
-Turning NPCs off with `!npc off` doesn't delete the roster or any character's conversation memory — it just makes the whole `!npc` command (except `on`/`off`/`status`) unreachable until turned back on. `generateNpcReply()` in `npcs.ts` is written platform-agnostic (the roster's `ownerKey` isn't assumed to be a Twitch id) so another chat surface could reuse it later without changes here — none is wired up today.
+Responses support `{count}` (times posted so far) and `{random:a|b|c}`. Interval is minutes, bounded by `TIMED_MESSAGE_MIN_INTERVAL_MINUTES`/`TIMED_MESSAGE_MAX_INTERVAL_MINUTES` (default 10-10080); actual precision is capped by how often the `timedmessages_cron.ts` trigger itself ticks (Val Town's cron minimum is 15 minutes), same slop already accepted for the open-stall merchant.
 
-**Random chatter** (`!npc chatter on`) mirrors the chronicle's random quote-back almost exactly: a low-odds roll against every qualifying plain chat message (min length, no links, at least two words), gated by a per-channel cooldown and a minimum-activity threshold since the last chime-in — so it's an occasional flourish, not a running commentary. On a hit, a random NPC from the channel's own roster (not the global fallback) replies to the message in character, using the same conversation memory as `!npc talk`. It needs both `!npc on` and `!npc chatter on`, and at least one NPC in `!npc list`, to ever fire.
+### Web dashboard
+| Command | Description |
+|---------|-------------|
+| `!dashboard` | Post a private link to this channel's web dashboard *(mod)* |
+| `!dashboard reset` | Invalidate the old link (if it leaked) and issue a new one *(mod)* |
 
-Per-channel NPC state (on/off, chatter on/off, roster size, total uses) is visible to the operator on the [admin logs page](#operator-side-launch-requirements) at `/admin/logs`, next to the merchant's own overview table.
+The dashboard (`GET /dashboard?channel=<id>&key=<dashboard_key>`) is a plain-HTML page for adding, editing, and deleting custom commands, chat triggers, and timed messages with forms instead of chat syntax. Two independent layers gate access to it:
+
+1. **The link itself.** The `key` is a per-channel capability token (see `db.ts`'s `dashboard_key` column) — it's only ever handed out via the mod-gated `!dashboard` command, never posted automatically or shown to everyone.
+2. **A live Twitch login.** Opening the link (even with a valid key) first shows a "Log in with Twitch" gate. Logging in checks — at that moment, via Twitch's Get Moderated Channels API — whether the logged-in account is actually a moderator or the broadcaster of *that* channel. Only then does a signed, channel-scoped session cookie (12-hour expiry) unlock the actual management UI. This means a screenshotted or leaked link is useless to anyone who isn't currently a mod of that channel on Twitch, even though it still requires the OAuth redirect URI in step 4 above.
+
+The login step requests the `user:read:moderated_channels` scope from the *viewer*, separate from the broadcaster's own `channel:bot channel:read:subscriptions` connect-flow scopes.
 
 ### Battle maps
 | Command | Description |
@@ -328,21 +268,11 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/logs/gameplay state |
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
-| `!adcheck` | Report Twitch's real ad-schedule status — next ad, duration, snoozes left, time since the last ad, with a ⚠️ reminder once it's overdue *(mod)* |
-| `!adslogged` | Manually mark an ad break just run — fallback for channels that haven't (re)granted `channel:read:ads` yet *(mod)* |
-| `!chronicle on` / `off` | Enable or disable the chronicle's random chat-quoting. **Off by default** *(mod)* |
-| `!chronicle status` | Check whether the chronicle is currently active in this channel (open to everyone) |
-| `!npc on` / `off` | Enable or disable AI-voiced NPC characters in this channel. **Off by default** *(mod)* |
-| `!npc status` | Check whether NPCs are currently enabled in this channel (open to everyone) |
-| `!npc chatter on` / `off` | Let a random NPC chime into plain chat unprompted. **Off by default** *(mod)* |
-| `!npc chatter status` | Check whether random NPC chatter is currently enabled (open to everyone) |
 
 ### Passive chat (no command needed)
 | Trigger | Description |
 |---------|-------------|
 | "goodnight" / "gn" / "gnite" / "nighty night" / etc. | Bot replies with a themed send-off. One reply per channel per cooldown window (`GOODNIGHT_COOLDOWN_MS`, default 5 min) so a wave of goodnights from chat only draws a single response. |
-| Any plain chat message (when `!chronicle on`) | Small random chance (`CHRONICLE_QUOTE_CHANCE_PERCENT`, default 3%) per qualifying message of being quoted back with a D&D-flavored reply. Skips very short messages, single-word/emote spam, and links. Gated by a per-channel cooldown (`CHRONICLE_COOLDOWN_MS`, default 10 min) and a minimum-activity threshold (`CHRONICLE_MIN_MESSAGES`, default 15 messages since the last quote) so it can't fire back-to-back or in a dead-quiet channel. Bot accounts (Nightbot, StreamElements, GuildScribe itself, etc.) count toward that message minimum but are never selected as the one quoted. |
-| Any plain chat message (when `!npc on` AND `!npc chatter on`) | Same shape as the chronicle roll above (`NPC_CHATTER_CHANCE_PERCENT` default 4%, `NPC_CHATTER_COOLDOWN_MS` default 15 min, `NPC_CHATTER_MIN_MESSAGES` default 20), but instead of quoting the message back, a random NPC from the channel's own roster replies to it in character — using the same conversation memory `!npc talk` does. Needs at least one NPC in `!npc list` to ever fire. |
 
 ---
 
@@ -370,10 +300,6 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /` | Guild hall — info page, links to `/connect` |
 | `GET /connect` | Starts Twitch OAuth — generates state, redirects straight to Twitch's authorize page (no intermediate GuildScribe page) |
 | `GET /callback` | Twitch OAuth return |
-| `GET /dashboard` | Guild Dashboard — mod/broadcaster-only module on/off switches; redirects to Twitch sign-in if not already logged in |
-| `GET /dashboard/callback` | Twitch OAuth return for the dashboard's viewer login (separate from `/callback` above) |
-| `GET /dashboard/logout` | Clears the dashboard session cookie |
-| `POST /dashboard/toggle` | Flips one module for one channel; requires a valid dashboard session and re-verified mod/broadcaster status |
 | `GET /guide` · `/commands` | **Guild Codex** |
 | `GET /donate` | Support the Guild |
 | `GET /privacy` | Privacy policy |
@@ -381,6 +307,10 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /healthz` | Health check for uptime monitors |
 | `GET /admin/merchant/status` | Operator-only JSON: merchant cron health (last run, posts ok/failed, recent merchant-related events) |
 | `GET /admin/logs` | Operator-only, browser-viewable page: merchant cron status, per-channel merchant overview, recent monitor events |
+| `GET /dashboard` | Per-channel web dashboard for custom commands/triggers/timed messages — requires `?channel=<id>&key=<dashboard_key>`, handed out in chat via `!dashboard` (not an operator route, no `ADMIN_API_SECRET`) |
+| `GET /dashboard/login` | Starts the dashboard's viewer-side Twitch login (moderator check) |
+| `GET /dashboard/callback` | Twitch OAuth return for the dashboard login — verifies mod status, sets the session cookie |
+| `POST /dashboard/commands` · `/dashboard/triggers` · `/dashboard/timedmessages` | Dashboard form submissions (add/save/delete) — same `channel`+`key`+session-cookie auth as the GET route above, redirects back to the dashboard with a flash notice |
 | `POST /admin/channels/<id>/disable` | Operator-only channel block |
 | `POST /admin/channels/<id>/enable` | Operator-only unblock |
 | `GET /?channel=<broadcaster_id>&user=<username>` | Channel-scoped character sheet |
@@ -394,7 +324,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 
 - Start: level 1, 0 XP  
 - Monster CR → XP; thresholds can auto-level  
-- Monsters chosen by **level** (and party size on hunts), with win-friendly balance — or targeted by name on a party hunt (`!dndduel party hunt <party> <monster>`), still scaled to the party's level the same way  
+- Monsters chosen by **level** (and party size on hunts), with win-friendly balance  
 - Large solo roster across CR bands  
 
 ---
@@ -469,4 +399,4 @@ The public character sheet is channel-scoped and requires a currently connected 
 - Set `PUBLIC_BASE_URL` to the exact public HTTPS URL.
 - Configure an external uptime monitor against `/healthz`; the endpoint also retries transient EventSub cancellations.
 - Review the current Twitch developer/bot verification requirements and complete Twitch's verification process separately. Code cannot grant Twitch verification.
-- The chat-send queue is now per-channel and defaults to `CHAT_GLOBAL_MIN_INTERVAL_MS=320`, matching the modded-bot limit (100 msgs/30s). If the bot is added to a channel where it isn't modded, raise this back toward 1600ms (unverified/non-mod limit is ~20 msgs/30s) until Twitch verification is granted.
+- Keep the conservative `CHAT_GLOBAL_MIN_INTERVAL_MS=1600` until Twitch confirms the account's applicable chat rate limit; lower it only with that confirmation.

@@ -23,29 +23,6 @@ export function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]!));
 }
 
-/** Minimal cookie parsing for the /dashboard login session — just enough to
- * read a single named cookie back out of a Request. */
-export function getCookie(req: Request, name: string): string | null {
-  const header = req.headers.get("Cookie");
-  if (!header) return null;
-  for (const part of header.split(";")) {
-    const eq = part.indexOf("=");
-    if (eq === -1) continue;
-    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
-  }
-  return null;
-}
-
-/** Builds a Set-Cookie header value for the /dashboard session cookie.
- * HttpOnly + Secure + SameSite=Lax: not readable from JS, not sent on
- * cross-site requests (the main defense against a forged toggle POST), but
- * still attached on a normal top-level link/redirect from Twitch's login. */
-export function sessionCookie(name: string, value: string, maxAgeSeconds: number): string {
-  const attrs = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "Secure", "SameSite=Lax"];
-  attrs.push(maxAgeSeconds > 0 ? `Max-Age=${maxAgeSeconds}` : "Max-Age=0");
-  return attrs.join("; ");
-}
-
 export function formatStatLine(c: Character) {
   return `Lv${c.level} XP ${c.xp ?? 0} | ${abilityNames
     .map((a) => `${a} ${c.scores[a]}(${modifier(c.scores[a]) >= 0 ? "+" : ""}${modifier(c.scores[a])})`)
@@ -421,13 +398,7 @@ export function rollDice(input = "1d20", customLabel?: string) {
                 "That's a roll fit for a Tuesday quest.",
               ];
   const pun = puns[Math.floor(Math.random() * puns.length)];
-  const text = `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
-  // rawD20 is the unmodified die face (1-20) whenever exactly one d20 was
-  // rolled — a flat bonus (e.g. "1d20+5" for an ability check) doesn't
-  // change it, since the modifier isn't part of the natural result. null for
-  // anything that isn't a single d20 (e.g. 2d6, 4d8). Callers use this to
-  // log leaderboard events without re-parsing the formatted text.
-  return { text, rawD20 };
+  return `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
 }
 
 // Yes/No fate questions, e.g. "!roll is enya going to die this time?" — a
@@ -758,59 +729,6 @@ export function goodnightReply(display: string): string {
   return pick(display);
 }
 
-// ── Central Time formatting ──
-// Every human-facing timestamp in GuildScribe (admin logs, map "updated"
-// times, the {time}/{date} custom-command placeholders) goes through these
-// three functions so they can't drift out of sync with each other. Uses the
-// IANA zone "America/Chicago" rather than a fixed UTC-6 offset, so it
-// correctly shows CDT in summer and CST in winter (the same distinction a
-// clock on the wall in Chicago/Dallas/Kansas City would make) — the
-// timezone abbreviation in the output tells you which is currently active.
-const CENTRAL_TIME_ZONE = "America/Chicago";
-
-function centralParts(ts: number | Date) {
-  const date = typeof ts === "number" ? new Date(ts) : ts;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: CENTRAL_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23", // avoids the Intl "24:00" quirk hour12:false has for midnight
-    timeZoneName: "short",
-  }).formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-    second: get("second"),
-    zoneAbbr: get("timeZoneName"), // "CDT" or "CST"
-  };
-}
-
-/** Full date + time for logs/admin pages, e.g. "07/04/2026, 13:00:00 CDT". */
-export function formatCentralDateTime(ts: number | Date): string {
-  const p = centralParts(ts);
-  return `${p.month}/${p.day}/${p.year}, ${p.hour}:${p.minute}:${p.second} ${p.zoneAbbr}`;
-}
-
-/** HH:MM plus zone abbreviation, for the {time} custom-command placeholder. */
-export function formatCentralClock(ts: number | Date = Date.now()): string {
-  const p = centralParts(ts);
-  return `${p.hour}:${p.minute} ${p.zoneAbbr}`;
-}
-
-/** YYYY-MM-DD in Central time, for the {date} custom-command placeholder. */
-export function formatCentralDate(ts: number | Date = Date.now()): string {
-  const p = centralParts(ts);
-  return `${p.year}-${p.month}-${p.day}`;
-}
-
 export function compactText(value: unknown, max = 240) {
   return String(value ?? "")
     .replace(/\s+/g, " ")
@@ -837,5 +755,5 @@ export function firstAlive(members: string[], hp: Record<string, number>) {
 }
 
 export function logRowText(r: any) {
-  return `${formatCentralDateTime(Number(r.created_at))} | @${r.username} | ${r.action} | ${r.detail}`;
+  return `${new Date(Number(r.created_at)).toISOString()} | @${r.username} | ${r.action} | ${r.detail}`;
 }
