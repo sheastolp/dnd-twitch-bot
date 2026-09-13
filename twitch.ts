@@ -1,7 +1,8 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
-import { splitChatMessage } from "./utils.ts";
+import { splitChatMessage, formatDurationMs } from "./utils.ts";
+import { getBroadcasterAdsTokens, saveBroadcasterAdsTokens } from "./db.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -169,45 +170,109 @@ export async function getAppToken() {
   return cachedAppToken.token;
 }
 
-// Live channel info for custom command/trigger placeholders ({game},
-// {title}, {status}, {uptime}). Uses the existing cached app token — no new
-// OAuth scope needed since these are public Helix endpoints.
-export async function getChannelInfo(broadcasterId: string): Promise<{ gameName: string; title: string } | null> {
+export async function refreshUserToken(refreshToken: string) {
+  const body = new URLSearchParams({
+    client_id: env("TWITCH_CLIENT_ID"),
+    client_secret: env("TWITCH_CLIENT_SECRET"),
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const res = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) throw new Error(`User token refresh failed: ${res.status} ${await res.text()}`);
+  return await res.json();
+}
+
+// Refreshes and persists a broadcaster's ads-scoped user token if it's
+// expired or about to (60s early, same margin as the cached app token).
+// Returns null if the channel has never granted channel:read:ads (no
+// stored token) or the refresh itself fails (revoked/expired refresh token).
+async function getValidAdsUserToken(broadcasterId: string): Promise<string | null> {
+  const tokens = await getBroadcasterAdsTokens(broadcasterId);
+  if (!tokens) return null;
+  if (Date.now() < tokens.expiresAt - 60_000) return tokens.accessToken;
   try {
-    const token = await getAppToken();
-    const res = await fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${broadcasterId}`, {
-      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const row = data?.data?.[0];
-    if (!row) return null;
-    return { gameName: String(row.game_name ?? ""), title: String(row.title ?? "") };
+    const refreshed = await refreshUserToken(tokens.refreshToken);
+    const expiresAt = Date.now() + Number(refreshed.expires_in ?? 0) * 1000;
+    // Twitch may or may not rotate the refresh token on refresh — keep the
+    // old one if a new one isn't returned.
+    await saveBroadcasterAdsTokens(
+      broadcasterId,
+      refreshed.access_token,
+      refreshed.refresh_token ?? tokens.refreshToken,
+      expiresAt,
+    );
+    return refreshed.access_token as string;
   } catch (err) {
-    console.error("getChannelInfo failed", err);
+    console.error(`Ads token refresh failed for ${broadcasterId}`, err);
     return null;
   }
 }
 
-/** Returns a formatted uptime string ("1h 12m"/"12m"), or null if offline. */
-export async function getStreamUptime(broadcasterId: string): Promise<string | null> {
-  try {
-    const token = await getAppToken();
-    const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${broadcasterId}`, {
-      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const startedAt = data?.data?.[0]?.started_at;
-    if (!startedAt) return null; // offline
-    const totalMinutes = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60_000));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  } catch (err) {
-    console.error("getStreamUptime failed", err);
-    return null;
+export type AdScheduleResult =
+  | {
+      ok: true;
+      snoozeCount: number;
+      snoozeRefreshAt: number | null;
+      nextAdAt: number | null;
+      durationSeconds: number;
+      lastAdAt: number | null;
+      prerollFreeSeconds: number;
+    }
+  | { ok: false; reason: "no_token" | "api_error" };
+
+// Requires channel:read:ads, granted per-broadcaster during /connect — see
+// saveBroadcasterAdsTokens. Powers !adcheck.
+export async function getAdSchedule(broadcasterId: string): Promise<AdScheduleResult> {
+  const token = await getValidAdsUserToken(broadcasterId);
+  if (!token) return { ok: false, reason: "no_token" };
+  const res = await fetch(
+    `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(broadcasterId)}`,
+    { headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") } },
+  );
+  if (!res.ok) {
+    console.error(`Get Ad Schedule failed: ${res.status} ${await res.text()}`);
+    return { ok: false, reason: "api_error" };
   }
+  const body = await res.json();
+  const data = body.data?.[0] ?? {};
+  return {
+    ok: true,
+    snoozeCount: Number(data.snooze_count ?? 0),
+    snoozeRefreshAt: data.snooze_refresh_at ? Date.parse(data.snooze_refresh_at) : null,
+    nextAdAt: data.next_ad_at ? Date.parse(data.next_ad_at) : null,
+    durationSeconds: Number(data.duration ?? 0),
+    lastAdAt: data.last_ad_at ? Date.parse(data.last_ad_at) : null,
+    prerollFreeSeconds: Number(data.preroll_free_time ?? 0),
+  };
+}
+
+// Formats a getAdSchedule() result for chat. Used by !adcheck.
+export function formatAdSchedule(result: AdScheduleResult): string {
+  if (!result.ok) {
+    return result.reason === "no_token"
+      ? "ad schedule isn't available for this channel yet — the broadcaster needs to reconnect at /connect to grant the new ad-schedule permission."
+      : "couldn't reach Twitch's ad schedule right now — try again in a bit.";
+  }
+  const now = Date.now();
+  const parts: string[] = [];
+  if (result.nextAdAt && result.nextAdAt > now) {
+    parts.push(`next ad in ${formatDurationMs(result.nextAdAt - now)}`);
+  } else if (result.nextAdAt) {
+    parts.push("next ad is due any moment");
+  } else {
+    parts.push("no ad currently scheduled");
+  }
+  if (result.durationSeconds > 0) parts.push(`${result.durationSeconds}s long`);
+  if (result.lastAdAt) parts.push(`last ran ${formatDurationMs(now - result.lastAdAt)} ago`);
+  parts.push(`${result.snoozeCount} snooze${result.snoozeCount === 1 ? "" : "s"} available`);
+  if (result.snoozeRefreshAt && result.snoozeRefreshAt > now) {
+    parts.push(`next snooze in ${formatDurationMs(result.snoozeRefreshAt - now)}`);
+  }
+  return `📺 Ad schedule: ${parts.join(" | ")}.`;
 }
 
 export async function exchangeCode(code: string, redirectUri: string) {
@@ -225,61 +290,6 @@ export async function exchangeCode(code: string, redirectUri: string) {
   });
   if (!res.ok) throw new Error(`OAuth exchange failed: ${res.status} ${await res.text()}`);
   return await res.json();
-}
-
-export async function refreshUserToken(refreshToken: string) {
-  const body = new URLSearchParams({
-    client_id: env("TWITCH_CLIENT_ID"),
-    client_secret: env("TWITCH_CLIENT_SECRET"),
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-  });
-  const res = await fetch("https://id.twitch.tv/oauth2/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!res.ok) throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
-  return await res.json();
-}
-
-export interface AdSchedule {
-  snoozeCount: number;
-  snoozeRefreshAt: string;
-  nextAdAt: string;
-  lastAdAt: string;
-  durationSeconds: number;
-  prerollFreeTime: number;
-}
-
-/** Twitch's real ad schedule for a channel (Get Ad Schedule) — requires the
- * broadcaster's own user access token with the channel:read:ads scope
- * (requested during /connect, stored in broadcaster_ad_tokens). Returns
- * null if Twitch has nothing to report (e.g. stream offline / not yet
- * monetized) or the token was rejected (expired/revoked) — callers should
- * treat a rejected token as "needs reconnect", not a hard failure. */
-export async function fetchAdSchedule(userAccessToken: string, broadcasterId: string): Promise<AdSchedule | null> {
-  const res = await fetch(
-    `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(broadcasterId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${userAccessToken}`,
-        "Client-Id": env("TWITCH_CLIENT_ID"),
-      },
-    },
-  );
-  if (res.status === 401 || res.status === 403) return null;
-  if (!res.ok) throw new Error(`Ad schedule fetch failed: ${res.status} ${await res.text()}`);
-  const row = (await res.json()).data?.[0];
-  if (!row) return null;
-  return {
-    snoozeCount: Number(row.snooze_count ?? 0),
-    snoozeRefreshAt: String(row.snooze_refresh_at ?? ""),
-    nextAdAt: String(row.next_ad_at ?? ""),
-    lastAdAt: String(row.last_ad_at ?? ""),
-    durationSeconds: Number(row.duration ?? 0),
-    prerollFreeTime: Number(row.preroll_free_time ?? 0),
-  };
 }
 
 async function createEventSubSubscription(
@@ -366,9 +376,8 @@ export async function deleteEventSubSubscription(subscriptionId: string) {
 
 /** Constant-time string compare — doesn't branch/short-circuit on content,
  * only on length (which isn't secret), so it doesn't leak how many leading
- * characters of the signature matched via response timing. Exported for
- * reuse by dashboard.ts's session cookie verification. */
-export function timingSafeEqual(a: string, b: string): boolean {
+ * characters of the signature matched via response timing. */
+function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
@@ -397,46 +406,4 @@ export async function verifyEventSub(req: Request, rawBody: string) {
   const hex = [...signature].map((b) => b.toString(16).padStart(2, "0")).join("");
   const expected = `sha256=${hex}`;
   return timingSafeEqual(expected, received);
-}
-
-// ── Dashboard login (viewer-side OAuth, separate from the broadcaster
-// connect flow above) — used by dashboard.ts to verify that whoever is
-// sitting at the web dashboard is actually a moderator/broadcaster of the
-// channel, not just someone who found the link. ──
-
-/** The logged-in viewer's own Twitch identity, from their own access token
- * (no user_id param needed — Helix defaults to the token's owner). */
-export async function getViewerIdentity(accessToken: string): Promise<{ id: string; login: string; display_name: string } | null> {
-  const res = await fetch("https://api.twitch.tv/helix/users", {
-    headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const user = data.data?.[0];
-  if (!user) return null;
-  return { id: String(user.id), login: String(user.login), display_name: String(user.display_name ?? user.login) };
-}
-
-// Get Moderated Channels only returns channels the viewer moderates for
-// *someone else* — the broadcaster of their own channel is never in this
-// list, so callers must check viewerId === broadcasterId separately.
-// Requires the viewer's own token with scope user:read:moderated_channels.
-const MAX_MODERATED_CHANNELS_PAGES = 10;
-
-export async function isUserModeratorOfChannel(accessToken: string, viewerId: string, broadcasterId: string): Promise<boolean> {
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_MODERATED_CHANNELS_PAGES; page++) {
-    const params = new URLSearchParams({ user_id: viewerId, first: "100" });
-    if (cursor) params.set("after", cursor);
-    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    const rows: any[] = data.data ?? [];
-    if (rows.some((r) => String(r.broadcaster_id) === broadcasterId)) return true;
-    cursor = data.pagination?.cursor;
-    if (!cursor) break;
-  }
-  return false;
 }

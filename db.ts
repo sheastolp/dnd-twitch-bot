@@ -8,10 +8,6 @@ import type { Character } from "./types.ts";
 export const DEFAULT_CUSTOM_COMMAND_COOLDOWN_MS = 5_000;
 export const DEFAULT_CUSTOM_TRIGGER_COOLDOWN_MS = 15_000;
 
-// Default posting interval for a new timed message when none is given
-// (mods can set their own with !timedmsg add/interval — see timedmessages.ts).
-export const DEFAULT_TIMED_MESSAGE_INTERVAL_MINUTES = 30;
-
 async function tableColumns(table: string): Promise<string[]> {
   const res = await sqlite.execute(`PRAGMA table_info(${table})`);
   return res.rows.map((r: any) => String(r.name));
@@ -146,16 +142,6 @@ export async function ensureTables() {
     )`,
   );
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, expires_at INTEGER)`);
-  // Separate OAuth state table for the dashboard's viewer-side "log in with
-  // Twitch" moderator check (see dashboard.ts) — kept apart from the
-  // broadcaster-connect oauth_states above since the payload differs
-  // (channel_id + dashboard_key, not just an expiry) and the two flows use
-  // different redirect URIs/scopes.
-  await sqlite.execute(
-    `CREATE TABLE IF NOT EXISTS dashboard_oauth_states (
-      state TEXT PRIMARY KEY, channel_id TEXT NOT NULL, dashboard_key TEXT NOT NULL, expires_at INTEGER NOT NULL
-    )`,
-  );
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS broadcasters (
       broadcaster_id TEXT PRIMARY KEY, login TEXT, display_name TEXT, subscription_id TEXT, connected_at INTEGER, connected INTEGER NOT NULL DEFAULT 1, disconnected_at INTEGER, disconnect_reason TEXT
@@ -164,26 +150,16 @@ export async function ensureTables() {
   try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN connected INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
   try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN disconnected_at INTEGER`); } catch (_) {}
   try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN disconnect_reason TEXT`); } catch (_) {}
-  // Per-channel capability token for the web dashboard (see dashboard.ts) —
-  // a mod/broadcaster fetches it with !dashboard, then anyone holding the
-  // link can manage that one channel's custom commands/triggers/timed
-  // messages at GET/POST /dashboard. Hex-only (crypto.randomUUID minus
-  // dashes) so it never collides with the "+"-decodes-to-space query string
-  // trap documented on /admin/logs below.
-  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN dashboard_key TEXT`); } catch (_) {}
+  // Broadcaster-scoped user token, only populated once a channel has
+  // (re)connected with the channel:read:ads scope — powers !adcheck. Older
+  // connections predating this scope will have these columns NULL until
+  // the broadcaster reconnects.
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN ads_access_token TEXT`); } catch (_) {}
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN ads_refresh_token TEXT`); } catch (_) {}
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN ads_token_expires_at INTEGER`); } catch (_) {}
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS channel_characters (broadcaster_id TEXT, username TEXT, created_at INTEGER, updated_at INTEGER, PRIMARY KEY (broadcaster_id, username))`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS channel_blocks (broadcaster_id TEXT PRIMARY KEY, reason TEXT, created_at INTEGER, updated_at INTEGER)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS monitor_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, detail TEXT, created_at INTEGER)`);
-  // Single-row status for the merchant cron tick — read by GET
-  // /admin/merchant/status and /admin/logs (see getMerchantCronStatus /
-  // recordMerchantCronRun below, written once per tick by merchant_cron.ts).
-  await sqlite.execute(
-    `CREATE TABLE IF NOT EXISTS merchant_cron_status (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      last_run_at INTEGER, channels_due INTEGER NOT NULL DEFAULT 0,
-      last_posts_ok INTEGER NOT NULL DEFAULT 0, last_posts_failed INTEGER NOT NULL DEFAULT 0
-    )`,
-  );
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS eventsub_messages (message_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS command_rate_limits (broadcaster_id TEXT, username TEXT, last_at INTEGER NOT NULL, PRIMARY KEY (broadcaster_id, username))`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS pending_eventsub_cancellations (subscription_id TEXT PRIMARY KEY, broadcaster_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at INTEGER NOT NULL)`);
@@ -294,15 +270,9 @@ export async function ensureTables() {
     `CREATE TABLE IF NOT EXISTS monster_duels (
       broadcaster_id TEXT PRIMARY KEY, player TEXT, monster_name TEXT, monster_cr TEXT,
       monster_ac INTEGER, monster_hp INTEGER, monster_hp_max INTEGER, monster_attack INTEGER,
-      monster_damage_die INTEGER, monster_damage_bonus INTEGER, current_turn TEXT, active INTEGER, updated_at INTEGER,
-      player_hp INTEGER
+      monster_damage_die INTEGER, monster_damage_bonus INTEGER, current_turn TEXT, active INTEGER, updated_at INTEGER
     )`,
   );
-  // player_hp was added after the original table shipped — back-fill it for
-  // channels whose monster_duels table predates this column, or every
-  // !dndduel attack past the first exchange throws on the UPDATE below and
-  // the bot goes silent.
-  try { await sqlite.execute(`ALTER TABLE monster_duels ADD COLUMN player_hp INTEGER`); } catch (_) {}
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS party_monster_duels (
       broadcaster_id TEXT PRIMARY KEY,
@@ -341,31 +311,8 @@ export async function ensureTables() {
       PRIMARY KEY (broadcaster_id, keyword)
     )`,
   );
-  // Timed messages: broadcaster/mod-authored announcements posted on a
-  // recurring interval by timedmessages_cron.ts (a separate Val Town cron
-  // trigger, same shape as merchant_cron.ts). Each row schedules itself via
-  // next_post_at rather than the cron computing a shared schedule, so
-  // messages with different intervals in the same channel rotate
-  // independently instead of all firing together.
-  await sqlite.execute(
-    `CREATE TABLE IF NOT EXISTS timed_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      broadcaster_id TEXT NOT NULL,
-      message TEXT NOT NULL,
-      interval_minutes INTEGER NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      created_by TEXT,
-      created_at INTEGER,
-      updated_at INTEGER,
-      next_post_at INTEGER,
-      last_sent_at INTEGER NOT NULL DEFAULT 0,
-      uses INTEGER NOT NULL DEFAULT 0
-    )`,
-  );
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_commands_channel ON custom_commands(broadcaster_id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_custom_triggers_channel ON custom_triggers(broadcaster_id)`);
-  await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_timed_messages_channel ON timed_messages(broadcaster_id)`);
-  await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_timed_messages_due ON timed_messages(enabled, next_post_at)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_channel_id ON activity_logs(broadcaster_id,id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_channel_characters_channel ON channel_characters(broadcaster_id)`);
@@ -594,7 +541,9 @@ export async function unblockChannel(broadcasterId: string) {
 
 export async function markBroadcasterDisconnected(broadcasterId: string, reason: string, subscriptionId?: string) {
   await sqlite.execute(
-    "UPDATE broadcasters SET connected = 0, disconnected_at = ?, disconnect_reason = ?, subscription_id = COALESCE(?, subscription_id) WHERE broadcaster_id = ?",
+    // Ad-schedule tokens are cleared on disconnect (see privacy policy: the
+    // token is only retained while the channel stays connected).
+    "UPDATE broadcasters SET connected = 0, disconnected_at = ?, disconnect_reason = ?, subscription_id = COALESCE(?, subscription_id), ads_access_token = NULL, ads_refresh_token = NULL, ads_token_expires_at = NULL WHERE broadcaster_id = ?",
     [Date.now(), reason.slice(0, 240), subscriptionId ?? null, broadcasterId],
   );
 }
@@ -602,6 +551,35 @@ export async function markBroadcasterDisconnected(broadcasterId: string, reason:
 export async function getBroadcaster(broadcasterId: string) {
   const res = await sqlite.execute("SELECT * FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   return res.rows.length ? res.rows[0] : null;
+}
+
+// Saved once at OAuth connect time (channel:read:ads scope required for
+// !adcheck). expiresAt is an absolute ms timestamp.
+export async function saveBroadcasterAdsTokens(
+  broadcasterId: string,
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: number,
+) {
+  await sqlite.execute(
+    "UPDATE broadcasters SET ads_access_token = ?, ads_refresh_token = ?, ads_token_expires_at = ? WHERE broadcaster_id = ?",
+    [accessToken, refreshToken, expiresAt, broadcasterId],
+  );
+}
+
+export async function getBroadcasterAdsTokens(broadcasterId: string) {
+  const res = await sqlite.execute(
+    "SELECT ads_access_token, ads_refresh_token, ads_token_expires_at FROM broadcasters WHERE broadcaster_id = ?",
+    [broadcasterId],
+  );
+  if (!res.rows.length) return null;
+  const row: any = res.rows[0];
+  if (!row.ads_access_token || !row.ads_refresh_token) return null;
+  return {
+    accessToken: String(row.ads_access_token),
+    refreshToken: String(row.ads_refresh_token),
+    expiresAt: Number(row.ads_token_expires_at ?? 0),
+  };
 }
 
 // "kind" is a short label ("sub" for channel.subscribe, "resub" for
@@ -642,11 +620,6 @@ export async function purgeChannelData(broadcasterId: string) {
     "party_monster_duels",
     "channel_settings",
     "merchant_settings",
-    "chronicle_settings",
-    "chronicle_activity",
-    "npc_settings",
-    "npc_chatter_settings",
-    "npc_chatter_activity",
     "channel_characters",
     "characters",
     "character_backups",
@@ -654,14 +627,9 @@ export async function purgeChannelData(broadcasterId: string) {
     "maps",
     "map_cells",
     "map_tokens",
-    "dice_roll_events",
   ]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
-  // npc_characters/npc_conversations are keyed by owner_key ("twitch:<id>"),
-  // not broadcaster_id directly, so they don't fit the generic loop above.
-  await sqlite.execute("DELETE FROM npc_characters WHERE owner_key = ?", [`twitch:${broadcasterId}`]);
-  await sqlite.execute("DELETE FROM npc_conversations WHERE owner_key = ?", [`twitch:${broadcasterId}`]);
   await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
@@ -670,9 +638,6 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
   else {
     await sqlite.execute("DELETE FROM channel_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
-    await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
-    await sqlite.execute("DELETE FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
-    await sqlite.execute("DELETE FROM npc_chatter_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   }
@@ -704,27 +669,11 @@ export async function setMerchantEnabled(broadcasterId: string, enabled: boolean
   );
 }
 
-/** Recently-active chatters in a channel (from activity_logs), most-recent
- * first — the pool !oracle picks a name from. */
-export async function getRecentChatters(broadcasterId: string, limit = 50) {
-  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
-  const res = await sqlite.execute(
-    `SELECT username, MAX(created_at) AS last_seen
-     FROM (SELECT username, created_at FROM activity_logs WHERE broadcaster_id = ? ORDER BY id DESC LIMIT 500) AS recent
-     GROUP BY username
-     ORDER BY last_seen DESC
-     LIMIT ${safeLimit}`,
-    [broadcasterId],
-  );
-  return res.rows.map((r: any) => String(r.username));
-}
-
 /** Channels whose merchant is enabled, due for a post, connected, not
  * operator-blocked, and not otherwise disabled via !dndbot off. */
 export async function getDueMerchantChannels(now: number): Promise<string[]> {
   const res = await sqlite.execute(
     `SELECT m.broadcaster_id AS broadcaster_id
-
      FROM merchant_settings m
      JOIN broadcasters b ON b.broadcaster_id = m.broadcaster_id AND b.connected = 1
      LEFT JOIN channel_settings cs ON cs.broadcaster_id = m.broadcaster_id
@@ -743,47 +692,6 @@ export async function rescheduleMerchant(broadcasterId: string, nextPostAt: numb
     "UPDATE merchant_settings SET next_post_at = ?, updated_at = ? WHERE broadcaster_id = ?",
     [nextPostAt, Date.now(), broadcasterId],
   );
-}
-
-/** Called once per merchant_cron.ts tick — overwrites the single status row
- * so GET /admin/merchant/status and /admin/logs can tell whether the cron is
- * still ticking and whether its last run posted cleanly. */
-export async function recordMerchantCronRun(channelsDue: number, postsOk: number, postsFailed: number) {
-  await sqlite.execute(
-    `INSERT INTO merchant_cron_status (id, last_run_at, channels_due, last_posts_ok, last_posts_failed)
-     VALUES (1, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET last_run_at = excluded.last_run_at, channels_due = excluded.channels_due,
-       last_posts_ok = excluded.last_posts_ok, last_posts_failed = excluded.last_posts_failed`,
-    [Date.now(), channelsDue, postsOk, postsFailed],
-  );
-}
-
-export async function getMerchantCronStatus() {
-  const res = await sqlite.execute("SELECT * FROM merchant_cron_status WHERE id = 1");
-  return res.rows.length ? res.rows[0] : null;
-}
-
-/** Per-channel merchant on/off + next-due-time, for every connected
- * channel — the operator-only overview table on GET /admin/logs. */
-export async function getMerchantOverview() {
-  const res = await sqlite.execute(
-    `SELECT b.broadcaster_id AS broadcaster_id, b.display_name AS display_name, b.login AS login,
-            COALESCE(m.enabled, 0) AS enabled, m.next_post_at AS next_post_at
-     FROM broadcasters b
-     LEFT JOIN merchant_settings m ON m.broadcaster_id = b.broadcaster_id
-     WHERE b.connected = 1
-     ORDER BY b.display_name ASC`,
-  );
-  return res.rows;
-}
-
-/** Most recent monitor_events, optionally filtered to one `kind` (e.g.
- * "merchant") — backs both the JSON status endpoint and the /admin/logs page. */
-export async function getMonitorEvents(kind?: string, limit = 100) {
-  const res = kind
-    ? await sqlite.execute("SELECT * FROM monitor_events WHERE kind = ? ORDER BY id DESC LIMIT ?", [kind, limit])
-    : await sqlite.execute("SELECT * FROM monitor_events ORDER BY id DESC LIMIT ?", [limit]);
-  return res.rows;
 }
 
 export async function getDuel(broadcasterId: string) {
@@ -1227,19 +1135,6 @@ export async function addCustomTrigger(broadcasterId: string, keyword: string, r
   return { ok: true as const };
 }
 
-// No !trigger edit chat command exists (mods currently remove+re-add to
-// change a trigger's response — see customcommands.ts), but the web
-// dashboard edits triggers in place like it does custom commands, so this
-// mirrors editCustomCommand for that one caller.
-export async function editCustomTrigger(broadcasterId: string, keyword: string, response: string) {
-  if (!(await getCustomTrigger(broadcasterId, keyword))) return false;
-  await sqlite.execute(
-    "UPDATE custom_triggers SET response = ?, updated_at = ? WHERE broadcaster_id = ? AND keyword = ?",
-    [response, Date.now(), broadcasterId, keyword],
-  );
-  return true;
-}
-
 export async function deleteCustomTrigger(broadcasterId: string, keyword: string) {
   if (!(await getCustomTrigger(broadcasterId, keyword))) return false;
   await sqlite.execute("DELETE FROM custom_triggers WHERE broadcaster_id = ? AND keyword = ?", [broadcasterId, keyword]);
@@ -1260,158 +1155,4 @@ export async function markCustomTriggerUsed(broadcasterId: string, keyword: stri
     "UPDATE custom_triggers SET uses = uses + 1, last_used_at = ? WHERE broadcaster_id = ? AND keyword = ?",
     [Date.now(), broadcasterId, keyword],
   );
-}
-
-// Full rows (unlike listCustomCommands' name+uses-only projection used by
-// the in-chat !dndbot list) — for the web dashboard, which needs to show
-// and pre-fill the actual response/cooldown for editing.
-export async function listCustomCommandsFull(broadcasterId: string) {
-  const res = await sqlite.execute("SELECT * FROM custom_commands WHERE broadcaster_id = ? ORDER BY name ASC", [broadcasterId]);
-  return res.rows;
-}
-
-// ── Timed messages (!timedmsg — see timedmessages.ts, posted by timedmessages_cron.ts) ──
-
-export async function countTimedMessages(broadcasterId: string) {
-  const res = await sqlite.execute("SELECT COUNT(*) AS count FROM timed_messages WHERE broadcaster_id = ?", [broadcasterId]);
-  return Number(res.rows[0]?.count ?? 0);
-}
-
-export async function listTimedMessages(broadcasterId: string) {
-  const res = await sqlite.execute("SELECT * FROM timed_messages WHERE broadcaster_id = ? ORDER BY id ASC", [broadcasterId]);
-  return res.rows;
-}
-
-export async function getTimedMessage(broadcasterId: string, id: number) {
-  const res = await sqlite.execute("SELECT * FROM timed_messages WHERE broadcaster_id = ? AND id = ?", [broadcasterId, id]);
-  return res.rows.length ? res.rows[0] : null;
-}
-
-export async function addTimedMessage(broadcasterId: string, message: string, intervalMinutes: number, createdBy: string) {
-  const max = Math.max(1, Number(Deno.env.get("MAX_TIMED_MESSAGES_PER_CHANNEL") ?? "20"));
-  if ((await countTimedMessages(broadcasterId)) >= max) return { ok: false as const, error: "cap" as const, max };
-  const now = Date.now();
-  await sqlite.execute(
-    "INSERT INTO timed_messages (broadcaster_id,message,interval_minutes,enabled,created_by,created_at,updated_at,next_post_at,last_sent_at,uses) VALUES (?,?,?,1,?,?,?,?,0,0)",
-    [broadcasterId, message, intervalMinutes, createdBy, now, now, now + intervalMinutes * 60_000],
-  );
-  // No lastInsertRowId plumbing exists elsewhere in this codebase to reuse,
-  // so the new row is looked up by its own created_at instead — safe enough
-  // since it's scoped to one channel and a collision needs two adds in the
-  // same broadcaster within the same millisecond.
-  const res = await sqlite.execute(
-    "SELECT id FROM timed_messages WHERE broadcaster_id = ? AND created_at = ? ORDER BY id DESC LIMIT 1",
-    [broadcasterId, now],
-  );
-  return { ok: true as const, id: Number(res.rows[0]?.id ?? 0) };
-}
-
-export async function editTimedMessage(broadcasterId: string, id: number, message: string) {
-  if (!(await getTimedMessage(broadcasterId, id))) return false;
-  await sqlite.execute(
-    "UPDATE timed_messages SET message = ?, updated_at = ? WHERE broadcaster_id = ? AND id = ?",
-    [message, Date.now(), broadcasterId, id],
-  );
-  return true;
-}
-
-// Changing the interval reschedules from now, so a mod shortening a 6-hour
-// interval to 10 minutes doesn't cause an immediate flood of overdue posts.
-export async function setTimedMessageInterval(broadcasterId: string, id: number, intervalMinutes: number) {
-  if (!(await getTimedMessage(broadcasterId, id))) return false;
-  const now = Date.now();
-  await sqlite.execute(
-    "UPDATE timed_messages SET interval_minutes = ?, next_post_at = ?, updated_at = ? WHERE broadcaster_id = ? AND id = ?",
-    [intervalMinutes, now + intervalMinutes * 60_000, now, broadcasterId, id],
-  );
-  return true;
-}
-
-// Re-enabling also reschedules from now, for the same reason as above — a
-// message paused for a week shouldn't fire the instant it's turned back on.
-export async function setTimedMessageEnabled(broadcasterId: string, id: number, enabled: boolean) {
-  const row = await getTimedMessage(broadcasterId, id);
-  if (!row) return false;
-  const now = Date.now();
-  const nextPostAt = enabled ? now + Number(row.interval_minutes ?? DEFAULT_TIMED_MESSAGE_INTERVAL_MINUTES) * 60_000 : row.next_post_at;
-  await sqlite.execute(
-    "UPDATE timed_messages SET enabled = ?, next_post_at = ?, updated_at = ? WHERE broadcaster_id = ? AND id = ?",
-    [enabled ? 1 : 0, nextPostAt, now, broadcasterId, id],
-  );
-  return true;
-}
-
-export async function deleteTimedMessage(broadcasterId: string, id: number) {
-  if (!(await getTimedMessage(broadcasterId, id))) return false;
-  await sqlite.execute("DELETE FROM timed_messages WHERE broadcaster_id = ? AND id = ?", [broadcasterId, id]);
-  return true;
-}
-
-// Polled by timedmessages_cron.ts. Only messages in currently-connected,
-// non-blocked channels are considered due — mirrors getDueMerchantChannels'
-// join against broadcasters(connected = 1).
-export async function getDueTimedMessages(now: number) {
-  const res = await sqlite.execute(
-    `SELECT t.* FROM timed_messages t
-     JOIN broadcasters b ON b.broadcaster_id = t.broadcaster_id AND b.connected = 1
-     WHERE t.enabled = 1 AND t.next_post_at IS NOT NULL AND t.next_post_at <= ?`,
-    [now],
-  );
-  return res.rows;
-}
-
-export async function recordTimedMessageSent(id: number, nextPostAt: number) {
-  await sqlite.execute(
-    "UPDATE timed_messages SET next_post_at = ?, last_sent_at = ?, uses = uses + 1 WHERE id = ?",
-    [nextPostAt, Date.now(), id],
-  );
-}
-
-// ── Web dashboard capability token (see dashboard.ts) ──
-
-export async function getDashboardKey(broadcasterId: string): Promise<string | null> {
-  const broadcaster = await getBroadcaster(broadcasterId);
-  return broadcaster?.dashboard_key ? String(broadcaster.dashboard_key) : null;
-}
-
-/** Returns the channel's existing dashboard key, minting one on first use. */
-export async function getOrCreateDashboardKey(broadcasterId: string): Promise<string> {
-  const existing = await getDashboardKey(broadcasterId);
-  if (existing) return existing;
-  return await regenerateDashboardKey(broadcasterId);
-}
-
-/** Invalidates any previously shared dashboard link (e.g. leaked in chat/VOD) and issues a fresh key. */
-export async function regenerateDashboardKey(broadcasterId: string): Promise<string> {
-  const key = crypto.randomUUID().replace(/-/g, "");
-  await sqlite.execute("UPDATE broadcasters SET dashboard_key = ? WHERE broadcaster_id = ?", [key, broadcasterId]);
-  return key;
-}
-
-/** True only for a connected channel whose current dashboard key matches. */
-export async function verifyDashboardKey(broadcasterId: string, key: string): Promise<boolean> {
-  if (!key || key.length < 20) return false;
-  const broadcaster = await getBroadcaster(broadcasterId);
-  if (!broadcaster || Number(broadcaster.connected) !== 1) return false;
-  return !!broadcaster.dashboard_key && String(broadcaster.dashboard_key) === key;
-}
-
-// ── Dashboard "log in with Twitch" OAuth state (see dashboard.ts) ──
-
-export async function saveDashboardOAuthState(state: string, channelId: string, dashboardKey: string, expiresAt: number) {
-  await sqlite.execute(
-    "INSERT INTO dashboard_oauth_states (state, channel_id, dashboard_key, expires_at) VALUES (?,?,?,?)",
-    [state, channelId, dashboardKey, expiresAt],
-  );
-}
-
-/** One-time read: returns the state row (if valid and unexpired) and always
- * deletes it, so a state value can never be replayed. */
-export async function consumeDashboardOAuthState(state: string) {
-  const res = await sqlite.execute(
-    "SELECT * FROM dashboard_oauth_states WHERE state = ? AND expires_at > ?",
-    [state, Date.now()],
-  );
-  await sqlite.execute("DELETE FROM dashboard_oauth_states WHERE state = ?", [state]);
-  return res.rows.length ? res.rows[0] : null;
 }
