@@ -96,12 +96,9 @@ export async function handleAdCommand(
   if (!token) {
     const bits = [
       `@${display} 📺 Can't read Twitch's ad schedule yet — reconnect at ${baseUrl}/connect to grant ad-read access.`,
+      `Last ad: ${manualAgo !== null ? `~${manualAgo} min ago (manually logged)` : "not logged yet — run !adslogged right after you roll one"}.`,
+      `Next ad: unknown until reconnected.`,
     ];
-    bits.push(
-      manualAgo !== null
-        ? `Last ad manually logged ~${manualAgo} min ago.`
-        : `No ad activity logged yet — run !adslogged right after you roll one.`,
-    );
     if (manualAgo !== null && manualAgo >= AD_REMINDER_MINUTES) {
       bits.push(`⚠️ that's over ${AD_REMINDER_MINUTES} min — might be time to roll ads.`);
     }
@@ -118,8 +115,11 @@ export async function handleAdCommand(
   }
 
   if (!schedule || (!schedule.nextAdAt && !schedule.lastAdAt)) {
-    const bits = [`@${display} 📺 No ad schedule data right now (stream may be offline or not yet monetized).`];
-    if (manualAgo !== null) bits.push(`Last ad manually logged ~${manualAgo} min ago.`);
+    const bits = [
+      `@${display} 📺 No ad schedule data right now (stream may be offline or not yet monetized).`,
+      `Last ad: ${manualAgo !== null ? `~${manualAgo} min ago (manually logged)` : "not logged"}.`,
+      `Next ad: not scheduled.`,
+    ];
     await sendChatMessage(bits.join(" "), broadcasterId);
     return true;
   }
@@ -130,11 +130,19 @@ export async function handleAdCommand(
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b)[0] ?? null;
 
+  // Lead with the two things asked for at a glance — how long ago the last
+  // ad ran, and when the next one can run — then duration/snoozes/warning.
   const bits: string[] = [];
-  if (untilNext !== null) bits.push(untilNext <= 0 ? "⚠️ next ad is due now" : `next ad in ~${untilNext} min`);
+  bits.push(`Last ad: ${mostRecentAgo !== null ? `~${mostRecentAgo} min ago` : "unknown"}`);
+  bits.push(
+    untilNext === null
+      ? "Next ad: not scheduled"
+      : untilNext <= 0
+        ? "⚠️ Next ad: due now"
+        : `Next ad: in ~${untilNext} min`,
+  );
   bits.push(`${schedule.durationSeconds || "?"}s long`);
   bits.push(`${schedule.snoozeCount} snooze${schedule.snoozeCount === 1 ? "" : "s"} left`);
-  if (mostRecentAgo !== null) bits.push(`last ad ~${mostRecentAgo} min ago`);
   if (mostRecentAgo !== null && mostRecentAgo >= AD_REMINDER_MINUTES && (untilNext === null || untilNext > 2)) {
     bits.push(`⚠️ over ${AD_REMINDER_MINUTES} min since the last ad`);
   }
