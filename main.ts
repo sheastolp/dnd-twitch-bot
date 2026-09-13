@@ -41,9 +41,22 @@ import {
   getMapTokens,
   listMaps,
   saveCreationSession,
+  recordDiceRollEvent,
+  getDiceLeaderboard,
+  getDiceStatsForUser,
 } from "./db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
+import { handleAdCommand } from "./ads.ts";
+import {
+  disconnectAdToken,
+  ensureAdTables,
+  purgeAdData,
+  saveBroadcasterAdToken,
+} from "./ads_db.ts";
+import { handleOracleCommand } from "./oracle.ts";
+import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
+import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
   handleCustomCommandManagement,
   handleCustomCommandInvocation,
@@ -141,6 +154,7 @@ async function sendWelcomeMessage(display: string, broadcasterId: string) {
 
 async function handleRequest(req: Request): Promise<Response> {
   await ensureTables();
+  await ensureAdTables();
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -191,7 +205,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -254,6 +268,22 @@ async function handleRequest(req: Request): Promise<Response> {
         "INSERT OR REPLACE INTO broadcasters (broadcaster_id,login,display_name,subscription_id,connected_at,connected,disconnected_at,disconnect_reason) VALUES (?,?,?,?,?,?,?,?)",
         [user.id, user.login, user.display_name, sub.id, Date.now(), 1, null, null],
       );
+      // Best-effort: powers !adcheck's real Twitch ad-schedule lookup.
+      // Requires channel:read:ads, now requested above, but a save failure
+      // here should never block the core chat connection — !adcheck simply
+      // falls back to the manually-logged !adslogged timestamp until the
+      // channel reconnects.
+      try {
+        await saveBroadcasterAdToken(
+          user.id,
+          token.access_token,
+          token.refresh_token,
+          Array.isArray(token.scope) ? token.scope.join(" ") : String(token.scope ?? ""),
+          Date.now() + Math.max(0, Number(token.expires_in ?? 0) * 1000 - 60_000),
+        );
+      } catch (e) {
+        await recordMonitorEvent("ad_token_save_failed", `${user.id}: ${String(e)}`);
+      }
       // Best-effort: powers the D&D-themed !hug-style new-sub/resub thank
       // you. Requires channel:read:subscriptions, which is now requested
       // above, but shouldn't block the core chat connection if it fails
@@ -545,7 +575,15 @@ async function handleRequest(req: Request): Promise<Response> {
       hasModeratorBadge(body.event);
     const baseUrl = url.origin;
 
-    if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) return new Response("OK");
+    if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) {
+      // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
+      // never get processed as commands, quoted by the chronicle, or replied
+      // to by random NPC chatter, but they still count as chat activity
+      // toward each feature's own minimum-messages gate.
+      await recordChronicleBotMessage(broadcasterId);
+      await recordNpcChatterBotMessage(broadcasterId);
+      return new Response("OK");
+    }
 
     // Only process events for an actively connected broadcaster. This makes a
     // stale EventSub subscription harmless after disconnect/offboarding.
@@ -579,8 +617,13 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
       await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
-      if (purge) await purgeChannelData(broadcasterId);
-      else await disconnectBroadcasterData(broadcasterId, false);
+      if (purge) {
+        await purgeChannelData(broadcasterId);
+        await purgeAdData(broadcasterId);
+      } else {
+        await disconnectBroadcasterData(broadcasterId, false);
+        await disconnectAdToken(broadcasterId);
+      }
       return new Response("OK");
     }
 
@@ -631,6 +674,14 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (
+      await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
+    ) return new Response("OK");
+    if (
+      await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
+    ) return new Response("OK");
+    if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
 
     if (chatMessage === "!logs") {
       if (!isModerator) {
@@ -668,7 +719,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help =
         category === "dice"
-          ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+          ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !help | !guide | !link"
             : category === "character"
@@ -823,11 +874,93 @@ async function handleRequest(req: Request): Promise<Response> {
               `@${display} that's not a valid roll — try !roll, !r, !d20, !roll 2d6+3, !roll dex, !roll stealth, or !roll <question>?`,
               broadcasterId,
             );
-          } else if (rollTarget) {
-            await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result}`, broadcasterId);
           } else {
-            await sendChatMessage(`@${display} ${result}`, broadcasterId);
+            if (result.rawD20 === 20 || result.rawD20 === 1) {
+              await recordDiceRollEvent(
+                broadcasterId,
+                chatter,
+                display,
+                result.rawD20 === 20 ? "nat20" : "nat1",
+              );
+            }
+            if (rollTarget) {
+              await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result.text}`, broadcasterId);
+            } else {
+              await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
+            }
           }
+        }
+      }
+    } else if (/^!rollcall(?:\s+.*)?$/i.test(chatMessage)) {
+      // !rollcall [nat1|nat20] [hour|day|week] — natural 1/20 standings
+      // logged from !roll/!r/!d20 (see recordDiceRollEvent above). Kind
+      // defaults to nat20; with no time frame given, shows a compact top-3
+      // across all three windows in one line, otherwise a bigger top-5 for
+      // just the requested window.
+      //
+      // !rollcall @user [hour|day|week] — one player's own nat1 AND nat20
+      // counts instead of the channel-wide top list. No kind filter here
+      // since the point is seeing both side by side for that person.
+      const rawArgs = chatMessage.replace(/^!rollcall\s*/i, "").trim();
+      const targetMatch = rawArgs.match(/@(\S+)/);
+      const targetDisplay = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : null;
+      const targetUser = targetDisplay ? targetDisplay.toLowerCase() : null;
+      const lbWords = rawArgs.replace(/@\S+/g, "").toLowerCase().split(/\s+/).filter(Boolean);
+      const windowMs: Record<"hour" | "day" | "week", number> = {
+        hour: 60 * 60 * 1000,
+        day: 24 * 60 * 60 * 1000,
+        week: 7 * 24 * 60 * 60 * 1000,
+      };
+      const windowAliases: Record<string, "hour" | "day" | "week"> = {
+        hour: "hour", "1hr": "hour", "1h": "hour",
+        day: "day", "1d": "day",
+        week: "week", "1w": "week",
+      };
+      const requestedWindow = lbWords.map((w) => windowAliases[w]).find(Boolean);
+
+      if (targetUser) {
+        if (requestedWindow) {
+          const stats = await getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs[requestedWindow]);
+          await sendChatMessage(
+            `@${display} 🎲 @${targetDisplay}'s rolls (past ${requestedWindow}): 🌟 Nat20 x${stats.nat20} | 💀 Nat1 x${stats.nat1}`,
+            broadcasterId,
+          );
+        } else {
+          const [hourStats, dayStats, weekStats] = await Promise.all([
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.hour),
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.day),
+            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.week),
+          ]);
+          await sendChatMessage(
+            `@${display} 🎲 @${targetDisplay}'s rolls — 🌟 Nat20 (Hour ${hourStats.nat20}, Day ${dayStats.nat20}, Week ${weekStats.nat20}) | 💀 Nat1 (Hour ${hourStats.nat1}, Day ${dayStats.nat1}, Week ${weekStats.nat1})`,
+            broadcasterId,
+          );
+        }
+      } else {
+        const kind: "nat1" | "nat20" = lbWords.includes("nat1") || lbWords.includes("1") ? "nat1" : "nat20";
+        const label = kind === "nat20" ? "Natural 20" : "Natural 1";
+        const emoji = kind === "nat20" ? "🌟" : "💀";
+        const formatEntries = (rows: { displayName: string; count: number }[]) =>
+          rows.length ? rows.map((r) => `${r.displayName} x${r.count}`).join(", ") : "none yet";
+
+        if (requestedWindow) {
+          const rows = await getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs[requestedWindow], 5);
+          await sendChatMessage(
+            `@${display} ${emoji} ${label} leaderboard (past ${requestedWindow}): ${formatEntries(rows)}`,
+            broadcasterId,
+          );
+        } else {
+          const [hourRows, dayRows, weekRows] = await Promise.all([
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.hour, 3),
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.day, 3),
+            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
+          ]);
+          await sendChatMessages(
+            `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !rollcall ${
+              kind === "nat20" ? "nat1" : "nat20"
+            }, !rollcall ${kind} week for a bigger top 5, or !rollcall @user for one player's stats.`,
+            broadcasterId,
+          );
         }
       }
     } else if (chatMessage === "!bg3roll") {
@@ -936,8 +1069,17 @@ async function handleRequest(req: Request): Promise<Response> {
         await sendChatMessage(goodnightReply(display), broadcasterId);
       }
     } else {
-      // Plain (non-"!") chat — check passive keyword triggers.
-      await handleTriggerMatch(chatMessage, display, broadcasterId);
+      // Plain (non-"!") chat — check passive keyword triggers first; only
+      // roll the chronicle's random quote-back (then NPC chatter) if no
+      // trigger already replied, so a single message never draws two
+      // separate unprompted replies.
+      const triggerFired = await handleTriggerMatch(chatMessage, display, broadcasterId);
+      if (!triggerFired) {
+        const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId);
+        if (!chronicleFired) {
+          await maybeNpcChatter(chatMessage, display, broadcasterId);
+        }
+      }
     }
   }
 

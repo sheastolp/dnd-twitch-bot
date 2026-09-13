@@ -75,7 +75,7 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
 
 function applyTemplate(response: string, vars: { user: string; target?: string; count?: number }): string {
   let randomBlocks = 0;
-  let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
+  let out = response.replace(/\{random:([^{}]{1,300})\}/gi, (_match, options: string) => {
     randomBlocks++;
     if (randomBlocks > MAX_RANDOM_BLOCKS) return "";
     const choices = options.split("|").map((s) => s.trim()).filter(Boolean);

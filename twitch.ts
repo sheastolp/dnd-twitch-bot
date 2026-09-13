@@ -186,6 +186,61 @@ export async function exchangeCode(code: string, redirectUri: string) {
   return await res.json();
 }
 
+export async function refreshUserToken(refreshToken: string) {
+  const body = new URLSearchParams({
+    client_id: env("TWITCH_CLIENT_ID"),
+    client_secret: env("TWITCH_CLIENT_SECRET"),
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const res = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
+  return await res.json();
+}
+
+export interface AdSchedule {
+  snoozeCount: number;
+  snoozeRefreshAt: string;
+  nextAdAt: string;
+  lastAdAt: string;
+  durationSeconds: number;
+  prerollFreeTime: number;
+}
+
+/** Twitch's real ad schedule for a channel (Get Ad Schedule) — requires the
+ * broadcaster's own user access token with the channel:read:ads scope
+ * (requested during /connect, stored in broadcaster_ad_tokens). Returns
+ * null if Twitch has nothing to report (e.g. stream offline / not yet
+ * monetized) or the token was rejected (expired/revoked) — callers should
+ * treat a rejected token as "needs reconnect", not a hard failure. */
+export async function fetchAdSchedule(userAccessToken: string, broadcasterId: string): Promise<AdSchedule | null> {
+  const res = await fetch(
+    `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(broadcasterId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        "Client-Id": env("TWITCH_CLIENT_ID"),
+      },
+    },
+  );
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) throw new Error(`Ad schedule fetch failed: ${res.status} ${await res.text()}`);
+  const row = (await res.json()).data?.[0];
+  if (!row) return null;
+  return {
+    snoozeCount: Number(row.snooze_count ?? 0),
+    snoozeRefreshAt: String(row.snooze_refresh_at ?? ""),
+    nextAdAt: String(row.next_ad_at ?? ""),
+    lastAdAt: String(row.last_ad_at ?? ""),
+    durationSeconds: Number(row.duration ?? 0),
+    prerollFreeTime: Number(row.preroll_free_time ?? 0),
+  };
+}
+
 async function createEventSubSubscription(
   type: string,
   version: string,

@@ -398,7 +398,13 @@ export function rollDice(input = "1d20", customLabel?: string) {
                 "That's a roll fit for a Tuesday quest.",
               ];
   const pun = puns[Math.floor(Math.random() * puns.length)];
-  return `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
+  const text = `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
+  // rawD20 is the unmodified die face (1-20) whenever exactly one d20 was
+  // rolled — a flat bonus (e.g. "1d20+5" for an ability check) doesn't
+  // change it, since the modifier isn't part of the natural result. null for
+  // anything that isn't a single d20 (e.g. 2d6, 4d8). Callers use this to
+  // log leaderboard events without re-parsing the formatted text.
+  return { text, rawD20 };
 }
 
 // Yes/No fate questions, e.g. "!roll is enya going to die this time?" — a
@@ -459,6 +465,45 @@ export function rollFate(question: string): string {
   const pool = Math.random() < 0.5 ? FATE_YES : FATE_NO;
   const flavor = pool[Math.floor(Math.random() * pool.length)];
   return flavor(displayQuestion);
+}
+
+// !oracle <question> — like !roll's fate verdict, but instead of YES/NO the
+// "answer" is a randomly-chosen recent chatter's name. The pool of eligible
+// names is supplied by the caller (see getRecentChatters in db.ts); this
+// function only owns the flavor text around whichever name it's given.
+const ORACLE_LINES: Array<(q: string, name: string) => string> = [
+  (q, name) => `🔮 The crystal ball swirls and resolves into a face: @${name}, regarding "${q}"`,
+  (q, name) => `📜 You cast Augury. The vision names @${name} for "${q}"`,
+  (q, name) => `🎴 The Deck of Many Things turns up a familiar face: @${name}, on "${q}"`,
+  (q, name) => `👁️ The beholder's central eye fixes on @${name} for "${q}"`,
+  (q, name) => `✨ The bones scatter and spell out a name: @${name}, regarding "${q}"`,
+  (q, name) => `🕯️ The candle's smoke curls into the shape of @${name} for "${q}"`,
+  (q, name) => `🗿 The ancient statue's eyes swivel and lock onto @${name} for "${q}"`,
+  (q, name) => `🐉 The dragon exhales a name on the wind: @${name}, on "${q}"`,
+  (q, name) => `🧙 The wizard's crystal reveals @${name} at the heart of it — "${q}"`,
+  (q, name) => `📯 The horn sounds, summoning @${name} forth for "${q}"`,
+  (q, name) => `🌕 By the light of the full moon, @${name} is named for "${q}"`,
+  (q, name) => `🍀 Fate's coin lands heads-up on @${name} for "${q}"`,
+  (q, name) => `⚖️ The DM consults the notes behind the screen and points at @${name} for "${q}"`,
+  (q, name) => `🔥 The campfire pops and sends a spark toward @${name} — "${q}"`,
+  (q, name) => `🕊️ A raven circles the tavern and lands on @${name}'s shoulder for "${q}"`,
+  (q, name) => `🧿 The rune stones fall into the shape of a name: @${name}, on "${q}"`,
+  (q, name) => `⚔️ The blade points itself, unbidden, toward @${name} for "${q}"`,
+  (q, name) => `🃏 The tarot reveals The Adventurer: @${name}, regarding "${q}"`,
+  (q, name) => `🏰 The castle gates swing open before @${name} for "${q}"`,
+  (q, name) => `🐺 The wolves howl a name into the night: @${name}, on "${q}"`,
+  (q, name) => `🌟 The stars align and trace out @${name} for "${q}"`,
+  (q, name) => `📖 The tome of fate flips open to a page bearing @${name}'s name — "${q}"`,
+];
+
+const MAX_ORACLE_QUESTION_LEN = 200;
+
+/** Names a random recent chatter as the "answer" to a chat-supplied question. */
+export function rollOracle(question: string, chatterName: string): string {
+  const q = question.trim();
+  const displayQuestion = q.length > MAX_ORACLE_QUESTION_LEN ? q.slice(0, MAX_ORACLE_QUESTION_LEN) + "…" : q;
+  const flavor = pick(ORACLE_LINES);
+  return flavor(displayQuestion, chatterName);
 }
 
 // !hug — an undocumented, purely warm/supportive command. No dice, no

@@ -17,7 +17,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Parchment** | Characters with level, XP, HP, race/class, save/load |
 | **Company** | Parties with invite, roster (members listed), disband |
 | **Archives** | Spells, items, classes, feats, races, **rules** (+ public links), plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
-| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
+| **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!rollcall` natural 1/20 leaderboard, `!oracle` names a random chatter, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
 | **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts** |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
 | **XP** | From **monster** victories only (not PvP) |
@@ -38,7 +38,11 @@ Chat: `!guide` or `!link` posts that same URL.
 |------|------|
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
-| **merchant.cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
+| **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
+| **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
+| **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
+| **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
+| **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration |
@@ -50,7 +54,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
-| **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant.cron.ts` |
+| **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant_cron.ts` |
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
@@ -64,7 +68,7 @@ Chat: `!guide` or `!link` posts that same URL.
 
 1. Upload all modules into one Val project.
 2. Point the **HTTP trigger** at **`main.ts`**.
-2a. Point a **cron trigger** at **`merchant.cron.ts`** (every 5-10 minutes is plenty — the merchant's own per-channel posting cadence is randomized independently, see `MERCHANT_MIN_INTERVAL_MINUTES`/`MERCHANT_MAX_INTERVAL_MINUTES` below). The market is off by default in every channel regardless of whether this trigger is set up; without it, `!market on` will simply never produce a post.
+2a. Point a **cron trigger** at **`merchant_cron.ts`** (every 5-10 minutes is plenty — the merchant's own per-channel posting cadence is randomized independently, see `MERCHANT_MIN_INTERVAL_MINUTES`/`MERCHANT_MAX_INTERVAL_MINUTES` below). The market is off by default in every channel regardless of whether this trigger is set up; without it, `!market on` will simply never produce a post.
 2b. Point a **cron trigger** at **`timedmessages_cron.ts`** (every 5-10 minutes is plenty — each timed message schedules its own next-post time independently, see `!timedmsg add`). Without this trigger, `!timedmsg add` will store messages but they'll never post.
 3. Environment variables:
 
@@ -91,6 +95,18 @@ Chat: `!guide` or `!link` posts that same URL.
 | `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Global bot-account chat-send spacing; default 1600ms. Lower only after Twitch confirms the account's applicable limit/verification. |
 | `MERCHANT_MIN_INTERVAL_MINUTES` | *(optional)* Shortest gap between open-stall merchant ads in a channel with `!market on`; default 25, floor 5 |
 | `MERCHANT_MAX_INTERVAL_MINUTES` | *(optional)* Longest gap between open-stall merchant ads; default 60, floored at the min above |
+| `AD_REMINDER_MINUTES` | *(optional)* How often `!adcheck` re-flags a stale/missing ad break; default 20 |
+| `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message gets chronicled; default 3 |
+| `CHRONICLE_COOLDOWN_MS` | *(optional)* Minimum gap between chronicle quotes in a channel; default 600000ms (10 min), floor 30000ms |
+| `CHRONICLE_MIN_MESSAGES` | *(optional)* Chat messages required since the last quote before another can fire; default 15 |
+| `MAX_NPCS_PER_OWNER` | *(optional)* NPC roster cap per channel (or the global roster); default 25 |
+| `NPC_MODEL` | *(optional)* LLM model used for `!npc talk` replies; default gpt-4o-mini |
+| `NPC_CHATTER_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message triggers unprompted NPC chatter |
+| `NPC_CHATTER_COOLDOWN_MS` | *(optional)* Minimum gap between unprompted NPC chatter in a channel |
+| `NPC_CHATTER_MIN_MESSAGES` | *(optional)* Chat messages required since the last NPC chime-in before another can fire |
+| `PRIMARY_BROADCASTER_ID` | *(optional)* Broadcaster id allowed to manage the shared "global" NPC roster with `!npc global add/edit/remove` |
+| `DUEL_ACCEPT_TIMEOUT_MS` | *(optional)* How long a `!dndduel` challenge stays open before expiring; default 300000ms (5 min), floor 30000ms |
+| `DUEL_IDLE_TIMEOUT_MS` | *(optional)* How long an active duel can sit idle before it's considered abandoned; default 600000ms (10 min) |
 
 4. Twitch Developer Console → add **both** OAuth Redirect URLs exactly:  
    `https://<your-val>.web.val.run/callback` (broadcaster connect flow) and  
@@ -99,7 +115,7 @@ Chat: `!guide` or `!link` posts that same URL.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
-The OAuth flow requests `channel:bot channel:read:subscriptions` — the latter powers the sub/resub thank-you (see below). **Channels that connected before this scope was added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous to start firing; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
+The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads` — `channel:read:subscriptions` powers the sub/resub thank-you (see below), and `channel:read:ads` powers `!adcheck`'s real Twitch ad-schedule lookup (falls back to the manually-logged `!adslogged` timestamp without it). **Channels that connected before these scopes were added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous and real ad-schedule checks to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
