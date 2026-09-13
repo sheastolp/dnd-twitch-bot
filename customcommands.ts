@@ -65,8 +65,8 @@ import {
   useCustomCommand,
 } from "./db.ts";
 
-const MAX_CUSTOM_RESPONSE_LEN = 400;
-const MAX_COOLDOWN_SECONDS = 3600;
+export const MAX_CUSTOM_RESPONSE_LEN = 400;
+export const MAX_COOLDOWN_SECONDS = 3600;
 const MAX_RANDOM_BLOCKS = 5;
 const MAX_RANDOM_OPTIONS_LEN = 300;
 const MAX_REPEAT_COUNT = 10;
@@ -137,13 +137,16 @@ async function getRandomFfzEmote(broadcasterId: string): Promise<string | null> 
 
 // Every built-in command word (and a few words reserved for future/adjacent
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
-// can never shadow or be confused with the bot's own commands.
-const RESERVED_NAMES = new Set([
+// can never shadow or be confused with the bot's own commands. Exported so
+// the web dashboard (pages.ts/main.ts) can apply the same check on names
+// submitted through the "add" forms, not just chat's !dndbot add.
+export const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
   "cmd", "trigger", "command", "commands", "hug", "map", "mod", "admin", "bot",
+  "timedmsg", "timedmessage", "timer", "dashboard",
 ]);
 
 const NAME_RE = /^[a-z0-9_-]{2,25}$/;
@@ -243,7 +246,7 @@ function buildKeywordRegex(keyword: string): RegExp {
   return new RegExp(`\\b${escaped}\\b`, "i");
 }
 
-function parseCooldownSeconds(raw: string | undefined): number | null {
+export function parseCooldownSeconds(raw: string | undefined): number | null {
   const seconds = Number.parseInt(raw ?? "", 10);
   return Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_COOLDOWN_SECONDS ? seconds : null;
 }

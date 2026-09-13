@@ -227,6 +227,61 @@ export async function exchangeCode(code: string, redirectUri: string) {
   return await res.json();
 }
 
+export async function refreshUserToken(refreshToken: string) {
+  const body = new URLSearchParams({
+    client_id: env("TWITCH_CLIENT_ID"),
+    client_secret: env("TWITCH_CLIENT_SECRET"),
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const res = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!res.ok) throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
+  return await res.json();
+}
+
+export interface AdSchedule {
+  snoozeCount: number;
+  snoozeRefreshAt: string;
+  nextAdAt: string;
+  lastAdAt: string;
+  durationSeconds: number;
+  prerollFreeTime: number;
+}
+
+/** Twitch's real ad schedule for a channel (Get Ad Schedule) — requires the
+ * broadcaster's own user access token with the channel:read:ads scope
+ * (requested during /connect, stored in broadcaster_ad_tokens). Returns
+ * null if Twitch has nothing to report (e.g. stream offline / not yet
+ * monetized) or the token was rejected (expired/revoked) — callers should
+ * treat a rejected token as "needs reconnect", not a hard failure. */
+export async function fetchAdSchedule(userAccessToken: string, broadcasterId: string): Promise<AdSchedule | null> {
+  const res = await fetch(
+    `https://api.twitch.tv/helix/channels/ads?broadcaster_id=${encodeURIComponent(broadcasterId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        "Client-Id": env("TWITCH_CLIENT_ID"),
+      },
+    },
+  );
+  if (res.status === 401 || res.status === 403) return null;
+  if (!res.ok) throw new Error(`Ad schedule fetch failed: ${res.status} ${await res.text()}`);
+  const row = (await res.json()).data?.[0];
+  if (!row) return null;
+  return {
+    snoozeCount: Number(row.snooze_count ?? 0),
+    snoozeRefreshAt: String(row.snooze_refresh_at ?? ""),
+    nextAdAt: String(row.next_ad_at ?? ""),
+    lastAdAt: String(row.last_ad_at ?? ""),
+    durationSeconds: Number(row.duration ?? 0),
+    prerollFreeTime: Number(row.preroll_free_time ?? 0),
+  };
+}
+
 async function createEventSubSubscription(
   type: string,
   version: string,
@@ -311,8 +366,9 @@ export async function deleteEventSubSubscription(subscriptionId: string) {
 
 /** Constant-time string compare — doesn't branch/short-circuit on content,
  * only on length (which isn't secret), so it doesn't leak how many leading
- * characters of the signature matched via response timing. */
-function timingSafeEqual(a: string, b: string): boolean {
+ * characters of the signature matched via response timing. Exported for
+ * reuse by dashboard.ts's session cookie verification. */
+export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) {
@@ -341,4 +397,46 @@ export async function verifyEventSub(req: Request, rawBody: string) {
   const hex = [...signature].map((b) => b.toString(16).padStart(2, "0")).join("");
   const expected = `sha256=${hex}`;
   return timingSafeEqual(expected, received);
+}
+
+// ── Dashboard login (viewer-side OAuth, separate from the broadcaster
+// connect flow above) — used by dashboard.ts to verify that whoever is
+// sitting at the web dashboard is actually a moderator/broadcaster of the
+// channel, not just someone who found the link. ──
+
+/** The logged-in viewer's own Twitch identity, from their own access token
+ * (no user_id param needed — Helix defaults to the token's owner). */
+export async function getViewerIdentity(accessToken: string): Promise<{ id: string; login: string; display_name: string } | null> {
+  const res = await fetch("https://api.twitch.tv/helix/users", {
+    headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const user = data.data?.[0];
+  if (!user) return null;
+  return { id: String(user.id), login: String(user.login), display_name: String(user.display_name ?? user.login) };
+}
+
+// Get Moderated Channels only returns channels the viewer moderates for
+// *someone else* — the broadcaster of their own channel is never in this
+// list, so callers must check viewerId === broadcasterId separately.
+// Requires the viewer's own token with scope user:read:moderated_channels.
+const MAX_MODERATED_CHANNELS_PAGES = 10;
+
+export async function isUserModeratorOfChannel(accessToken: string, viewerId: string, broadcasterId: string): Promise<boolean> {
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_MODERATED_CHANNELS_PAGES; page++) {
+    const params = new URLSearchParams({ user_id: viewerId, first: "100" });
+    if (cursor) params.set("after", cursor);
+    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const rows: any[] = data.data ?? [];
+    if (rows.some((r) => String(r.broadcaster_id) === broadcasterId)) return true;
+    cursor = data.pagination?.cursor;
+    if (!cursor) break;
+  }
+  return false;
 }
