@@ -33,6 +33,9 @@ import { OpenAI } from "https://esm.town/v/std/openai";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
 import {
+  recordMonitorEvent,
+} from "./db.ts";
+import {
   addNpcCharacter,
   appendNpcConversationMessage,
   bumpNpcCharacterUses,
@@ -45,13 +48,12 @@ import {
   isNpcChatterEnabled,
   isNpcEnabled,
   listNpcCharacters,
-  recordMonitorEvent,
   resetNpcChatterMessageCount,
   setNpcChatterEnabled,
   setNpcEnabled,
   trimNpcConversation,
   type NpcCharacterRow,
-} from "./db.ts";
+} from "./social_db.ts";
 
 const openai = new OpenAI();
 

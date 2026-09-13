@@ -41,10 +41,13 @@ import {
   getMapTokens,
   listMaps,
   saveCreationSession,
+} from "./db.ts";
+import {
+  ensureSocialTables,
   recordDiceRollEvent,
   getDiceLeaderboard,
   getDiceStatsForUser,
-} from "./db.ts";
+} from "./social_db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
 import { handleAdCommand } from "./ads.ts";
@@ -155,6 +158,7 @@ async function sendWelcomeMessage(display: string, broadcasterId: string) {
 async function handleRequest(req: Request): Promise<Response> {
   await ensureTables();
   await ensureAdTables();
+  await ensureSocialTables();
   const url = new URL(req.url);
   const path = url.pathname;
 

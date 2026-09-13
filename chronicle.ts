@@ -19,7 +19,7 @@ import {
   isChronicleEnabled,
   resetChronicleMessageCount,
   setChronicleEnabled,
-} from "./db.ts";
+} from "./social_db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
 
