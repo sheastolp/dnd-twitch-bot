@@ -13,16 +13,19 @@ const CHAT_MAX = Math.min(MAX_LOOKUP_MESSAGE_LENGTH, 480);
 // Rules need more parts than other lookups; spells use sendSpellSections separately.
 const MAX_PARTS = 5;
 const PART_DELAY_MS = 450;
-// Twitch chat-send limits are shared by the bot account. Keep a conservative
-// global queue by default; operators can lower this after Twitch grants the
-// appropriate bot rate limit/verification.
-const GLOBAL_CHAT_MIN_INTERVAL_MS = Math.max(50, Number(Deno.env.get("CHAT_GLOBAL_MIN_INTERVAL_MS") ?? "1600"));
-let nextChatSendAt = 0;
+// Twitch chat-send limits apply per channel, not bot-account-wide. With the
+// bot modded in its channels, the applicable limit is 100 messages/30s
+// (~300ms/message); default sits a little above that floor for safety.
+// Each channel gets its own queue slot so a busy channel's duels/lookups
+// never throttle chat sends in a different channel.
+const GLOBAL_CHAT_MIN_INTERVAL_MS = Math.max(50, Number(Deno.env.get("CHAT_GLOBAL_MIN_INTERVAL_MS") ?? "320"));
+const nextChatSendAtByChannel = new Map<string, number>();
 
-async function waitForGlobalChatSlot() {
+async function waitForChatSlot(broadcasterId: string) {
   const now = Date.now();
-  const wait = Math.max(0, nextChatSendAt - now);
-  nextChatSendAt = Math.max(now, nextChatSendAt) + GLOBAL_CHAT_MIN_INTERVAL_MS;
+  const nextAt = nextChatSendAtByChannel.get(broadcasterId) ?? 0;
+  const wait = Math.max(0, nextAt - now);
+  nextChatSendAtByChannel.set(broadcasterId, Math.max(now, nextAt) + GLOBAL_CHAT_MIN_INTERVAL_MS);
   if (wait) await sleep(wait);
 }
 
@@ -62,7 +65,7 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
   const message = text.slice(0, 500);
   if (!message.trim()) return true;
   try {
-    await waitForGlobalChatSlot();
+    await waitForChatSlot(broadcasterId);
     const send = async (token: string) =>
       fetch("https://api.twitch.tv/helix/chat/messages", {
         method: "POST",
@@ -82,7 +85,7 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
     if (res.status === 401) {
       // Cached token was rejected (expired/revoked) — drop it and get a fresh one, once.
       invalidateAppToken();
-      await waitForGlobalChatSlot();
+      await waitForChatSlot(broadcasterId);
       res = await send(await getAppToken());
     }
     if (!res.ok && res.status !== 429) {
