@@ -18,20 +18,44 @@
 //   !trigger cooldown <keyword> <seconds>  (mod)
 //   !trigger list                          anyone
 //
-// Responses support a few placeholders:
-//   {user}    display name of whoever triggered it
-//   {target}  the first @mentioned user in a !command's arguments (falls
-//             back to {user} for triggers, which have no arguments)
-//   {count}   how many times this command/trigger has now fired
-//   {random:a|b|c}  picks one option at random (max 5 per response)
+// Responses support several placeholders:
+//   {user} {sender}   display name of whoever triggered it ({sender} is an
+//                     alias of {user})
+//   {target}          first @mentioned user in a !command's arguments (falls
+//                     back to {user} for triggers, which have no arguments)
+//   {touser}          first word of the arguments with a leading @ stripped
+//                     (falls back to {user} if there are no arguments)
+//   {args}            the full text after the command, or the whole message
+//                     for a trigger
+//   {count}           how many times this command/trigger has now fired
+//   {random:a|b|c}    picks one option at random (max 5 per response)
+//   {randnum:MIN-MAX} random integer in [MIN, MAX], negatives allowed
+//   {d4} {d6} {d8} {d10} {d12} {d20} {d100}  shorthand die-roll expansions
+//   {repeat:N|text}   repeats text back-to-back N times (N capped at 10)
+//   {math:expr}       evaluates a numeric expression (digits, + - * / % ( ) . only)
+//   {channel}         the broadcaster's display name (from the broadcasters
+//                     table — no extra Twitch API call)
+//   {time}            current UTC time, HH:MM
+//   {date}            current UTC date, YYYY-MM-DD
+//   {game} {title} {status} {uptime}  live channel info via Twitch Helix
+//                     using the existing app token — {status} is "live" or
+//                     "offline", {uptime} is "offline" when not live
+//   {twitchemotes} {7tvemotes} {bttvemotes} {ffzemotes}  a random emote from
+//                     that provider's set for this channel (public,
+//                     unauthenticated provider APIs)
+//
+// Every placeholder that needs a network or DB call is only resolved when it
+// actually appears in the response text, so a plain response with none of
+// them costs nothing extra.
 
 import { pick, compactText } from "./utils.ts";
-import { sendChatMessage, sendChatMessages } from "./twitch.ts";
+import { sendChatMessage, sendChatMessages, getAppToken, getChannelInfo, getStreamUptime, env } from "./twitch.ts";
 import {
   addCustomCommand,
   addCustomTrigger,
   deleteCustomCommand,
   deleteCustomTrigger,
+  getBroadcaster,
   listCustomCommands,
   listCustomTriggers,
   markCustomTriggerUsed,
@@ -41,19 +65,88 @@ import {
   useCustomCommand,
 } from "./db.ts";
 
-const MAX_CUSTOM_RESPONSE_LEN = 400;
-const MAX_COOLDOWN_SECONDS = 3600;
+export const MAX_CUSTOM_RESPONSE_LEN = 400;
+export const MAX_COOLDOWN_SECONDS = 3600;
 const MAX_RANDOM_BLOCKS = 5;
+const MAX_RANDOM_OPTIONS_LEN = 300;
+const MAX_REPEAT_COUNT = 10;
+const MAX_MATH_EXPR_LEN = 60;
+
+function randomInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+async function getRandomTwitchGlobalEmote(): Promise<string | null> {
+  try {
+    const token = await getAppToken();
+    const res = await fetch("https://api.twitch.tv/helix/chat/emotes/global", {
+      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const emotes = (data?.data ?? []) as Array<{ name: string }>;
+    return emotes.length ? pick(emotes.map((e) => e.name)) : null;
+  } catch (err) {
+    console.error("getRandomTwitchGlobalEmote failed", err);
+    return null;
+  }
+}
+
+async function getRandom7tvEmote(broadcasterId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const emotes = (data?.emote_set?.emotes ?? []) as Array<{ name: string }>;
+    return emotes.length ? pick(emotes.map((e) => e.name)) : null;
+  } catch (err) {
+    console.error("getRandom7tvEmote failed", err);
+    return null;
+  }
+}
+
+async function getRandomBttvEmote(broadcasterId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.betterttv.net/3/cached/users/twitch/${broadcasterId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const emotes = [
+      ...((data?.channelEmotes ?? []) as Array<{ code: string }>),
+      ...((data?.sharedEmotes ?? []) as Array<{ code: string }>),
+    ];
+    return emotes.length ? pick(emotes.map((e) => e.code)) : null;
+  } catch (err) {
+    console.error("getRandomBttvEmote failed", err);
+    return null;
+  }
+}
+
+async function getRandomFfzEmote(broadcasterId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.frankerfacez.com/v1/room/id/${broadcasterId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const sets = (data?.sets ?? {}) as Record<string, { emoticons?: Array<{ name: string }> }>;
+    const all = Object.values(sets).flatMap((s) => s.emoticons?.map((e) => e.name) ?? []);
+    return all.length ? pick(all) : null;
+  } catch (err) {
+    console.error("getRandomFfzEmote failed", err);
+    return null;
+  }
+}
 
 // Every built-in command word (and a few words reserved for future/adjacent
 // features, e.g. undocumented or not-yet-loaded modules) so custom commands
-// can never shadow or be confused with the bot's own commands.
-const RESERVED_NAMES = new Set([
+// can never shadow or be confused with the bot's own commands. Exported so
+// the web dashboard (pages.ts/main.ts) can apply the same check on names
+// submitted through the "add" forms, not just chat's !dndbot add.
+export const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
   "cmd", "trigger", "command", "commands", "hug", "map", "mod", "admin", "bot",
+  "timedmsg", "timedmessage", "timer", "dashboard",
 ]);
 
 const NAME_RE = /^[a-z0-9_-]{2,25}$/;
@@ -70,16 +163,80 @@ export function sanitizeTriggerKeyword(raw: string): string | null {
   return keyword;
 }
 
-function applyTemplate(response: string, vars: { user: string; target?: string; count?: number }): string {
+async function applyTemplate(
+  response: string,
+  vars: {
+    user: string;
+    broadcasterId: string;
+    target?: string;
+    touser?: string;
+    args?: string;
+    count?: number;
+  },
+): Promise<string> {
   let randomBlocks = 0;
-  let out = response.replace(/\{random:([^{}]{1,200})\}/gi, (_match, options: string) => {
+  let out = response.replace(new RegExp(`\\{random:([^{}]{1,${MAX_RANDOM_OPTIONS_LEN}})\\}`, "gi"), (_match, options: string) => {
     randomBlocks++;
     if (randomBlocks > MAX_RANDOM_BLOCKS) return "";
-    const choices = options.split("|").map((s) => s.trim()).filter(Boolean);
+    const choices = options.split("|").map((s: string) => s.trim()).filter(Boolean);
     return choices.length ? pick(choices) : "";
   });
+
+  out = out.replace(/\{randnum:(-?\d+)-(-?\d+)\}/gi, (_match, a: string, b: string) => {
+    const lo = Math.min(Number(a), Number(b));
+    const hi = Math.max(Number(a), Number(b));
+    return String(randomInt(lo, hi));
+  });
+
+  out = out.replace(/\{d(4|6|8|10|12|20|100)\}/gi, (_match, sides: string) => String(randomInt(1, Number(sides))));
+
+  out = out.replace(/\{repeat:(\d{1,2})\|([^{}]{1,100})\}/gi, (_match, n: string, text: string) => {
+    const count = Math.min(MAX_REPEAT_COUNT, Math.max(0, Number.parseInt(n, 10) || 0));
+    return text.repeat(count).slice(0, MAX_CUSTOM_RESPONSE_LEN);
+  });
+
+  out = out.replace(new RegExp(`\\{math:([0-9+\\-*/%.()\\s]{1,${MAX_MATH_EXPR_LEN}})\\}`, "gi"), (_match, expr: string) => {
+    try {
+      // deno-lint-ignore no-new-func
+      const result = new Function(`"use strict"; return (${expr});`)();
+      return Number.isFinite(result) ? String(Math.round(result * 1000) / 1000) : "?";
+    } catch {
+      return "?";
+    }
+  });
+
+  const now = new Date();
+  out = out.replaceAll("{time}", now.toISOString().slice(11, 16) + " UTC");
+  out = out.replaceAll("{date}", now.toISOString().slice(0, 10));
+
+  if (out.includes("{channel}")) {
+    const broadcaster = await getBroadcaster(vars.broadcasterId);
+    const channelName = String((broadcaster as any)?.display_name || (broadcaster as any)?.login || vars.user);
+    out = out.replaceAll("{channel}", channelName);
+  }
+
+  if (out.includes("{game}") || out.includes("{title}")) {
+    const info = await getChannelInfo(vars.broadcasterId);
+    out = out.replaceAll("{game}", info?.gameName ?? "");
+    out = out.replaceAll("{title}", info?.title ?? "");
+  }
+
+  if (out.includes("{status}") || out.includes("{uptime}")) {
+    const uptime = await getStreamUptime(vars.broadcasterId);
+    out = out.replaceAll("{status}", uptime ? "live" : "offline");
+    out = out.replaceAll("{uptime}", uptime ?? "offline");
+  }
+
+  if (out.includes("{twitchemotes}")) out = out.replaceAll("{twitchemotes}", (await getRandomTwitchGlobalEmote()) ?? "");
+  if (out.includes("{7tvemotes}")) out = out.replaceAll("{7tvemotes}", (await getRandom7tvEmote(vars.broadcasterId)) ?? "");
+  if (out.includes("{bttvemotes}")) out = out.replaceAll("{bttvemotes}", (await getRandomBttvEmote(vars.broadcasterId)) ?? "");
+  if (out.includes("{ffzemotes}")) out = out.replaceAll("{ffzemotes}", (await getRandomFfzEmote(vars.broadcasterId)) ?? "");
+
   out = out.replaceAll("{user}", vars.user);
+  out = out.replaceAll("{sender}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
+  out = out.replaceAll("{touser}", vars.touser ?? vars.user);
+  out = out.replaceAll("{args}", vars.args ?? "");
   out = out.replaceAll("{count}", String(vars.count ?? ""));
   return out;
 }
@@ -89,7 +246,7 @@ function buildKeywordRegex(keyword: string): RegExp {
   return new RegExp(`\\b${escaped}\\b`, "i");
 }
 
-function parseCooldownSeconds(raw: string | undefined): number | null {
+export function parseCooldownSeconds(raw: string | undefined): number | null {
   const seconds = Number.parseInt(raw ?? "", 10);
   return Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_COOLDOWN_SECONDS ? seconds : null;
 }
@@ -333,9 +490,14 @@ export async function handleCustomCommandInvocation(
   const args = (match[2] ?? "").trim();
   const targetMatch = args.match(/@(\S+)/);
   const target = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : undefined;
-  const text = applyTemplate(String(result.row.response ?? ""), {
+  const firstWord = args.split(/\s+/)[0];
+  const touser = firstWord ? firstWord.replace(/^@/, "").replace(/[,:]+$/, "") : undefined;
+  const text = await applyTemplate(String(result.row.response ?? ""), {
     user: display,
+    broadcasterId,
     target,
+    touser,
+    args,
     count: Number(result.row.uses ?? 0),
   });
   await sendChatMessages(text, broadcasterId);
@@ -364,7 +526,12 @@ export async function handleTriggerMatch(
     const lastUsedAt = Number(row.last_used_at ?? 0);
     if (cooldownMs > 0 && now - lastUsedAt < cooldownMs) continue; // on cooldown — see if another trigger matches
     await markCustomTriggerUsed(broadcasterId, keyword);
-    const rendered = applyTemplate(String(row.response ?? ""), { user: display, count: Number(row.uses ?? 0) + 1 });
+    const rendered = await applyTemplate(String(row.response ?? ""), {
+      user: display,
+      broadcasterId,
+      args: text,
+      count: Number(row.uses ?? 0) + 1,
+    });
     await sendChatMessages(rendered, broadcasterId);
     return true;
   }
