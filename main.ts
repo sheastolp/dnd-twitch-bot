@@ -17,6 +17,9 @@ import {
   recordActivity,
   getRecentLogs,
   getBroadcaster,
+  getBroadcasterByLogin,
+  getOrCreateDashboardKey,
+  regenerateDashboardKey,
   markBroadcasterDisconnected,
   disconnectBroadcasterData,
   purgeChannelData,
@@ -444,6 +447,45 @@ async function handleRequest(req: Request): Promise<Response> {
     return new Response(
       `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>GuildScribe Operator Logs</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:1100px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}h1{color:#e6a56e;margin-bottom:4px}a{color:#e6a56e}</style></head><body>${body}</body></html>`,
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+    );
+  }
+
+  // Operator escape hatch: mint/fetch a channel's dashboard link without
+  // needing the bot online in chat — !dashboard (dashboard.ts) is the normal
+  // path, but that requires a live Twitch chat listener, so it's useless
+  // exactly when someone most wants to check in (bot down/disconnected).
+  // Same auth as /admin/logs: Bearer header or ?key=, hand-decoded to dodge
+  // the "+" -> space query-string trap (see note on /admin/logs above).
+  // channel= accepts either the numeric broadcaster_id or the Twitch login.
+  if (req.method === "GET" && path === "/admin/dashboard-link") {
+    const secret = Deno.env.get("ADMIN_API_SECRET");
+    const auth = req.headers.get("Authorization") ?? "";
+    const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
+    const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
+    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
+    if (!authorized) {
+      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
+        status: 401,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    const channelParam = url.searchParams.get("channel");
+    if (!channelParam) {
+      return new Response("Missing ?channel=<broadcaster_id or twitch login>.", { status: 400 });
+    }
+    const broadcaster = /^\d+$/.test(channelParam)
+      ? await getBroadcaster(channelParam)
+      : await getBroadcasterByLogin(channelParam);
+    if (!broadcaster) {
+      return new Response("No channel found for that id/login.", { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
+    const broadcasterId = (broadcaster as any).broadcaster_id as string;
+    const reset = url.searchParams.get("reset") === "1";
+    const dashKey = reset ? await regenerateDashboardKey(broadcasterId) : await getOrCreateDashboardKey(broadcasterId);
+    const link = `${url.origin}/dashboard?channel=${broadcasterId}&key=${dashKey}`;
+    return new Response(
+      JSON.stringify({ ok: true, broadcaster_id: broadcasterId, login: (broadcaster as any).login ?? null, link }),
+      { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
     );
   }
 

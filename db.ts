@@ -604,6 +604,17 @@ export async function getBroadcaster(broadcasterId: string) {
   return res.rows.length ? res.rows[0] : null;
 }
 
+// Lets operator-only routes (e.g. /admin/dashboard-link) accept a Twitch
+// login instead of the numeric broadcaster_id, since that's what a human
+// actually has memorized.
+export async function getBroadcasterByLogin(login: string) {
+  const res = await sqlite.execute(
+    "SELECT * FROM broadcasters WHERE login = ? COLLATE NOCASE",
+    [login],
+  );
+  return res.rows.length ? res.rows[0] : null;
+}
+
 // "kind" is a short label ("sub" for channel.subscribe, "resub" for
 // channel.subscription.message) distinguishing the two extra subscriptions
 // created alongside the main chat-message one in broadcasters.subscription_id.
