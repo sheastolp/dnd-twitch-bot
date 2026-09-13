@@ -1,6 +1,10 @@
 // Duels, party combat, monster duels, and initiative tracker
 
-import { pickMonsterForLevel } from "./data.ts";
+import {
+  findMonsterByName,
+  pickMonsterForLevel,
+  scaleMonsterForLevel,
+} from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
 import {
   createPartyInvite,
@@ -491,20 +495,65 @@ export async function handleMonsterDuelCommand(
   display: string,
   broadcasterId: string,
 ) {
-  const normalized = chatMessage.trim().toLowerCase();
-  if (
-    !(
-      normalized === "!dndduel" ||
-      normalized === "!dndduel attack" ||
-      normalized === "!dndduel monster" ||
-      normalized === "!dndduel monster classic" ||
-      normalized === "!dndduel monster attack" ||
-      normalized === "!dndduel monster status" ||
-      normalized === "!dndduel monster end"
-    )
-  ) {
-    return false;
+  const trimmed = chatMessage.trim();
+  const normalized = trimmed.toLowerCase();
+
+  const isControlCommand =
+    normalized === "!dndduel" ||
+    normalized === "!dndduel attack" ||
+    normalized === "!dndduel monster" ||
+    normalized === "!dndduel monster classic" ||
+    normalized === "!dndduel monster attack" ||
+    normalized === "!dndduel monster status" ||
+    normalized === "!dndduel monster end";
+
+  // Optional named-monster target:
+  //   !dndduel <name>                 → auto, only claimed if the name
+  //                                      resolves to a bestiary entry (so
+  //                                      "!dndduel @user" still falls
+  //                                      through to the PvP challenge parser)
+  //   !dndduel monster <name>         → auto, always claimed — this form can
+  //                                      only ever mean a monster fight
+  //   !dndduel monster classic <name> → classic, always claimed likewise
+  let monsterNameArg: string | null = null;
+  let namedMode: "auto" | "classic" | null = null;
+  if (!isControlCommand) {
+    let m = trimmed.match(/^!dndduel\s+monster\s+classic\s+(.+)$/i);
+    if (m) {
+      monsterNameArg = m[1].trim();
+      namedMode = "classic";
+    } else if ((m = trimmed.match(/^!dndduel\s+monster\s+(.+)$/i))) {
+      monsterNameArg = m[1].trim();
+      namedMode = "auto";
+    } else if ((m = trimmed.match(/^!dndduel\s+(.+)$/i))) {
+      const rest = m[1].trim();
+      const restLower = rest.toLowerCase();
+      const reserved = [
+        "party",
+        "accept",
+        "decline",
+        "attack",
+        "status",
+        "show",
+        "end",
+        "cancel",
+        "classic",
+        "turn",
+        "manual",
+        "auto",
+        "quick",
+      ];
+      if (
+        rest && !rest.startsWith("@") && !reserved.includes(restLower) &&
+        findMonsterByName(rest)
+      ) {
+        monsterNameArg = rest;
+        namedMode = "auto";
+      }
+    }
   }
+
+  if (!isControlCommand && !monsterNameArg) return false;
 
   let active = await getMonsterDuel(broadcasterId);
   if (await forfeitIfIdleMonsterDuel(broadcasterId, active)) active = null;
@@ -541,10 +590,11 @@ export async function handleMonsterDuelCommand(
     }
   }
 
-  // Classic turn-based monster: !dndduel monster [classic]
+  // Classic turn-based monster: !dndduel monster [classic] [name]
   if (
     normalized === "!dndduel monster" ||
-    normalized === "!dndduel monster classic"
+    normalized === "!dndduel monster classic" ||
+    namedMode === "classic"
   ) {
     if (active && active.player === username) {
       await sendChatMessage(
@@ -561,7 +611,20 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const monster = pickMonsterForLevel(c.level);
+    let monster;
+    if (monsterNameArg) {
+      const base = findMonsterByName(monsterNameArg);
+      if (!base) {
+        await sendChatMessage(
+          `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or !dndduel monster classic for a random foe.`,
+          broadcasterId,
+        );
+        return true;
+      }
+      monster = scaleMonsterForLevel(base, c.level);
+    } else {
+      monster = pickMonsterForLevel(c.level);
+    }
     await sqlite.execute(
       "INSERT OR REPLACE INTO monster_duels (broadcaster_id,player,monster_name,monster_cr,monster_ac,monster_hp,monster_hp_max,monster_attack,monster_damage_die,monster_damage_bonus,current_turn,active,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
@@ -589,8 +652,8 @@ export async function handleMonsterDuelCommand(
     return true;
   }
 
-  // Auto monster: bare !dndduel
-  if (normalized === "!dndduel") {
+  // Auto monster: bare !dndduel [name] | !dndduel monster [name]
+  if (normalized === "!dndduel" || (namedMode === "auto" && monsterNameArg)) {
     const c = await getCharacter(username, broadcasterId);
     if (!c) {
       await sendChatMessage(
@@ -599,7 +662,20 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const monster = pickMonsterForLevel(c.level);
+    let monster;
+    if (monsterNameArg) {
+      const base = findMonsterByName(monsterNameArg);
+      if (!base) {
+        await sendChatMessage(
+          `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or !dndduel for a random foe.`,
+          broadcasterId,
+        );
+        return true;
+      }
+      monster = scaleMonsterForLevel(base, c.level);
+    } else {
+      monster = pickMonsterForLevel(c.level);
+    }
     let playerHp = c.hpMax;
     let monsterHp = monster.hp;
     const pStats = combatStats(c);
