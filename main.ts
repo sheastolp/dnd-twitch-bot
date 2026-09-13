@@ -483,10 +483,17 @@ async function handleRequest(req: Request): Promise<Response> {
     const reset = url.searchParams.get("reset") === "1";
     const dashKey = reset ? await regenerateDashboardKey(broadcasterId) : await getOrCreateDashboardKey(broadcasterId);
     const link = `${url.origin}/dashboard?channel=${broadcasterId}&key=${dashKey}`;
-    return new Response(
-      JSON.stringify({ ok: true, broadcaster_id: broadcasterId, login: (broadcaster as any).login ?? null, link }),
-      { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
-    );
+    // Default behavior: redirect straight to the live dashboard page, since
+    // that's what someone opening this in a browser actually wants. Append
+    // &json=1 to get the {ok, broadcaster_id, login, link} JSON instead
+    // (e.g. for scripting/automation).
+    if (url.searchParams.get("json") === "1") {
+      return new Response(
+        JSON.stringify({ ok: true, broadcaster_id: broadcasterId, login: (broadcaster as any).login ?? null, link }),
+        { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
+      );
+    }
+    return new Response(null, { status: 302, headers: { Location: link, "Cache-Control": "no-store" } });
   }
 
   // NOTE: the block below matches *any* GET request that reaches this point
