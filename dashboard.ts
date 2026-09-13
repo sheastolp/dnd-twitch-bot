@@ -43,7 +43,16 @@ import {
   deleteTimedMessage,
   saveDashboardOAuthState,
   consumeDashboardOAuthState,
+  isChannelEnabled,
+  setChannelEnabled,
+  isMerchantEnabled,
+  setMerchantEnabled,
+  getCommandGroupToggles,
+  setCommandGroupEnabled,
 } from "./db.ts";
+import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, isNpcChatterEnabled, setNpcChatterEnabled } from "./social_db.ts";
+import { randomMerchantIntervalMs } from "./merchant.ts";
+import { COMMAND_GROUPS } from "./utils.ts";
 import {
   sanitizeCommandName,
   sanitizeTriggerKeyword,
@@ -207,10 +216,16 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
+    isChannelEnabled(channelId),
+    isMerchantEnabled(channelId),
+    isChronicleEnabled(channelId),
+    isNpcEnabled(channelId),
+    isNpcChatterEnabled(channelId),
+    getCommandGroupToggles(channelId),
   ]);
   const data: DashboardData = {
     broadcasterId: channelId,
@@ -224,6 +239,12 @@ export async function renderDashboard(
     maxCooldownSeconds: MAX_COOLDOWN_SECONDS,
     notice: opts?.notice,
     error: opts?.error,
+    botEnabled,
+    marketEnabled,
+    chronicleEnabled,
+    npcEnabled,
+    npcChatterEnabled,
+    groupToggles,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
@@ -462,4 +483,56 @@ export async function handleDashboardTimedMessagesForm(form: FormData, baseUrl: 
   }
 
   return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Unknown action." }));
+}
+
+export async function handleDashboardFeaturesForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const { channelId, key } = auth;
+  const intent = String(form.get("intent") ?? "");
+
+  switch (intent) {
+    case "bot_on":
+    case "bot_off": {
+      const enabled = intent === "bot_on";
+      await setChannelEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Bot turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "market_on":
+    case "market_off": {
+      const enabled = intent === "market_on";
+      await setMerchantEnabled(channelId, enabled, enabled ? Date.now() + randomMerchantIntervalMs() : null);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Merchant turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "chronicle_on":
+    case "chronicle_off": {
+      const enabled = intent === "chronicle_on";
+      await setChronicleEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Chronicle turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "npc_on":
+    case "npc_off": {
+      const enabled = intent === "npc_on";
+      await setNpcEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPCs turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "npcchatter_on":
+    case "npcchatter_off": {
+      const enabled = intent === "npcchatter_on";
+      await setNpcChatterEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPC chatter turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "group_on":
+    case "group_off": {
+      const group = String(form.get("group") ?? "");
+      if (!(group in COMMAND_GROUPS)) {
+        return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Unknown feature group." }));
+      }
+      const enabled = intent === "group_on";
+      await setCommandGroupEnabled(channelId, group, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `${COMMAND_GROUPS[group].label.split(" (")[0]} turned ${enabled ? "on" : "off"}.` }));
+    }
+    default:
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Unknown action." }));
+  }
 }

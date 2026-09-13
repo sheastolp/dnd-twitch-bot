@@ -2,6 +2,7 @@
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import type { Character } from "./types.ts";
+import { COMMAND_GROUPS } from "./utils.ts";
 
 // Channel-wide default cooldowns for custom commands/triggers (mods can
 // override per-command/per-trigger with !dndbot cooldown / !trigger cooldown).
@@ -234,6 +235,15 @@ export async function ensureTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS merchant_settings (
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, next_post_at INTEGER, updated_at INTEGER
+    )`,
+  );
+  // Granular per-channel command-group toggles for the dashboard (see
+  // COMMAND_GROUPS in utils.ts). Missing row = enabled, same "absence means
+  // default" pattern as channel_settings above.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS command_toggles (
+      broadcaster_id TEXT, group_name TEXT, enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER,
+      PRIMARY KEY (broadcaster_id, group_name)
     )`,
   );
   await sqlite.execute(
@@ -653,6 +663,7 @@ export async function purgeChannelData(broadcasterId: string) {
     "party_monster_duels",
     "channel_settings",
     "merchant_settings",
+    "command_toggles",
     "chronicle_settings",
     "chronicle_activity",
     "npc_settings",
@@ -681,6 +692,7 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
   else {
     await sqlite.execute("DELETE FROM channel_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
+    await sqlite.execute("DELETE FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM npc_chatter_settings WHERE broadcaster_id = ?", [broadcasterId]);
@@ -698,6 +710,31 @@ export async function setChannelEnabled(broadcasterId: string, enabled: boolean)
   await sqlite.execute(
     "INSERT OR REPLACE INTO channel_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
     [broadcasterId, enabled ? 1 : 0, Date.now()],
+  );
+}
+
+/** All command-group states for the dashboard's toggle list, defaulting any
+ * group with no row (never touched) to enabled. */
+export async function getCommandGroupToggles(broadcasterId: string): Promise<Record<string, boolean>> {
+  const res = await sqlite.execute("SELECT group_name, enabled FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
+  const overrides = new Map(res.rows.map((r: any) => [String(r.group_name), Number(r.enabled) === 1]));
+  const out: Record<string, boolean> = {};
+  for (const group of Object.keys(COMMAND_GROUPS)) out[group] = overrides.get(group) ?? true;
+  return out;
+}
+
+export async function isCommandGroupEnabled(broadcasterId: string, group: string): Promise<boolean> {
+  const res = await sqlite.execute("SELECT enabled FROM command_toggles WHERE broadcaster_id = ? AND group_name = ?", [
+    broadcasterId,
+    group,
+  ]);
+  return !res.rows.length || Number(res.rows[0].enabled) === 1;
+}
+
+export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO command_toggles (broadcaster_id, group_name, enabled, updated_at) VALUES (?,?,?,?)",
+    [broadcasterId, group, enabled ? 1 : 0, Date.now()],
   );
 }
 

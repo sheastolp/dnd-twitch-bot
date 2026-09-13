@@ -2,7 +2,7 @@
 
 import type { Character } from "./types.ts";
 import { abilityNames } from "./data.ts";
-import { modifier, formatRaceName, escapeHtml } from "./utils.ts";
+import { modifier, formatRaceName, escapeHtml, COMMAND_GROUPS } from "./utils.ts";
 import type { MapRow, MapToken } from "./db.ts";
 import { MAP_TEMPLATES, TERRAINS, tokenColor } from "./maps.ts";
 
@@ -159,10 +159,59 @@ export interface DashboardData {
   maxCooldownSeconds: number;
   notice?: string;
   error?: string;
+  botEnabled: boolean;
+  marketEnabled: boolean;
+  chronicleEnabled: boolean;
+  npcEnabled: boolean;
+  npcChatterEnabled: boolean;
+  groupToggles: Record<string, boolean>;
 }
 
 function dashHidden(broadcasterId: string, key: string): string {
   return `<input type="hidden" name="channel" value="${escapeHtml(broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(key)}">`;
+}
+
+function featureToggleRow(d: DashboardData, intentOn: string, intentOff: string, label: string, sub: string, enabled: boolean): string {
+  return `<div class="toggle-row">
+    <div class="toggle-label">${escapeHtml(label)}<small>${escapeHtml(sub)}</small></div>
+    <span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>
+    <form method="post" action="/dashboard/features">
+      ${dashHidden(d.broadcasterId, d.channelKey)}
+      <input type="hidden" name="intent" value="${enabled ? intentOff : intentOn}">
+      <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
+    </form>
+  </div>`;
+}
+
+function groupToggleRow(d: DashboardData, key: string, label: string, enabled: boolean): string {
+  return `<div class="toggle-row">
+    <div class="toggle-label">${escapeHtml(label)}</div>
+    <span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>
+    <form method="post" action="/dashboard/features">
+      ${dashHidden(d.broadcasterId, d.channelKey)}
+      <input type="hidden" name="intent" value="${enabled ? "group_off" : "group_on"}">
+      <input type="hidden" name="group" value="${escapeHtml(key)}">
+      <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
+    </form>
+  </div>`;
+}
+
+function renderFeaturesSection(d: DashboardData): string {
+  const dedicated = [
+    featureToggleRow(d, "bot_on", "bot_off", "Entire bot", "Master switch — same as !dndbot on/off in chat", d.botEnabled),
+    featureToggleRow(d, "market_on", "market_off", "Open-stall merchant", "Random flavor ads in chat — same as !market on/off", d.marketEnabled),
+    featureToggleRow(d, "chronicle_on", "chronicle_off", "Chronicle", "Occasional quote-backs of chat — same as !chronicle on/off", d.chronicleEnabled),
+    featureToggleRow(d, "npc_on", "npc_off", "AI NPCs", "Lets viewers talk to AI-voiced NPCs with !npc talk", d.npcEnabled),
+    featureToggleRow(d, "npcchatter_on", "npcchatter_off", "AI NPC chatter", "NPCs jumping into chat on their own (needs AI NPCs on too)", d.npcChatterEnabled),
+  ].join("");
+  const groups = Object.entries(COMMAND_GROUPS)
+    .map(([key, def]) => groupToggleRow(d, key, def.label, d.groupToggles[key] ?? true))
+    .join("");
+  return `<section><h2>Bot & feature switches</h2><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
+    <div class="toggles">${dedicated}</div>
+    <h3>Command groups</h3>
+    <div class="toggles">${groups}</div>
+    </section>`;
 }
 
 function renderCommandsSection(d: DashboardData): string {
@@ -311,10 +360,19 @@ export function renderDashboardPage(d: DashboardData): string {
     .banner{padding:10px 14px;border-radius:6px;margin:12px 0}
     .banner.ok{background:#1e3320;color:#a7e6ac}
     .banner.error{background:#3a1f1f;color:#f0a6a6}
+    .toggles{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+    .toggle-row{display:flex;align-items:center;gap:12px;background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:10px 14px}
+    .toggle-label{flex:1;font-size:.92rem}
+    .toggle-label small{display:block;color:#aa9b8d;font-weight:400;margin-top:2px}
+    .pill{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+    .pill.on{background:#1e3320;color:#a7e6ac}
+    .pill.off{background:#3a1f1f;color:#f0a6a6}
+    button.danger{background:#5c2a2a}
   </style></head><body>
   <h1>🛡️ ${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
-  <p class="muted">Manage this channel's custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
+  <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
   ${banner}
+  ${renderFeaturesSection(d)}
   ${renderCommandsSection(d)}
   ${renderTriggersSection(d)}
   ${renderTimedMessagesSection(d)}

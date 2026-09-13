@@ -802,3 +802,67 @@ export function firstAlive(members: string[], hp: Record<string, number>) {
 export function logRowText(r: any) {
   return `${new Date(Number(r.created_at)).toISOString()} | @${r.username} | ${r.action} | ${r.detail}`;
 }
+
+// ── Dashboard feature groups ──────────────────────────────────────────────
+// Coarse-grained per-channel command toggles surfaced on the web dashboard
+// (see dashboard.ts / pages.ts renderFeaturesSection). Each group's
+// `commands` are the exact lowercased first-word tokens (without "!") that
+// belong to it, matched against the first word of an incoming chat message.
+//
+// Deliberately NOT in any group here — they already have their own
+// dedicated on/off switch (isChannelEnabled, isMerchantEnabled,
+// isChronicleEnabled, isNpcEnabled in db.ts), or must always keep working:
+//   - !dndbot on/off/status — the dashboard's master bot switch.
+//   - !market on/off/status — merchant flavor ads, own dashboard toggle.
+//   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
+//   - !npc ... — AI NPC chatter, own dashboard toggle.
+//   - !dashboard [reset] — must stay reachable even with "custom" off, or a
+//     steward could lock themselves out of the page that turns things back on.
+//   - !help, !guide, !link, !dndbothelp — always available so players can
+//     see why other commands aren't responding.
+// !dndbot's *management* subcommands (add/edit/remove/list/cooldown) share
+// the "dndbot" word with the master switch, but only reach the "custom"
+// group check below because on/off/status are matched and returned first.
+export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] }> = {
+  character: {
+    label: "Character sheet (!char, !createchar, !newchar, !bg3, !levelup, !hp, !savechar, !loadchar, !resetchar)",
+    commands: ["char", "createchar", "newchar", "bg3", "levelup", "hp", "savechar", "loadchar", "resetchar"],
+  },
+  dice: {
+    label: "Dice & fate (!roll, !r, !d20, !oracle)",
+    commands: ["roll", "r", "d20", "oracle"],
+  },
+  bg3flavor: {
+    label: "BG3 flavor rolls (!bg3roll, !bg3companion, !bg3origin, !bg3loot, !bg3camp, !bg3lookup)",
+    commands: ["bg3roll", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup"],
+  },
+  archives: {
+    label: "SRD archives (!rules, !spell, !class, !feat, !item, !ability, !race, !subrace, !monster)",
+    commands: ["rules", "rule", "spell", "class", "feat", "item", "ability", "race", "subrace", "monster"],
+  },
+  combat: {
+    label: "Arena & company (!turn, !party, !dndduel)",
+    commands: ["turn", "party", "dndduel"],
+  },
+  maps: {
+    label: "Battle maps (!map)",
+    commands: ["map"],
+  },
+  custom: {
+    label: "Custom commands, triggers & timed messages (!dndbot add/edit/remove/list, !trigger, !timedmsg, passive keyword triggers)",
+    commands: ["trigger", "dndbot", "timedmsg"],
+  },
+  misc: {
+    label: "Misc (!hug, !rollcall, !logs, !connections, !adcheck, !adslogged)",
+    commands: ["hug", "rollcall", "logs", "connections", "adcheck", "adslogged"],
+  },
+};
+
+const COMMAND_TO_GROUP: Record<string, string> = Object.fromEntries(
+  Object.entries(COMMAND_GROUPS).flatMap(([group, def]) => def.commands.map((c) => [c, group])),
+);
+
+/** Which dashboard group (if any) a chat command's first word belongs to. */
+export function groupForCommand(word: string): string | null {
+  return COMMAND_TO_GROUP[word.toLowerCase()] ?? null;
+}

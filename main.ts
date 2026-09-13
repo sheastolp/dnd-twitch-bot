@@ -44,6 +44,7 @@ import {
   getMapTokens,
   listMaps,
   saveCreationSession,
+  isCommandGroupEnabled,
 } from "./db.ts";
 import {
   ensureSocialTables,
@@ -77,6 +78,7 @@ import {
   handleDashboardCommandsForm,
   handleDashboardTriggersForm,
   handleDashboardTimedMessagesForm,
+  handleDashboardFeaturesForm,
 } from "./dashboard.ts";
 import {
   generateCharacter,
@@ -122,6 +124,7 @@ import {
   logRowText,
   isGoodnightMessage,
   goodnightReply,
+  groupForCommand,
 } from "./utils.ts";
 import { classes } from "./data.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderAdminLogsPage } from "./pages.ts";
@@ -549,6 +552,9 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "POST" && path === "/dashboard/timedmessages") {
     return await handleDashboardTimedMessagesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
   }
+  if (req.method === "POST" && path === "/dashboard/features") {
+    return await handleDashboardFeaturesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+  }
 
   if (req.method !== "POST") return new Response("OK");
 
@@ -709,7 +715,15 @@ async function handleRequest(req: Request): Promise<Response> {
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
       if (!isModerator && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
-      await recordActivity(chatter, broadcasterId, chatMessage.split(/\s+/)[0].toLowerCase(), chatMessage);
+      const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
+      await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
+      // Dashboard-controlled feature groups (see COMMAND_GROUPS in
+      // utils.ts). Silent no-op when disabled, same as the master
+      // isChannelEnabled check just above — features with their own
+      // dedicated toggle (market/chronicle/npc) and !dashboard itself are
+      // deliberately excluded from COMMAND_GROUPS so they're unaffected.
+      const group = groupForCommand(commandWord.replace(/^!/, ""));
+      if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
     }
 
     // Command handlers (return true if handled)
@@ -1122,11 +1136,13 @@ async function handleRequest(req: Request): Promise<Response> {
         await sendChatMessage(goodnightReply(display), broadcasterId);
       }
     } else {
-      // Plain (non-"!") chat — check passive keyword triggers first; only
-      // roll the chronicle's random quote-back (then NPC chatter) if no
-      // trigger already replied, so a single message never draws two
-      // separate unprompted replies.
-      const triggerFired = await handleTriggerMatch(chatMessage, display, broadcasterId);
+      // Plain (non-"!") chat — check passive keyword triggers first (part
+      // of the "custom" dashboard group); only roll the chronicle's random
+      // quote-back (then NPC chatter) if no trigger already replied, so a
+      // single message never draws two separate unprompted replies.
+      const triggerFired = (await isCommandGroupEnabled(broadcasterId, "custom"))
+        ? await handleTriggerMatch(chatMessage, display, broadcasterId)
+        : false;
       if (!triggerFired) {
         const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId);
         if (!chronicleFired) {
