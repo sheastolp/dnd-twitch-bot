@@ -8,21 +8,29 @@
 // different intervals in the same channel rotate independently.
 
 import { ensureTables, getDueTimedMessages, recordTimedMessageSent, recordMonitorEvent } from "./db.ts";
-import { sendChatMessages } from "./twitch.ts";
+import { sendChatMessages, isChannelLive } from "./twitch.ts";
 import { renderTimedMessage } from "./timedmessages.ts";
 
 export default async function () {
   await ensureTables();
   const now = Date.now();
   const due = await getDueTimedMessages(now);
+  let posted = 0;
+  let skippedOffline = 0;
 
   for (const row of due) {
     const id = Number(row.id);
     const broadcasterId = String(row.broadcaster_id);
     const intervalMinutes = Number(row.interval_minutes);
     try {
-      const text = renderTimedMessage(String(row.message ?? ""), Number(row.uses ?? 0) + 1);
-      await sendChatMessages(text, broadcasterId);
+      // Skip posting (but still reschedule below) while the channel is offline.
+      if (await isChannelLive(broadcasterId)) {
+        const text = renderTimedMessage(String(row.message ?? ""), Number(row.uses ?? 0) + 1);
+        await sendChatMessages(text, broadcasterId);
+        posted++;
+      } else {
+        skippedOffline++;
+      }
     } catch (e) {
       await recordMonitorEvent("timedmsg_post_error", `${broadcasterId}#${id}: ${String(e)}`);
     }
@@ -31,5 +39,7 @@ export default async function () {
     await recordTimedMessageSent(id, now + intervalMinutes * 60_000);
   }
 
-  console.log(`GuildScribe timed messages cron: posted ${due.length} message(s)`);
+  console.log(
+    `GuildScribe timed messages cron: posted ${posted} of ${due.length} due message(s) (${skippedOffline} skipped offline)`,
+  );
 }

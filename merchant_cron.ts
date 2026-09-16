@@ -7,7 +7,7 @@
 // every run.
 
 import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun } from "./db.ts";
-import { sendChatMessage } from "./twitch.ts";
+import { sendChatMessage, isChannelLive } from "./twitch.ts";
 import { generateMerchantAd, randomMerchantIntervalMs } from "./merchant.ts";
 
 export default async function () {
@@ -16,12 +16,21 @@ export default async function () {
   const due = await getDueMerchantChannels(now);
   let postsOk = 0;
   let postsFailed = 0;
+  let postsSkippedOffline = 0;
 
   for (const broadcasterId of due) {
     try {
-      const sent = await sendChatMessage(generateMerchantAd(), broadcasterId);
-      if (sent) postsOk++;
-      else postsFailed++;
+      // Skip posting (but still reschedule below) while the channel is
+      // offline — no point hawking wares to an empty chat. Not counted as
+      // an ok/failed post so /admin/merchant/status doesn't read this as a
+      // real send.
+      if (!(await isChannelLive(broadcasterId))) {
+        postsSkippedOffline++;
+      } else if (await sendChatMessage(generateMerchantAd(), broadcasterId)) {
+        postsOk++;
+      } else {
+        postsFailed++;
+      }
     } catch (e) {
       postsFailed++;
       await recordMonitorEvent("merchant_post_error", `${broadcasterId}: ${String(e)}`);
@@ -35,5 +44,7 @@ export default async function () {
   // tell "cron ticked, nobody due" apart from "cron hasn't ticked in a while".
   await recordMerchantCronRun(due.length, postsOk, postsFailed);
 
-  console.log(`GuildScribe merchant cron: posted to ${due.length} channel(s)`);
+  console.log(
+    `GuildScribe merchant cron: posted to ${postsOk} of ${due.length} due channel(s) (${postsSkippedOffline} skipped offline, ${postsFailed} failed)`,
+  );
 }

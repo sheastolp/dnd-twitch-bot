@@ -98,6 +98,7 @@ import {
   sendChatMessage,
   sendChatMessages,
   sendSpellSections,
+  isChannelLive,
   exchangeCode,
   createChatSubscription,
   createSubEventSubscriptions,
@@ -590,6 +591,9 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!subConnection || Number(subConnection.connected) !== 1) return new Response("OK");
       if (await isChannelBlocked(subBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(subBroadcasterId))) return new Response("OK");
+      // Subs/resubs/gifts can land while the channel is offline — stay quiet
+      // rather than thanking someone into an empty, offline chat.
+      if (!(await isChannelLive(subBroadcasterId))) return new Response("OK");
 
       const thankYou =
         subscriptionType === "channel.subscribe"
@@ -616,6 +620,8 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!raidConnection || Number(raidConnection.connected) !== 1) return new Response("OK");
       if (await isChannelBlocked(raidBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(raidBroadcasterId))) return new Response("OK");
+      // Stay quiet rather than thanking a raider into an offline channel.
+      if (!(await isChannelLive(raidBroadcasterId))) return new Response("OK");
       await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId);
       return new Response("OK");
     }
@@ -651,6 +657,14 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Operator blocklist always wins.
     if (await isChannelBlocked(broadcasterId)) return new Response("OK");
+
+    // Stay quiet in chat while the channel is offline — but let the
+    // broadcaster/mods keep using every command normally so they can test
+    // GuildScribe without going live. Ambient/scheduled sends that don't come
+    // from a specific chat message (sub/raid thank-yous above, merchant ads
+    // and timed messages in their own cron files) are gated the same way,
+    // with no mod exception since there's no "requesting user" for those.
+    if (!isModerator && !(await isChannelLive(broadcasterId))) return new Response("OK");
 
     // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
     const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);
