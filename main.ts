@@ -45,6 +45,8 @@ import {
   listMaps,
   saveCreationSession,
   isCommandGroupEnabled,
+  setBroadcasterLiveStatus,
+  markStreamStatusSubscribed,
 } from "./db.ts";
 import {
   ensureSocialTables,
@@ -98,11 +100,12 @@ import {
   sendChatMessage,
   sendChatMessages,
   sendSpellSections,
-  isChannelLive,
+  fetchIsChannelLiveNow,
   exchangeCode,
   createChatSubscription,
   createSubEventSubscriptions,
   createRaidEventSubscription,
+  createStreamStatusEventSubscriptions,
   verifyEventSub,
   deleteEventSubSubscription,
 } from "./twitch.ts";
@@ -160,6 +163,27 @@ async function sendWelcomeMessage(display: string, broadcasterId: string) {
     `@${display} Welcome to the Guild Hall, adventurer! 📜 Create your legend with !createchar or !newchar, check your parchment with !char, gather a company with !party create <name>, and consult the archives with !dndbothelp. Full guild codex: ${PUBLIC_BASE_URL}/guide`,
     broadcasterId,
   );
+}
+
+/** One-time, best-effort backfill for a channel that connected before the
+ * "quiet while offline" feature existed (stream_status_subscribed = 0), so
+ * it doesn't need to disconnect/reconnect to get it. Creates the
+ * stream.online/offline subscriptions, seeds is_live with one direct Twitch
+ * lookup, and flips stream_status_subscribed so this never runs again for
+ * that channel. Called lazily, only the first time a message would
+ * otherwise be silenced as "offline" — never on the normal hot path once a
+ * channel is caught up. */
+async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: string) {
+  try {
+    const { online, offline } = await createStreamStatusEventSubscriptions(broadcasterId, baseUrl);
+    await saveExtraEventSubSubscription(broadcasterId, "stream_online", online.id);
+    await saveExtraEventSubSubscription(broadcasterId, "stream_offline", offline.id);
+    await markStreamStatusSubscribed(broadcasterId, await fetchIsChannelLiveNow(broadcasterId));
+  } catch (e) {
+    await recordMonitorEvent("eventsub_stream_status_backfill_failed", `${broadcasterId}: ${String(e)}`);
+    // Leave stream_status_subscribed at 0 so this is retried on the next
+    // otherwise-silenced message rather than getting stuck failed forever.
+  }
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -316,6 +340,20 @@ async function handleRequest(req: Request): Promise<Response> {
         await saveExtraEventSubSubscription(user.id, "raid", raidSub.id);
       } catch (e) {
         await recordMonitorEvent("eventsub_raid_subscription_failed", `${user.id}: ${String(e)}`);
+      }
+      // Best-effort: powers the "quiet while offline" check (see main
+      // dispatch above and the two cron files). Also needs no extra OAuth
+      // scope. Seed broadcasters.is_live with one direct lookup right away
+      // so it isn't stuck at the default (offline) until the first future
+      // stream.online/offline event — after that, these subscriptions keep
+      // it current with no further Twitch API calls.
+      try {
+        const { online, offline } = await createStreamStatusEventSubscriptions(user.id, url.origin);
+        await saveExtraEventSubSubscription(user.id, "stream_online", online.id);
+        await saveExtraEventSubSubscription(user.id, "stream_offline", offline.id);
+        await markStreamStatusSubscribed(user.id, await fetchIsChannelLiveNow(user.id));
+      } catch (e) {
+        await recordMonitorEvent("eventsub_stream_status_subscription_failed", `${user.id}: ${String(e)}`);
       }
       return page(
         "Twitch connected",
@@ -592,8 +630,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (await isChannelBlocked(subBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(subBroadcasterId))) return new Response("OK");
       // Subs/resubs/gifts can land while the channel is offline — stay quiet
-      // rather than thanking someone into an empty, offline chat.
-      if (!(await isChannelLive(subBroadcasterId))) return new Response("OK");
+      // rather than thanking someone into an empty, offline chat. is_live is
+      // kept current by the stream.online/offline notifications below, so
+      // this reuses the connection row already fetched above (no extra call).
+      if (Number(subConnection.is_live) !== 1) return new Response("OK");
 
       const thankYou =
         subscriptionType === "channel.subscribe"
@@ -620,9 +660,22 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!raidConnection || Number(raidConnection.connected) !== 1) return new Response("OK");
       if (await isChannelBlocked(raidBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(raidBroadcasterId))) return new Response("OK");
-      // Stay quiet rather than thanking a raider into an offline channel.
-      if (!(await isChannelLive(raidBroadcasterId))) return new Response("OK");
+      // Stay quiet rather than thanking a raider into an offline channel
+      // (reuses raidConnection.is_live already fetched above).
+      if (Number(raidConnection.is_live) !== 1) return new Response("OK");
       await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId);
+      return new Response("OK");
+    }
+
+    // Stream going live/offline — just keeps broadcasters.is_live current so
+    // every other check above/below (and the merchant/timed-message crons)
+    // can read it as a plain column instead of calling Twitch on every
+    // message. No chat reply of its own.
+    if (subscriptionType === "stream.online" || subscriptionType === "stream.offline") {
+      const liveBroadcasterId: string = body.event?.broadcaster_user_id ?? "";
+      if (liveBroadcasterId) {
+        await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
+      }
       return new Response("OK");
     }
 
@@ -664,7 +717,22 @@ async function handleRequest(req: Request): Promise<Response> {
     // from a specific chat message (sub/raid thank-yous above, merchant ads
     // and timed messages in their own cron files) are gated the same way,
     // with no mod exception since there's no "requesting user" for those.
-    if (!isModerator && !(await isChannelLive(broadcasterId))) return new Response("OK");
+    // connection.is_live is a plain column already fetched above — kept
+    // current by the stream.online/offline notifications below, so this
+    // check costs nothing extra (no Twitch API call in this hot path) for a
+    // channel that's already caught up.
+    if (!isModerator && Number(connection.is_live) !== 1) {
+      // Channel connected before this feature existed — one-time backfill,
+      // then re-check; every later message for this channel skips straight
+      // to the column read above.
+      if (Number(connection.stream_status_subscribed) !== 1) {
+        await backfillStreamStatusSubscription(broadcasterId, url.origin);
+        const refreshed = await getBroadcaster(broadcasterId);
+        if (!refreshed || Number(refreshed.is_live) !== 1) return new Response("OK");
+      } else {
+        return new Response("OK");
+      }
+    }
 
     // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
     const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);

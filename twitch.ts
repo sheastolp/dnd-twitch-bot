@@ -192,40 +192,25 @@ export async function getChannelInfo(broadcasterId: string): Promise<{ gameName:
   }
 }
 
-// Live-status cache, keyed by broadcaster. isChannelLive is checked once per
-// incoming chat event and once per due row in the merchant/timed-message
-// crons — a busy channel or a big cron batch could otherwise hit the Twitch
-// Get Streams endpoint many times a minute. Caching for a short window keeps
-// that to roughly one call per channel per interval, while still noticing a
-// stream going live/offline within that window.
-const LIVE_STATUS_CACHE_TTL_MS = 60_000;
-const liveStatusCache = new Map<string, { live: boolean; expiresAt: number }>();
-
-/** Is this broadcaster's channel currently live on Twitch? Used to keep
- * GuildScribe's ambient/scheduled chat (merchant ads, timed messages,
- * sub/raid thank-yous) and regular-viewer command replies quiet while a
- * channel is offline. On a Twitch/network error this fails "live" (open)
- * rather than "offline" (closed) — a transient API hiccup should not go on
- * to silence the bot for a full minute while the stream is actually live. */
-export async function isChannelLive(broadcasterId: string): Promise<boolean> {
-  const cached = liveStatusCache.get(broadcasterId);
-  if (cached && Date.now() < cached.expiresAt) return cached.live;
-  let live = true;
+/** One-off "is this channel live right now" check against Twitch's Get
+ * Streams endpoint. NOT used in the chat hot path (that would mean a Twitch
+ * API round-trip on every message — see the stream.online/offline EventSub
+ * subscriptions below for the fast path). Only called once, at connect time,
+ * to seed broadcasters.is_live before the first future stream.online/offline
+ * event arrives to keep it updated. */
+export async function fetchIsChannelLiveNow(broadcasterId: string): Promise<boolean> {
   try {
     const token = await getAppToken();
     const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${broadcasterId}`, {
       headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
     });
-    if (res.ok) {
-      const data = await res.json();
-      live = Boolean(data?.data?.[0]);
-    }
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data?.data?.[0]);
   } catch (err) {
-    console.error("isChannelLive failed", err);
-    // Leave `live` at its fail-open default (true) set above.
+    console.error("fetchIsChannelLiveNow failed", err);
+    return false;
   }
-  liveStatusCache.set(broadcasterId, { live, expiresAt: Date.now() + LIVE_STATUS_CACHE_TTL_MS });
-  return live;
 }
 
 /** Returns a formatted uptime string ("1h 12m"/"12m"), or null if offline. */
@@ -389,6 +374,20 @@ export async function createRaidEventSubscription(broadcasterId: string, callbac
     { to_broadcaster_user_id: broadcasterId },
     callbackUrl,
   );
+}
+
+// Stream going live/offline — powers the fast, no-API-call "quiet while
+// offline" check (broadcasters.is_live, updated by these notifications; see
+// main.ts). Like channel.raid, both need no extra OAuth scope beyond the
+// broadcaster_user_id condition, so this should reliably succeed for every
+// connected channel. Kept as its own best-effort call in main.ts so a hiccup
+// here never blocks the core chat connection.
+export async function createStreamStatusEventSubscriptions(broadcasterId: string, callbackUrl: string) {
+  const [online, offline] = await Promise.all([
+    createEventSubSubscription("stream.online", "1", { broadcaster_user_id: broadcasterId }, callbackUrl),
+    createEventSubSubscription("stream.offline", "1", { broadcaster_user_id: broadcasterId }, callbackUrl),
+  ]);
+  return { online, offline };
 }
 
 export async function deleteEventSubSubscription(subscriptionId: string) {

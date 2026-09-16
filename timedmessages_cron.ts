@@ -8,7 +8,7 @@
 // different intervals in the same channel rotate independently.
 
 import { ensureTables, getDueTimedMessages, recordTimedMessageSent, recordMonitorEvent } from "./db.ts";
-import { sendChatMessages, isChannelLive } from "./twitch.ts";
+import { sendChatMessages } from "./twitch.ts";
 import { renderTimedMessage } from "./timedmessages.ts";
 
 export default async function () {
@@ -23,8 +23,11 @@ export default async function () {
     const broadcasterId = String(row.broadcaster_id);
     const intervalMinutes = Number(row.interval_minutes);
     try {
-      // Skip posting (but still reschedule below) while the channel is offline.
-      if (await isChannelLive(broadcasterId)) {
+      // Skip posting (but still reschedule below) while the channel is
+      // offline. is_live comes straight from the query (broadcasters.is_live,
+      // kept current by the stream.online/offline EventSub notifications in
+      // main.ts) — a plain column read, not a Twitch API call.
+      if (Number(row.is_live) === 1) {
         const text = renderTimedMessage(String(row.message ?? ""), Number(row.uses ?? 0) + 1);
         await sendChatMessages(text, broadcasterId);
         posted++;

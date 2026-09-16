@@ -306,7 +306,7 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
 
-**Quiet while offline:** GuildScribe checks Twitch's Get Streams endpoint (cached ~60s per channel) before speaking. While a channel is offline, regular viewers' commands and ambient chat (goodnight replies, chronicle quotes, NPC chatter, sub/raid thank-yous, merchant ads, timed messages) are silently skipped — the broadcaster and mods can still use every command normally so they can test the bot without going live. `!dndbot leave`/`leave purge` and `!dndbot on`/`off`/`status` are unaffected by this check.
+**Quiet while offline:** GuildScribe tracks each channel's live/offline status via Twitch's `stream.online`/`stream.offline` EventSub events (pushed to the bot, not polled — no extra Twitch API call on chat messages). While a channel is offline, regular viewers' commands and ambient chat (goodnight replies, chronicle quotes, NPC chatter, sub/raid thank-yous, merchant ads, timed messages) are silently skipped — the broadcaster and mods can still use every command normally so they can test the bot without going live. `!dndbot leave`/`leave purge` and `!dndbot on`/`off`/`status` are unaffected by this check. Channels connected before this feature shipped get caught up automatically (a one-time backfill the first time they'd otherwise be silenced) — no need to disconnect/reconnect.
 
 ### Passive chat (no command needed)
 | Trigger | Description |

@@ -7,7 +7,7 @@
 // every run.
 
 import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun } from "./db.ts";
-import { sendChatMessage, isChannelLive } from "./twitch.ts";
+import { sendChatMessage } from "./twitch.ts";
 import { generateMerchantAd, randomMerchantIntervalMs } from "./merchant.ts";
 
 export default async function () {
@@ -18,13 +18,16 @@ export default async function () {
   let postsFailed = 0;
   let postsSkippedOffline = 0;
 
-  for (const broadcasterId of due) {
+  for (const { broadcasterId, isLive } of due) {
     try {
       // Skip posting (but still reschedule below) while the channel is
-      // offline — no point hawking wares to an empty chat. Not counted as
-      // an ok/failed post so /admin/merchant/status doesn't read this as a
+      // offline — no point hawking wares to an empty chat. isLive comes
+      // straight from the query (broadcasters.is_live), kept current by the
+      // stream.online/offline EventSub notifications in main.ts, so this is
+      // a plain column read, not a Twitch API call. Not counted as an
+      // ok/failed post so /admin/merchant/status doesn't read this as a
       // real send.
-      if (!(await isChannelLive(broadcasterId))) {
+      if (!isLive) {
         postsSkippedOffline++;
       } else if (await sendChatMessage(generateMerchantAd(), broadcasterId)) {
         postsOk++;

@@ -172,6 +172,20 @@ export async function ensureTables() {
   // dashes) so it never collides with the "+"-decodes-to-space query string
   // trap documented on /admin/logs below.
   try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN dashboard_key TEXT`); } catch (_) {}
+  // Kept current by the stream.online/stream.offline EventSub subscriptions
+  // (see createStreamStatusEventSubscriptions in twitch.ts + the notification
+  // handling in main.ts) so "is this channel live" is a plain column read —
+  // no Twitch API call — in the chat hot path and the merchant/timed-message
+  // crons. Defaults to 0 until the first event (or the one-time connect-time
+  // seed) sets it.
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+  // Tracks whether this channel has stream.online/offline EventSub
+  // subscriptions yet. New connects get them immediately (see the OAuth
+  // callback in main.ts); channels connected before this feature existed
+  // default to 0 and get a one-time, best-effort lazy backfill the first
+  // time the "quiet while offline" check runs for them (see main.ts) — after
+  // that this flips to 1 and they're never re-checked.
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN stream_status_subscribed INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS channel_characters (broadcaster_id TEXT, username TEXT, created_at INTEGER, updated_at INTEGER, PRIMARY KEY (broadcaster_id, username))`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS channel_blocks (broadcaster_id TEXT PRIMARY KEY, reason TEXT, created_at INTEGER, updated_at INTEGER)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS monitor_events (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, detail TEXT, created_at INTEGER)`);
@@ -609,6 +623,28 @@ export async function markBroadcasterDisconnected(broadcasterId: string, reason:
   );
 }
 
+/** Set from stream.online/stream.offline EventSub notifications (see
+ * main.ts). Also set once from a direct Twitch lookup right after a channel
+ * connects, so is_live isn't wrong for however long until the first future
+ * transition (see fetchIsChannelLiveNow in twitch.ts). */
+export async function setBroadcasterLiveStatus(broadcasterId: string, live: boolean) {
+  await sqlite.execute("UPDATE broadcasters SET is_live = ? WHERE broadcaster_id = ?", [live ? 1 : 0, broadcasterId]);
+}
+
+/** Marks a channel as having stream.online/offline EventSub subscriptions,
+ * optionally seeding is_live in the same write (used by the lazy backfill in
+ * main.ts for channels connected before this feature existed). */
+export async function markStreamStatusSubscribed(broadcasterId: string, isLiveNow?: boolean) {
+  if (isLiveNow === undefined) {
+    await sqlite.execute("UPDATE broadcasters SET stream_status_subscribed = 1 WHERE broadcaster_id = ?", [broadcasterId]);
+  } else {
+    await sqlite.execute(
+      "UPDATE broadcasters SET stream_status_subscribed = 1, is_live = ? WHERE broadcaster_id = ?",
+      [isLiveNow ? 1 : 0, broadcasterId],
+    );
+  }
+}
+
 export async function getBroadcaster(broadcasterId: string) {
   const res = await sqlite.execute("SELECT * FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
   return res.rows.length ? res.rows[0] : null;
@@ -768,10 +804,12 @@ export async function getRecentChatters(broadcasterId: string, limit = 50) {
 }
 
 /** Channels whose merchant is enabled, due for a post, connected, not
- * operator-blocked, and not otherwise disabled via !dndbot off. */
-export async function getDueMerchantChannels(now: number): Promise<string[]> {
+ * operator-blocked, and not otherwise disabled via !dndbot off. Carries
+ * along b.is_live so merchant_cron.ts can skip offline channels without a
+ * separate query per channel. */
+export async function getDueMerchantChannels(now: number): Promise<Array<{ broadcasterId: string; isLive: boolean }>> {
   const res = await sqlite.execute(
-    `SELECT m.broadcaster_id AS broadcaster_id
+    `SELECT m.broadcaster_id AS broadcaster_id, b.is_live AS is_live
 
      FROM merchant_settings m
      JOIN broadcasters b ON b.broadcaster_id = m.broadcaster_id AND b.connected = 1
@@ -783,7 +821,7 @@ export async function getDueMerchantChannels(now: number): Promise<string[]> {
        AND (cs.enabled IS NULL OR cs.enabled = 1)`,
     [now],
   );
-  return res.rows.map((r: any) => String(r.broadcaster_id));
+  return res.rows.map((r: any) => ({ broadcasterId: String(r.broadcaster_id), isLive: Number(r.is_live) === 1 }));
 }
 
 export async function rescheduleMerchant(broadcasterId: string, nextPostAt: number) {
@@ -1397,10 +1435,11 @@ export async function deleteTimedMessage(broadcasterId: string, id: number) {
 
 // Polled by timedmessages_cron.ts. Only messages in currently-connected,
 // non-blocked channels are considered due — mirrors getDueMerchantChannels'
-// join against broadcasters(connected = 1).
+// join against broadcasters(connected = 1). Carries along b.is_live so the
+// cron can skip offline channels without a separate query per message.
 export async function getDueTimedMessages(now: number) {
   const res = await sqlite.execute(
-    `SELECT t.* FROM timed_messages t
+    `SELECT t.*, b.is_live AS is_live FROM timed_messages t
      JOIN broadcasters b ON b.broadcaster_id = t.broadcaster_id AND b.connected = 1
      WHERE t.enabled = 1 AND t.next_post_at IS NOT NULL AND t.next_post_at <= ?`,
     [now],
