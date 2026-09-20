@@ -541,6 +541,93 @@ export function rollHug(display: string, target?: string | null): string {
     : `🤗 The guild wraps @${display} in a warm hug. "${line}"`;
 }
 
+// !shmash — a purely cosmetic, D&D-flavored "smash" between two chatters'
+// characters. No dice, no HP, no game state — same spirit as !hug, just
+// louder. main.ts resolves each side's descriptor (character race/class
+// when they have one, plain username otherwise) and hands both strings to
+// renderShmash below to fill into a random template.
+const SHMASH_LINES: string[] = [
+  "%ACTOR% winds up a haymaker and sends %TARGET% cartwheeling into the nearest wall!",
+  "%ACTOR% bull-rushes %TARGET% clean off their feet and into a table of empty tankards!",
+  "%ACTOR% swings low and %TARGET% goes down like a poorly built siege tower!",
+  "%ACTOR% unleashes a Thunderwave that flattens %TARGET% against the tavern door!",
+  "%ACTOR% grapples %TARGET% overhead and slams them down for a ruling of 'that's gotta hurt'!",
+  "%ACTOR% cracks a shield square into %TARGET%, who folds like a bad hand of cards!",
+  "%ACTOR% catches %TARGET% with a critical shove, sending them skidding across the flagstones!",
+  "%ACTOR% drops an anvil-sized fist on %TARGET% straight out of a bar fight montage!",
+  "%ACTOR% spins %TARGET% around by the collar and introduces them to the floor!",
+  "%ACTOR% lands a spinning backhand that sends %TARGET% flying over the bar!",
+  "%ACTOR% tackles %TARGET% through a stack of barrels like it's a heist movie!",
+  "%ACTOR% delivers a textbook suplex on %TARGET% right in front of the whole guild!",
+  "%ACTOR% smacks %TARGET% with the flat of a greatsword — no blood, just pride lost!",
+  "%ACTOR% dropkicks %TARGET% clean off the stage mid-sentence!",
+  "%ACTOR% catches %TARGET% off guard with a Booming Blade to the backside!",
+  "%ACTOR% picks %TARGET% up like a sack of potatoes and yeets them into the moat!",
+  "%ACTOR% clotheslines %TARGET% so hard the bards start composing a ballad about it!",
+  "%ACTOR% rolls a natural 20 to bodyslam %TARGET% into next Tuesday!",
+  "%ACTOR% pins %TARGET% with a full-nelson worthy of a legendary monster stat block!",
+  "%ACTOR% sends %TARGET% skipping across the cobblestones like a flat stone on a pond!",
+  "%ACTOR% headbutts %TARGET% so hard their initiative gets reset!",
+  "%ACTOR% catapults %TARGET% out of the tavern with a well-timed Eldritch Blast!",
+  "%ACTOR% wraps %TARGET% in a bear hug and just... squeezes until they tap out!",
+];
+
+// Comedic stand-ins when no target is given — smash something, anything.
+const SHMASH_FALLBACK_TARGETS: string[] = [
+  "a wandering goblin",
+  "an unsuspecting mimic disguised as a chest",
+  "a training dummy that had it coming",
+  "a rowdy tavern patron",
+  "a suspiciously talkative rat",
+  "a stack of empty ale kegs",
+  "the tavern's creaky front door",
+  "a low-level bandit who picked the wrong fight",
+  "a wild boar that wandered into camp",
+  "an overconfident kobold",
+  "a poorly-guarded merchant cart",
+  "a haunted suit of armor",
+  "a giant spider dangling from the rafters",
+  "a stubborn mule blocking the road",
+  "a cursed scarecrow",
+  "an oversized tavern chandelier",
+  "a rickety wooden bridge",
+  "a skeleton that wouldn't stop rattling",
+  "an angry swarm of pixies",
+  "a slime that really shouldn't be touched",
+  "a suit of enchanted armor gone rogue",
+  "the blacksmith's anvil (bad idea)",
+];
+
+// Stand-ins for the rare "smash yourself" case, so the sentence doesn't just
+// repeat the invoker's own name/character back at them.
+const SHMASH_SELF_TARGETS: string[] = [
+  "themselves",
+  "their own reflection",
+  "their own two feet",
+  "their own bad luck",
+  "their own dignity",
+  "thin air, tripping in the process",
+  "their own shadow",
+  "the nearest mirror",
+];
+
+/**
+ * Renders one random !shmash line. `actorDesc` and `targetDesc` are
+ * pre-built descriptors (e.g. "@bob's Half-Orc Barbarian" or "@bob"); pass
+ * `isSelf: true` to swap in a pronoun-friendly stand-in for the target
+ * instead of repeating the actor's own descriptor, and omit `targetDesc`
+ * entirely to smash a random comedic fallback target.
+ */
+export function renderShmash(
+  actorDesc: string,
+  targetDesc?: string | null,
+  isSelf?: boolean,
+): string {
+  const target = isSelf ? pick(SHMASH_SELF_TARGETS) : targetDesc ?? pick(SHMASH_FALLBACK_TARGETS);
+  const line = pick(SHMASH_LINES).replaceAll("%ACTOR%", actorDesc).replaceAll("%TARGET%", target);
+  return `💥 ${line}`;
+}
+
 // Auto thank-you for new and renewed Twitch subscriptions — see main.ts's
 // EventSub handling for "channel.subscribe" / "channel.subscription.message".
 const SUB_TIER_NAMES: Record<string, string> = {

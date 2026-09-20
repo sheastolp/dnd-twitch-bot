@@ -146,6 +146,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!levelup` / `!levelup +/-N` | Adjust level |
 | `!hp` / `!hp +/-N` | Show or change HP |
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |
+| `!shmash` / `!shmash @user` | Just-for-fun narrated smash using your character against a target's (or a random comedic target if none given) — no HP/game state touched |
 
 ### Fate's dice
 | Command | Description |

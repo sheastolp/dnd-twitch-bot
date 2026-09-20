@@ -116,6 +116,7 @@ import {
   rollDice,
   rollFate,
   rollHug,
+  renderShmash,
   rollNewSubThankYou,
   rollResubThankYou,
   rollGiftSubThankYou,
@@ -872,7 +873,7 @@ async function handleRequest(req: Request): Promise<Response> {
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !help | !guide | !link"
             : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar"
+              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"
                 ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
                 : category === "combat"
@@ -1126,6 +1127,27 @@ async function handleRequest(req: Request): Promise<Response> {
       const hugMatch = chatMessage.match(/^!hug(?:\s+@?(\S+))?$/i)!;
       const hugTarget = hugMatch[1] ? hugMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
       await sendChatMessage(rollHug(display, hugTarget), broadcasterId);
+    } else if (/^!shmash(?:\s+@?\S+)?$/i.test(chatMessage)) {
+      // Purely cosmetic (no HP/game state touched) — pulls each side's
+      // character (race/class) when they have one saved, plain username
+      // otherwise, and falls back to a comedic target when none is given.
+      const shmashMatch = chatMessage.match(/^!shmash(?:\s+@?(\S+))?$/i)!;
+      const shmashTarget = shmashMatch[1] ? shmashMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
+      const actorChar = await getCharacter(chatter, broadcasterId);
+      const actorDesc = actorChar
+        ? `@${display}'s ${formatRaceName(actorChar.race, actorChar.subrace)} ${actorChar.cls}`
+        : `@${display}`;
+      if (!shmashTarget) {
+        await sendChatMessage(renderShmash(actorDesc), broadcasterId);
+      } else if (shmashTarget === chatter) {
+        await sendChatMessage(renderShmash(actorDesc, null, true), broadcasterId);
+      } else {
+        const targetChar = await getCharacter(shmashTarget, broadcasterId);
+        const targetDesc = targetChar
+          ? `@${shmashTarget}'s ${formatRaceName(targetChar.race, targetChar.subrace)} ${targetChar.cls}`
+          : `@${shmashTarget}`;
+        await sendChatMessage(renderShmash(actorDesc, targetDesc), broadcasterId);
+      }
     } else if (/^!createchar(?:\s+@?\S+)?$/i.test(chatMessage)) {
       const createMatch = chatMessage.match(/^!createchar(?:\s+@?(\S+))?$/i)!;
       const createTarget = createMatch[1] ? createMatch[1].toLowerCase() : null;
