@@ -904,6 +904,9 @@ export function logRowText(r: any) {
 // isChronicleEnabled, isNpcEnabled in db.ts), or must always keep working:
 //   - !dndbot on/off/status — the dashboard's master bot switch.
 //   - !market on/off/status — merchant flavor ads, own dashboard toggle.
+//   - !haggle <message> — bargains over the merchant's current listing;
+//     gated by the same !market toggle rather than its own, so it's excluded
+//     here too (see haggle.ts / isMerchantEnabled in db.ts).
 //   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
 //   - !dashboard [reset] — must stay reachable even with "custom" off, or a

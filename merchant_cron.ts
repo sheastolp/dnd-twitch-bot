@@ -6,9 +6,9 @@
 // so a frequent tick here just checks who's due rather than posting on
 // every run.
 
-import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun } from "./db.ts";
+import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun, setMerchantListing } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
-import { generateMerchantAd, randomMerchantIntervalMs } from "./merchant.ts";
+import { rollMerchantOffer, randomMerchantIntervalMs } from "./merchant.ts";
 
 export default async function () {
   await ensureTables();
@@ -29,10 +29,16 @@ export default async function () {
       // real send.
       if (!isLive) {
         postsSkippedOffline++;
-      } else if (await sendChatMessage(generateMerchantAd(), broadcasterId)) {
-        postsOk++;
       } else {
-        postsFailed++;
+        const offer = rollMerchantOffer();
+        if (await sendChatMessage(offer.ad, broadcasterId)) {
+          postsOk++;
+          // Persisted so !haggle (haggle.ts) knows what's currently on
+          // offer; each new ad overwrites the previous listing.
+          await setMerchantListing(broadcasterId, offer.merchantName, offer.itemDesc, offer.priceText);
+        } else {
+          postsFailed++;
+        }
       }
     } catch (e) {
       postsFailed++;

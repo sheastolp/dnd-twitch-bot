@@ -29,6 +29,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Web dashboard** | `!dashboard` hands out a private link for managing custom commands, triggers, and timed messages from a browser instead of chat syntax |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
+| **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict (refuse, discount, counter, or a silly trade demand). Rides on the `!market` toggle, one attempt per viewer per listing; flavor only, same as Market |
 
 ---
 
@@ -38,7 +39,8 @@ Chat: `!guide` or `!link` posts that same URL.
 |------|------|
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
-| **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** |
+| **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** — and records the current listing for `!haggle` |
+| **haggle.ts** | `!haggle <pitch>` — AI-voiced sassy haggling over the merchant's current listing (see `merchant_listings` in db.ts); no API key setup needed, uses Val Town's built-in `std/openai`, same as npcs.ts |
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
@@ -104,6 +106,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `NPC_CHATTER_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message triggers unprompted NPC chatter |
 | `NPC_CHATTER_COOLDOWN_MS` | *(optional)* Minimum gap between unprompted NPC chatter in a channel |
 | `NPC_CHATTER_MIN_MESSAGES` | *(optional)* Chat messages required since the last NPC chime-in before another can fire |
+| `HAGGLE_MODEL` | *(optional)* LLM model used for `!haggle` replies; default gpt-4o-mini |
 | `PRIMARY_BROADCASTER_ID` | *(optional)* Broadcaster id allowed to manage the shared "global" NPC roster with `!npc global add/edit/remove` |
 | `DUEL_ACCEPT_TIMEOUT_MS` | *(optional)* How long a `!dndduel` challenge stays open before expiring; default 300000ms (5 min), floor 30000ms |
 | `DUEL_IDLE_TIMEOUT_MS` | *(optional)* How long an active duel can sit idle before it's considered abandoned; default 600000ms (10 min) |
@@ -306,6 +309,8 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 | `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/logs/gameplay state |
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
+
+`!haggle <pitch>` (open to everyone, e.g. `!haggle come on, five copper is robbery`) rides on this same toggle — it bargains over whatever the merchant last listed, with an AI-voiced, sassy in-character verdict. No listing yet, or the market's off? It says so instead of calling the AI. One attempt per viewer per listing.
 
 **Quiet while offline:** GuildScribe tracks each channel's live/offline status via Twitch's `stream.online`/`stream.offline` EventSub events (pushed to the bot, not polled — no extra Twitch API call on chat messages). While a channel is offline, regular viewers' commands and ambient chat (goodnight replies, chronicle quotes, NPC chatter, sub/raid thank-yous, merchant ads, timed messages) are silently skipped — the broadcaster and mods can still use every command normally so they can test the bot without going live. `!dndbot leave`/`leave purge` and `!dndbot on`/`off`/`status` are unaffected by this check. Channels connected before this feature shipped get caught up automatically (a one-time backfill the first time they'd otherwise be silenced) — no need to disconnect/reconnect.
 

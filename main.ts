@@ -56,6 +56,7 @@ import {
 } from "./social_db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
+import { handleHaggleCommand } from "./haggle.ts";
 import { handleAdCommand } from "./ads.ts";
 import {
   disconnectAdToken,
@@ -824,6 +825,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)

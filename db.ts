@@ -251,6 +251,17 @@ export async function ensureTables() {
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, next_post_at INTEGER, updated_at INTEGER
     )`,
   );
+  // What's currently on offer per channel — the last-posted merchant ad's
+  // item, kept around so !haggle (haggle.ts) knows what to bargain over.
+  // One row per channel; each new ad overwrites the previous listing and
+  // resets haggled_by (a JSON array of usernames who already haggled it, so
+  // the same viewer can't re-roll the same item for another attempt).
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS merchant_listings (
+      broadcaster_id TEXT PRIMARY KEY, merchant_name TEXT, item_desc TEXT, price_text TEXT,
+      posted_at INTEGER, haggled_by TEXT NOT NULL DEFAULT '[]'
+    )`,
+  );
   // Granular per-channel command-group toggles for the dashboard (see
   // COMMAND_GROUPS in utils.ts). Missing row = enabled, same "absence means
   // default" pattern as channel_settings above.
@@ -699,6 +710,7 @@ export async function purgeChannelData(broadcasterId: string) {
     "party_monster_duels",
     "channel_settings",
     "merchant_settings",
+    "merchant_listings",
     "command_toggles",
     "chronicle_settings",
     "chronicle_activity",
@@ -728,6 +740,7 @@ export async function disconnectBroadcasterData(broadcasterId: string, purge = f
   else {
     await sqlite.execute("DELETE FROM channel_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
+    await sqlite.execute("DELETE FROM merchant_listings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM chronicle_settings WHERE broadcaster_id = ?", [broadcasterId]);
     await sqlite.execute("DELETE FROM npc_settings WHERE broadcaster_id = ?", [broadcasterId]);
@@ -786,6 +799,55 @@ export async function setMerchantEnabled(broadcasterId: string, enabled: boolean
     "INSERT OR REPLACE INTO merchant_settings (broadcaster_id, enabled, next_post_at, updated_at) VALUES (?,?,?,?)",
     [broadcasterId, enabled ? 1 : 0, enabled ? nextPostAt : null, Date.now()],
   );
+}
+
+export interface MerchantListing {
+  merchantName: string;
+  itemDesc: string;
+  priceText: string;
+  postedAt: number;
+  haggledBy: string[];
+}
+
+/** Called right after a merchant ad successfully posts — records what's now
+ * on offer for !haggle, replacing whatever was listed before. */
+export async function setMerchantListing(broadcasterId: string, merchantName: string, itemDesc: string, priceText: string) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO merchant_listings (broadcaster_id, merchant_name, item_desc, price_text, posted_at, haggled_by) VALUES (?,?,?,?,?,'[]')",
+    [broadcasterId, merchantName, itemDesc, priceText, Date.now()],
+  );
+}
+
+export async function getMerchantListing(broadcasterId: string): Promise<MerchantListing | null> {
+  const res = await sqlite.execute(
+    "SELECT merchant_name, item_desc, price_text, posted_at, haggled_by FROM merchant_listings WHERE broadcaster_id = ?",
+    [broadcasterId],
+  );
+  if (!res.rows.length) return null;
+  const r: any = res.rows[0];
+  return {
+    merchantName: r.merchant_name,
+    itemDesc: r.item_desc,
+    priceText: r.price_text,
+    postedAt: Number(r.posted_at),
+    haggledBy: JSON.parse(r.haggled_by || "[]"),
+  };
+}
+
+/** Records that `username` has now haggled the current listing, so they
+ * can't keep re-rolling the same item for another discount attempt. Pass
+ * the `postedAt` from the listing you just read: if the listing has since
+ * moved on (a new ad replaced it) this is a no-op and returns false, so a
+ * slow haggle reply can't mark the wrong (newer) listing as haggled. */
+export async function markListingHaggled(broadcasterId: string, username: string, postedAt: number): Promise<boolean> {
+  const listing = await getMerchantListing(broadcasterId);
+  if (!listing || listing.postedAt !== postedAt) return false;
+  const haggledBy = listing.haggledBy.includes(username) ? listing.haggledBy : [...listing.haggledBy, username];
+  await sqlite.execute(
+    "UPDATE merchant_listings SET haggled_by = ? WHERE broadcaster_id = ? AND posted_at = ?",
+    [JSON.stringify(haggledBy), broadcasterId, postedAt],
+  );
+  return true;
 }
 
 /** Recently-active chatters in a channel (from activity_logs), most-recent

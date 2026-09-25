@@ -132,13 +132,33 @@ const MERCHANT_CLOSERS: string[] = [
   "Not a fortune to be made here, just enough for supper.",
 ];
 
-/** One full merchant sales-pitch ad, ready to post to chat. */
-export function generateMerchantAd(): string {
+export interface MerchantOffer {
+  merchantName: string;
+  itemDesc: string;
+  priceText: string;
+  ad: string;
+}
+
+/** Rolls a full merchant offer — the peddler, the item, and the ready-to-post
+ * ad text together — so a caller (merchant_cron.ts) can post the ad and
+ * persist what's currently on offer (for !haggle, see haggle.ts) from the
+ * same roll instead of them drifting apart. */
+export function rollMerchantOffer(): MerchantOffer {
   const name = pick(MERCHANT_NAMES);
   const intro = pick(MERCHANT_INTROS)(name);
   const item = pick(MERCHANT_ITEMS);
   const closer = pick(MERCHANT_CLOSERS);
-  return `🛒 ${intro} Today's find: ${item.desc} — ${item.price}. ${closer}`;
+  return {
+    merchantName: name,
+    itemDesc: item.desc,
+    priceText: item.price,
+    ad: `🛒 ${intro} Today's find: ${item.desc} — ${item.price}. ${closer}`,
+  };
+}
+
+/** One full merchant sales-pitch ad, ready to post to chat. */
+export function generateMerchantAd(): string {
+  return rollMerchantOffer().ad;
 }
 
 /** Handles !market on | off | status. Returns true if the message matched. */
