@@ -398,13 +398,7 @@ export function rollDice(input = "1d20", customLabel?: string) {
                 "That's a roll fit for a Tuesday quest.",
               ];
   const pun = puns[Math.floor(Math.random() * puns.length)];
-  const text = `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
-  // rawD20 is the unmodified die face (1-20) whenever exactly one d20 was
-  // rolled — a flat bonus (e.g. "1d20+5" for an ability check) doesn't
-  // change it, since the modifier isn't part of the natural result. null for
-  // anything that isn't a single d20 (e.g. 2d6, 4d8). Callers use this to
-  // log leaderboard events without re-parsing the formatted text.
-  return { text, rawD20 };
+  return `🎲 ${label}: ${expression} → [${rolls.join(", ")}]${mod ? (mod > 0 ? `+${mod}` : mod) : ""} = ${total}. ${pun}`;
 }
 
 // Yes/No fate questions, e.g. "!roll is enya going to die this time?" — a
@@ -467,45 +461,6 @@ export function rollFate(question: string): string {
   return flavor(displayQuestion);
 }
 
-// !oracle <question> — like !roll's fate verdict, but instead of YES/NO the
-// "answer" is a randomly-chosen recent chatter's name. The pool of eligible
-// names is supplied by the caller (see getRecentChatters in db.ts); this
-// function only owns the flavor text around whichever name it's given.
-const ORACLE_LINES: Array<(q: string, name: string) => string> = [
-  (q, name) => `🔮 The crystal ball swirls and resolves into a face: @${name}, regarding "${q}"`,
-  (q, name) => `📜 You cast Augury. The vision names @${name} for "${q}"`,
-  (q, name) => `🎴 The Deck of Many Things turns up a familiar face: @${name}, on "${q}"`,
-  (q, name) => `👁️ The beholder's central eye fixes on @${name} for "${q}"`,
-  (q, name) => `✨ The bones scatter and spell out a name: @${name}, regarding "${q}"`,
-  (q, name) => `🕯️ The candle's smoke curls into the shape of @${name} for "${q}"`,
-  (q, name) => `🗿 The ancient statue's eyes swivel and lock onto @${name} for "${q}"`,
-  (q, name) => `🐉 The dragon exhales a name on the wind: @${name}, on "${q}"`,
-  (q, name) => `🧙 The wizard's crystal reveals @${name} at the heart of it — "${q}"`,
-  (q, name) => `📯 The horn sounds, summoning @${name} forth for "${q}"`,
-  (q, name) => `🌕 By the light of the full moon, @${name} is named for "${q}"`,
-  (q, name) => `🍀 Fate's coin lands heads-up on @${name} for "${q}"`,
-  (q, name) => `⚖️ The DM consults the notes behind the screen and points at @${name} for "${q}"`,
-  (q, name) => `🔥 The campfire pops and sends a spark toward @${name} — "${q}"`,
-  (q, name) => `🕊️ A raven circles the tavern and lands on @${name}'s shoulder for "${q}"`,
-  (q, name) => `🧿 The rune stones fall into the shape of a name: @${name}, on "${q}"`,
-  (q, name) => `⚔️ The blade points itself, unbidden, toward @${name} for "${q}"`,
-  (q, name) => `🃏 The tarot reveals The Adventurer: @${name}, regarding "${q}"`,
-  (q, name) => `🏰 The castle gates swing open before @${name} for "${q}"`,
-  (q, name) => `🐺 The wolves howl a name into the night: @${name}, on "${q}"`,
-  (q, name) => `🌟 The stars align and trace out @${name} for "${q}"`,
-  (q, name) => `📖 The tome of fate flips open to a page bearing @${name}'s name — "${q}"`,
-];
-
-const MAX_ORACLE_QUESTION_LEN = 200;
-
-/** Names a random recent chatter as the "answer" to a chat-supplied question. */
-export function rollOracle(question: string, chatterName: string): string {
-  const q = question.trim();
-  const displayQuestion = q.length > MAX_ORACLE_QUESTION_LEN ? q.slice(0, MAX_ORACLE_QUESTION_LEN) + "…" : q;
-  const flavor = pick(ORACLE_LINES);
-  return flavor(displayQuestion, chatterName);
-}
-
 // !hug — an undocumented, purely warm/supportive command. No dice, no
 // mechanics, no game state. Kept out of !dndbothelp and the guide on
 // purpose (like !connections) so it stays a small, genuine gesture rather
@@ -539,93 +494,6 @@ export function rollHug(display: string, target?: string | null): string {
   return target
     ? `🤗 @${display} wraps @${target} in a warm hug. "${line}"`
     : `🤗 The guild wraps @${display} in a warm hug. "${line}"`;
-}
-
-// !shmash — a purely cosmetic, D&D-flavored "smash" between two chatters'
-// characters. No dice, no HP, no game state — same spirit as !hug, just
-// louder. main.ts resolves each side's descriptor (character race/class
-// when they have one, plain username otherwise) and hands both strings to
-// renderShmash below to fill into a random template.
-const SHMASH_LINES: string[] = [
-  "%ACTOR% winds up a haymaker and sends %TARGET% cartwheeling into the nearest wall!",
-  "%ACTOR% bull-rushes %TARGET% clean off their feet and into a table of empty tankards!",
-  "%ACTOR% swings low and %TARGET% goes down like a poorly built siege tower!",
-  "%ACTOR% unleashes a Thunderwave that flattens %TARGET% against the tavern door!",
-  "%ACTOR% grapples %TARGET% overhead and slams them down for a ruling of 'that's gotta hurt'!",
-  "%ACTOR% cracks a shield square into %TARGET%, who folds like a bad hand of cards!",
-  "%ACTOR% catches %TARGET% with a critical shove, sending them skidding across the flagstones!",
-  "%ACTOR% drops an anvil-sized fist on %TARGET% straight out of a bar fight montage!",
-  "%ACTOR% spins %TARGET% around by the collar and introduces them to the floor!",
-  "%ACTOR% lands a spinning backhand that sends %TARGET% flying over the bar!",
-  "%ACTOR% tackles %TARGET% through a stack of barrels like it's a heist movie!",
-  "%ACTOR% delivers a textbook suplex on %TARGET% right in front of the whole guild!",
-  "%ACTOR% smacks %TARGET% with the flat of a greatsword — no blood, just pride lost!",
-  "%ACTOR% dropkicks %TARGET% clean off the stage mid-sentence!",
-  "%ACTOR% catches %TARGET% off guard with a Booming Blade to the backside!",
-  "%ACTOR% picks %TARGET% up like a sack of potatoes and yeets them into the moat!",
-  "%ACTOR% clotheslines %TARGET% so hard the bards start composing a ballad about it!",
-  "%ACTOR% rolls a natural 20 to bodyslam %TARGET% into next Tuesday!",
-  "%ACTOR% pins %TARGET% with a full-nelson worthy of a legendary monster stat block!",
-  "%ACTOR% sends %TARGET% skipping across the cobblestones like a flat stone on a pond!",
-  "%ACTOR% headbutts %TARGET% so hard their initiative gets reset!",
-  "%ACTOR% catapults %TARGET% out of the tavern with a well-timed Eldritch Blast!",
-  "%ACTOR% wraps %TARGET% in a bear hug and just... squeezes until they tap out!",
-];
-
-// Comedic stand-ins when no target is given — smash something, anything.
-const SHMASH_FALLBACK_TARGETS: string[] = [
-  "a wandering goblin",
-  "an unsuspecting mimic disguised as a chest",
-  "a training dummy that had it coming",
-  "a rowdy tavern patron",
-  "a suspiciously talkative rat",
-  "a stack of empty ale kegs",
-  "the tavern's creaky front door",
-  "a low-level bandit who picked the wrong fight",
-  "a wild boar that wandered into camp",
-  "an overconfident kobold",
-  "a poorly-guarded merchant cart",
-  "a haunted suit of armor",
-  "a giant spider dangling from the rafters",
-  "a stubborn mule blocking the road",
-  "a cursed scarecrow",
-  "an oversized tavern chandelier",
-  "a rickety wooden bridge",
-  "a skeleton that wouldn't stop rattling",
-  "an angry swarm of pixies",
-  "a slime that really shouldn't be touched",
-  "a suit of enchanted armor gone rogue",
-  "the blacksmith's anvil (bad idea)",
-];
-
-// Stand-ins for the rare "smash yourself" case, so the sentence doesn't just
-// repeat the invoker's own name/character back at them.
-const SHMASH_SELF_TARGETS: string[] = [
-  "themselves",
-  "their own reflection",
-  "their own two feet",
-  "their own bad luck",
-  "their own dignity",
-  "thin air, tripping in the process",
-  "their own shadow",
-  "the nearest mirror",
-];
-
-/**
- * Renders one random !shmash line. `actorDesc` and `targetDesc` are
- * pre-built descriptors (e.g. "@bob's Half-Orc Barbarian" or "@bob"); pass
- * `isSelf: true` to swap in a pronoun-friendly stand-in for the target
- * instead of repeating the actor's own descriptor, and omit `targetDesc`
- * entirely to smash a random comedic fallback target.
- */
-export function renderShmash(
-  actorDesc: string,
-  targetDesc?: string | null,
-  isSelf?: boolean,
-): string {
-  const target = isSelf ? pick(SHMASH_SELF_TARGETS) : targetDesc ?? pick(SHMASH_FALLBACK_TARGETS);
-  const line = pick(SHMASH_LINES).replaceAll("%ACTOR%", actorDesc).replaceAll("%TARGET%", target);
-  return `💥 ${line}`;
 }
 
 // Auto thank-you for new and renewed Twitch subscriptions — see main.ts's
@@ -825,7 +693,11 @@ export function rollRaidThankYou(raiderName: string, viewers: number): string {
 // words like "midnight", "tonight", "nightmare", or "knight".
 const NIGHT = "(?:n(?:ight|ite))";
 const GOODNIGHT_REGEX = new RegExp(
-  `\\b(?:gn+|g['’]?n?${NIGHT}|good\\s*${NIGHT}|nighty\\s*${NIGHT}|${NIGHT}\\s*${NIGHT}|sleep\\s*tight)\\b`,
+  `\\b(?:gn+|g['’]?n?${NIGHT}|good\\s*${NIGHT}|nighty\\s*${NIGHT}|${NIGHT}\\s*${NIGHT}|` +
+    `sleep\\s*tight|bed\\s*time|off\\s*to\\s*bed|heading\\s*to\\s*bed|` +
+    `hitting\\s*the\\s*(?:hay|sack)|time\\s*for\\s*bed|going\\s*to\\s*sleep|` +
+    `sweet\\s*dreams|catch\\s*(?:you|ya)\\s*(?:tomorrow|later)|see\\s*you\\s*tomorrow|` +
+    `logging\\s*off\\s*to\\s*(?:bed|sleep)|long\\s*rest)\\b`,
   "i",
 );
 
@@ -834,31 +706,30 @@ export function isGoodnightMessage(message: string): boolean {
 }
 
 const GOODNIGHT_REPLIES = [
-  (n: string) => `Rest well, @${n}! 🌙 May your dreams be free of goblins.`,
-  (n: string) => `Goodnight, @${n}! The guild hall banks its fires — safe travels to the Land of Nod. 💤`,
-  (n: string) => `Sleep tight, @${n}! A long rest restores HP *and* spell slots. 🛌`,
-  (n: string) => `Farewell for now, @${n}! May you wake with advantage on tomorrow's rolls. ✨`,
-  (n: string) => `🌜 Sweet dreams, @${n}! May no owlbear disturb your rest.`,
-  (n: string) => `🛏️ Off to bed, @${n}? Even legends need their eight hours.`,
-  (n: string) => `🌙 Goodnight, @${n}! The watch is set — sleep easy.`,
-  (n: string) => `💤 Long rest initiated for @${n}. See you after the next dawn.`,
-  (n: string) => `✨ Sleep well, @${n} — may your dreams roll nothing but natural 20s.`,
-  (n: string) => `🏕️ Camp's set, @${n}. Rest up for tomorrow's adventure.`,
-  (n: string) => `🌌 The stars watch over you tonight, @${n}. Goodnight!`,
-  (n: string) => `🦉 The owls take the next watch, @${n}. Rest easy.`,
-  (n: string) => `🕯️ The torches dim for the night, @${n}. Sleep well.`,
-  (n: string) => `🐉 Even dragons need their sleep, @${n}. Goodnight!`,
-  (n: string) => `📖 The chronicle pauses here, @${n}. Same time next session?`,
-  (n: string) => `🛡️ Shields down, @${n} — time to rest.`,
-  (n: string) => `🌠 May a shooting star bless your dreams, @${n}. Goodnight!`,
-  (n: string) => `🍃 The wind carries you off to sleep, @${n}. Rest well.`,
-  (n: string) => `🧝 Even the elves need their trance sometimes, @${n}. Goodnight!`,
-  (n: string) => `🌒 Until next session, @${n}. Sleep tight, adventurer.`,
+  `Rest well! 🌙 May your dreams be free of goblins.`,
+  `Goodnight! The guild hall banks its fires — safe travels to the Land of Nod. 💤`,
+  `Sleep tight! A long rest restores HP *and* spell slots. 🛌`,
+  `Farewell for now! May you wake with advantage on tomorrow's rolls. ✨`,
+  `🌜 Sweet dreams! May no owlbear disturb your rest.`,
+  `🛏️ Off to bed? Even legends need their eight hours.`,
+  `🌙 Goodnight! The watch is set — sleep easy.`,
+  `💤 Long rest initiated. See you after the next dawn.`,
+  `✨ Sleep well — may your dreams roll nothing but natural 20s.`,
+  `🏕️ Camp's set. Rest up for tomorrow's adventure.`,
+  `🌌 The stars watch over you tonight. Goodnight!`,
+  `🦉 The owls take the next watch. Rest easy.`,
+  `🕯️ The torches dim for the night. Sleep well.`,
+  `🐉 Even dragons need their sleep. Goodnight!`,
+  `📖 The chronicle pauses here. Same time next session?`,
+  `🛡️ Shields down — time to rest.`,
+  `🌠 May a shooting star bless your dreams. Goodnight!`,
+  `🍃 The wind carries you off to sleep. Rest well.`,
+  `🧝 Even the elves need their trance sometimes. Goodnight!`,
+  `🌒 Until next session. Sleep tight, adventurer.`,
 ];
 
-export function goodnightReply(display: string): string {
-  const pick = GOODNIGHT_REPLIES[Math.floor(Math.random() * GOODNIGHT_REPLIES.length)];
-  return pick(display);
+export function goodnightReply(): string {
+  return GOODNIGHT_REPLIES[Math.floor(Math.random() * GOODNIGHT_REPLIES.length)];
 }
 
 export function compactText(value: unknown, max = 240) {
@@ -888,68 +759,4 @@ export function firstAlive(members: string[], hp: Record<string, number>) {
 
 export function logRowText(r: any) {
   return `${new Date(Number(r.created_at)).toISOString()} | @${r.username} | ${r.action} | ${r.detail}`;
-}
-
-// ── Dashboard feature groups ──────────────────────────────────────────────
-// Coarse-grained per-channel command toggles surfaced on the web dashboard
-// (see dashboard.ts / pages.ts renderFeaturesSection). Each group's
-// `commands` are the exact lowercased first-word tokens (without "!") that
-// belong to it, matched against the first word of an incoming chat message.
-//
-// Deliberately NOT in any group here — they already have their own
-// dedicated on/off switch (isChannelEnabled, isMerchantEnabled,
-// isChronicleEnabled, isNpcEnabled in db.ts), or must always keep working:
-//   - !dndbot on/off/status — the dashboard's master bot switch.
-//   - !market on/off/status — merchant flavor ads, own dashboard toggle.
-//   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
-//   - !npc ... — AI NPC chatter, own dashboard toggle.
-//   - !dashboard [reset] — must stay reachable even with "custom" off, or a
-//     steward could lock themselves out of the page that turns things back on.
-//   - !help, !guide, !link, !dndbothelp — always available so players can
-//     see why other commands aren't responding.
-// !dndbot's *management* subcommands (add/edit/remove/list/cooldown) share
-// the "dndbot" word with the master switch, but only reach the "custom"
-// group check below because on/off/status are matched and returned first.
-export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] }> = {
-  character: {
-    label: "Character sheet (!char, !createchar, !newchar, !bg3, !levelup, !hp, !savechar, !loadchar, !resetchar)",
-    commands: ["char", "createchar", "newchar", "bg3", "levelup", "hp", "savechar", "loadchar", "resetchar"],
-  },
-  dice: {
-    label: "Dice & fate (!roll, !r, !d20, !oracle)",
-    commands: ["roll", "r", "d20", "oracle"],
-  },
-  bg3flavor: {
-    label: "BG3 flavor rolls (!bg3roll, !bg3companion, !bg3origin, !bg3loot, !bg3camp, !bg3lookup)",
-    commands: ["bg3roll", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup"],
-  },
-  archives: {
-    label: "SRD archives (!rules, !spell, !class, !feat, !item, !ability, !race, !subrace, !monster)",
-    commands: ["rules", "rule", "spell", "class", "feat", "item", "ability", "race", "subrace", "monster"],
-  },
-  combat: {
-    label: "Arena & company (!turn, !party, !dndduel)",
-    commands: ["turn", "party", "dndduel"],
-  },
-  maps: {
-    label: "Battle maps (!map)",
-    commands: ["map"],
-  },
-  custom: {
-    label: "Custom commands, triggers & timed messages (!dndbot add/edit/remove/list, !trigger, !timedmsg, passive keyword triggers)",
-    commands: ["trigger", "dndbot", "timedmsg"],
-  },
-  misc: {
-    label: "Misc (!hug, !rollcall, !logs, !connections, !adcheck, !adslogged)",
-    commands: ["hug", "rollcall", "logs", "connections", "adcheck", "adslogged"],
-  },
-};
-
-const COMMAND_TO_GROUP: Record<string, string> = Object.fromEntries(
-  Object.entries(COMMAND_GROUPS).flatMap(([group, def]) => def.commands.map((c) => [c, group])),
-);
-
-/** Which dashboard group (if any) a chat command's first word belongs to. */
-export function groupForCommand(word: string): string | null {
-  return COMMAND_TO_GROUP[word.toLowerCase()] ?? null;
 }

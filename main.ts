@@ -17,9 +17,6 @@ import {
   recordActivity,
   getRecentLogs,
   getBroadcaster,
-  getBroadcasterByLogin,
-  getOrCreateDashboardKey,
-  regenerateDashboardKey,
   markBroadcasterDisconnected,
   disconnectBroadcasterData,
   purgeChannelData,
@@ -44,44 +41,14 @@ import {
   getMapTokens,
   listMaps,
   saveCreationSession,
-  isCommandGroupEnabled,
-  setBroadcasterLiveStatus,
-  markStreamStatusSubscribed,
 } from "./db.ts";
-import {
-  ensureSocialTables,
-  recordDiceRollEvent,
-  getDiceLeaderboard,
-  getDiceStatsForUser,
-} from "./social_db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
-import { handleAdCommand } from "./ads.ts";
-import {
-  disconnectAdToken,
-  ensureAdTables,
-  purgeAdData,
-  saveBroadcasterAdToken,
-} from "./ads_db.ts";
-import { handleOracleCommand } from "./oracle.ts";
-import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
-import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
   handleCustomCommandManagement,
   handleCustomCommandInvocation,
   handleTriggerMatch,
 } from "./customcommands.ts";
-import { handleTimedMessageCommand } from "./timedmessages.ts";
-import {
-  handleDashboardCommand,
-  renderDashboard,
-  handleDashboardLogin,
-  handleDashboardCallback,
-  handleDashboardCommandsForm,
-  handleDashboardTriggersForm,
-  handleDashboardTimedMessagesForm,
-  handleDashboardFeaturesForm,
-} from "./dashboard.ts";
 import {
   generateCharacter,
   handleCreationCommand,
@@ -100,12 +67,10 @@ import {
   sendChatMessage,
   sendChatMessages,
   sendSpellSections,
-  fetchIsChannelLiveNow,
   exchangeCode,
   createChatSubscription,
   createSubEventSubscriptions,
   createRaidEventSubscription,
-  createStreamStatusEventSubscriptions,
   verifyEventSub,
   deleteEventSubSubscription,
 } from "./twitch.ts";
@@ -116,7 +81,6 @@ import {
   rollDice,
   rollFate,
   rollHug,
-  renderShmash,
   rollNewSubThankYou,
   rollResubThankYou,
   rollGiftSubThankYou,
@@ -129,7 +93,6 @@ import {
   logRowText,
   isGoodnightMessage,
   goodnightReply,
-  groupForCommand,
 } from "./utils.ts";
 import { classes } from "./data.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderAdminLogsPage } from "./pages.ts";
@@ -166,31 +129,8 @@ async function sendWelcomeMessage(display: string, broadcasterId: string) {
   );
 }
 
-/** One-time, best-effort backfill for a channel that connected before the
- * "quiet while offline" feature existed (stream_status_subscribed = 0), so
- * it doesn't need to disconnect/reconnect to get it. Creates the
- * stream.online/offline subscriptions, seeds is_live with one direct Twitch
- * lookup, and flips stream_status_subscribed so this never runs again for
- * that channel. Called lazily, only the first time a message would
- * otherwise be silenced as "offline" — never on the normal hot path once a
- * channel is caught up. */
-async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: string) {
-  try {
-    const { online, offline } = await createStreamStatusEventSubscriptions(broadcasterId, baseUrl);
-    await saveExtraEventSubSubscription(broadcasterId, "stream_online", online.id);
-    await saveExtraEventSubSubscription(broadcasterId, "stream_offline", offline.id);
-    await markStreamStatusSubscribed(broadcasterId, await fetchIsChannelLiveNow(broadcasterId));
-  } catch (e) {
-    await recordMonitorEvent("eventsub_stream_status_backfill_failed", `${broadcasterId}: ${String(e)}`);
-    // Leave stream_status_subscribed at 0 so this is retried on the next
-    // otherwise-silenced message rather than getting stuck failed forever.
-  }
-}
-
 async function handleRequest(req: Request): Promise<Response> {
   await ensureTables();
-  await ensureAdTables();
-  await ensureSocialTables();
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -241,7 +181,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads",
+      scope: "channel:bot channel:read:subscriptions",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -304,22 +244,6 @@ async function handleRequest(req: Request): Promise<Response> {
         "INSERT OR REPLACE INTO broadcasters (broadcaster_id,login,display_name,subscription_id,connected_at,connected,disconnected_at,disconnect_reason) VALUES (?,?,?,?,?,?,?,?)",
         [user.id, user.login, user.display_name, sub.id, Date.now(), 1, null, null],
       );
-      // Best-effort: powers !adcheck's real Twitch ad-schedule lookup.
-      // Requires channel:read:ads, now requested above, but a save failure
-      // here should never block the core chat connection — !adcheck simply
-      // falls back to the manually-logged !adslogged timestamp until the
-      // channel reconnects.
-      try {
-        await saveBroadcasterAdToken(
-          user.id,
-          token.access_token,
-          token.refresh_token,
-          Array.isArray(token.scope) ? token.scope.join(" ") : String(token.scope ?? ""),
-          Date.now() + Math.max(0, Number(token.expires_in ?? 0) * 1000 - 60_000),
-        );
-      } catch (e) {
-        await recordMonitorEvent("ad_token_save_failed", `${user.id}: ${String(e)}`);
-      }
       // Best-effort: powers the D&D-themed !hug-style new-sub/resub thank
       // you. Requires channel:read:subscriptions, which is now requested
       // above, but shouldn't block the core chat connection if it fails
@@ -341,20 +265,6 @@ async function handleRequest(req: Request): Promise<Response> {
         await saveExtraEventSubSubscription(user.id, "raid", raidSub.id);
       } catch (e) {
         await recordMonitorEvent("eventsub_raid_subscription_failed", `${user.id}: ${String(e)}`);
-      }
-      // Best-effort: powers the "quiet while offline" check (see main
-      // dispatch above and the two cron files). Also needs no extra OAuth
-      // scope. Seed broadcasters.is_live with one direct lookup right away
-      // so it isn't stuck at the default (offline) until the first future
-      // stream.online/offline event — after that, these subscriptions keep
-      // it current with no further Twitch API calls.
-      try {
-        const { online, offline } = await createStreamStatusEventSubscriptions(user.id, url.origin);
-        await saveExtraEventSubSubscription(user.id, "stream_online", online.id);
-        await saveExtraEventSubSubscription(user.id, "stream_offline", offline.id);
-        await markStreamStatusSubscribed(user.id, await fetchIsChannelLiveNow(user.id));
-      } catch (e) {
-        await recordMonitorEvent("eventsub_stream_status_subscription_failed", `${user.id}: ${String(e)}`);
       }
       return page(
         "Twitch connected",
@@ -393,29 +303,6 @@ async function handleRequest(req: Request): Promise<Response> {
     return new Response(renderMapPage(map, cells, tokens, PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-  }
-
-  // Per-channel dashboard for custom commands/chat triggers/timed messages
-  // (see dashboard.ts). Capability-token auth via ?key=, handed out in chat
-  // with !dashboard — not an operator route, so no ADMIN_API_SECRET here.
-  // Also requires a live Twitch-login mod session cookie; renderDashboard
-  // shows a login gate instead of the real page when that's missing.
-  if (req.method === "GET" && path === "/dashboard") {
-    return await renderDashboard(url.searchParams.get("channel"), url.searchParams.get("key"), req.headers.get("Cookie"), url.origin, {
-      notice: url.searchParams.get("notice") ?? undefined,
-      error: url.searchParams.get("error") ?? undefined,
-    });
-  }
-  if (req.method === "GET" && path === "/dashboard/login") {
-    return await handleDashboardLogin(url.searchParams.get("channel"), url.searchParams.get("key"), url.origin);
-  }
-  if (req.method === "GET" && path === "/dashboard/callback") {
-    return await handleDashboardCallback(
-      url.searchParams.get("code"),
-      url.searchParams.get("state"),
-      url.searchParams.get("error"),
-      url.origin,
-    );
   }
 
   // Operator-only visibility into the open-stall merchant cron: is it
@@ -493,52 +380,6 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  // Operator escape hatch: mint/fetch a channel's dashboard link without
-  // needing the bot online in chat — !dashboard (dashboard.ts) is the normal
-  // path, but that requires a live Twitch chat listener, so it's useless
-  // exactly when someone most wants to check in (bot down/disconnected).
-  // Same auth as /admin/logs: Bearer header or ?key=, hand-decoded to dodge
-  // the "+" -> space query-string trap (see note on /admin/logs above).
-  // channel= accepts either the numeric broadcaster_id or the Twitch login.
-  if (req.method === "GET" && path === "/admin/dashboard-link") {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
-    const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
-    const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
-    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
-    if (!authorized) {
-      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
-        status: 401,
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
-    const channelParam = url.searchParams.get("channel");
-    if (!channelParam) {
-      return new Response("Missing ?channel=<broadcaster_id or twitch login>.", { status: 400 });
-    }
-    const broadcaster = /^\d+$/.test(channelParam)
-      ? await getBroadcaster(channelParam)
-      : await getBroadcasterByLogin(channelParam);
-    if (!broadcaster) {
-      return new Response("No channel found for that id/login.", { status: 404, headers: { "Cache-Control": "no-store" } });
-    }
-    const broadcasterId = (broadcaster as any).broadcaster_id as string;
-    const reset = url.searchParams.get("reset") === "1";
-    const dashKey = reset ? await regenerateDashboardKey(broadcasterId) : await getOrCreateDashboardKey(broadcasterId);
-    const link = `${url.origin}/dashboard?channel=${broadcasterId}&key=${dashKey}`;
-    // Default behavior: redirect straight to the live dashboard page, since
-    // that's what someone opening this in a browser actually wants. Append
-    // &json=1 to get the {ok, broadcaster_id, login, link} JSON instead
-    // (e.g. for scripting/automation).
-    if (url.searchParams.get("json") === "1") {
-      return new Response(
-        JSON.stringify({ ok: true, broadcaster_id: broadcasterId, login: (broadcaster as any).login ?? null, link }),
-        { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
-      );
-    }
-    return new Response(null, { status: 302, headers: { Location: link, "Cache-Control": "no-store" } });
-  }
-
   // NOTE: the block below matches *any* GET request that reaches this point
   // (it only checks req.method, not path) so it must stay below every other
   // specific GET route above it, including /map and /maps — otherwise it
@@ -580,22 +421,6 @@ async function handleRequest(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ ok: true, broadcaster_id: broadcasterId, blocked: false }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
-  // Per-channel web dashboard for custom commands/triggers/timed messages —
-  // see dashboard.ts. Auth is the dashboard_key form field, not an operator
-  // secret, so unlike /admin/* above these don't check ADMIN_API_SECRET.
-  if (req.method === "POST" && path === "/dashboard/commands") {
-    return await handleDashboardCommandsForm(await req.formData(), url.origin, req.headers.get("Cookie"));
-  }
-  if (req.method === "POST" && path === "/dashboard/triggers") {
-    return await handleDashboardTriggersForm(await req.formData(), url.origin, req.headers.get("Cookie"));
-  }
-  if (req.method === "POST" && path === "/dashboard/timedmessages") {
-    return await handleDashboardTimedMessagesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
-  }
-  if (req.method === "POST" && path === "/dashboard/features") {
-    return await handleDashboardFeaturesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
-  }
-
   if (req.method !== "POST") return new Response("OK");
 
   // ── EventSub webhook ──
@@ -630,11 +455,6 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!subConnection || Number(subConnection.connected) !== 1) return new Response("OK");
       if (await isChannelBlocked(subBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(subBroadcasterId))) return new Response("OK");
-      // Subs/resubs/gifts can land while the channel is offline — stay quiet
-      // rather than thanking someone into an empty, offline chat. is_live is
-      // kept current by the stream.online/offline notifications below, so
-      // this reuses the connection row already fetched above (no extra call).
-      if (Number(subConnection.is_live) !== 1) return new Response("OK");
 
       const thankYou =
         subscriptionType === "channel.subscribe"
@@ -661,22 +481,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!raidConnection || Number(raidConnection.connected) !== 1) return new Response("OK");
       if (await isChannelBlocked(raidBroadcasterId)) return new Response("OK");
       if (!(await isChannelEnabled(raidBroadcasterId))) return new Response("OK");
-      // Stay quiet rather than thanking a raider into an offline channel
-      // (reuses raidConnection.is_live already fetched above).
-      if (Number(raidConnection.is_live) !== 1) return new Response("OK");
       await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId);
-      return new Response("OK");
-    }
-
-    // Stream going live/offline — just keeps broadcasters.is_live current so
-    // every other check above/below (and the merchant/timed-message crons)
-    // can read it as a plain column instead of calling Twitch on every
-    // message. No chat reply of its own.
-    if (subscriptionType === "stream.online" || subscriptionType === "stream.offline") {
-      const liveBroadcasterId: string = body.event?.broadcaster_user_id ?? "";
-      if (liveBroadcasterId) {
-        await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
-      }
       return new Response("OK");
     }
 
@@ -694,15 +499,7 @@ async function handleRequest(req: Request): Promise<Response> {
       hasModeratorBadge(body.event);
     const baseUrl = url.origin;
 
-    if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) {
-      // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
-      // never get processed as commands, quoted by the chronicle, or replied
-      // to by random NPC chatter, but they still count as chat activity
-      // toward each feature's own minimum-messages gate.
-      await recordChronicleBotMessage(broadcasterId);
-      await recordNpcChatterBotMessage(broadcasterId);
-      return new Response("OK");
-    }
+    if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) return new Response("OK");
 
     // Only process events for an actively connected broadcaster. This makes a
     // stale EventSub subscription harmless after disconnect/offboarding.
@@ -711,29 +508,6 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Operator blocklist always wins.
     if (await isChannelBlocked(broadcasterId)) return new Response("OK");
-
-    // Stay quiet in chat while the channel is offline — but let the
-    // broadcaster/mods keep using every command normally so they can test
-    // GuildScribe without going live. Ambient/scheduled sends that don't come
-    // from a specific chat message (sub/raid thank-yous above, merchant ads
-    // and timed messages in their own cron files) are gated the same way,
-    // with no mod exception since there's no "requesting user" for those.
-    // connection.is_live is a plain column already fetched above — kept
-    // current by the stream.online/offline notifications below, so this
-    // check costs nothing extra (no Twitch API call in this hot path) for a
-    // channel that's already caught up.
-    if (!isModerator && Number(connection.is_live) !== 1) {
-      // Channel connected before this feature existed — one-time backfill,
-      // then re-check; every later message for this channel skips straight
-      // to the column read above.
-      if (Number(connection.stream_status_subscribed) !== 1) {
-        await backfillStreamStatusSubscription(broadcasterId, url.origin);
-        const refreshed = await getBroadcaster(broadcasterId);
-        if (!refreshed || Number(refreshed.is_live) !== 1) return new Response("OK");
-      } else {
-        return new Response("OK");
-      }
-    }
 
     // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
     const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);
@@ -759,13 +533,8 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
       await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
-      if (purge) {
-        await purgeChannelData(broadcasterId);
-        await purgeAdData(broadcasterId);
-      } else {
-        await disconnectBroadcasterData(broadcasterId, false);
-        await disconnectAdToken(broadcasterId);
-      }
+      if (purge) await purgeChannelData(broadcasterId);
+      else await disconnectBroadcasterData(broadcasterId, false);
       return new Response("OK");
     }
 
@@ -798,15 +567,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
       if (!isModerator && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
-      const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
-      await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
-      // Dashboard-controlled feature groups (see COMMAND_GROUPS in
-      // utils.ts). Silent no-op when disabled, same as the master
-      // isChannelEnabled check just above — features with their own
-      // dedicated toggle (market/chronicle/npc) and !dashboard itself are
-      // deliberately excluded from COMMAND_GROUPS so they're unaffected.
-      const group = groupForCommand(commandWord.replace(/^!/, ""));
-      if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
+      await recordActivity(chatter, broadcasterId, chatMessage.split(/\s+/)[0].toLowerCase(), chatMessage);
     }
 
     // Command handlers (return true if handled)
@@ -821,17 +582,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleMapCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleCustomCommandManagement(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
-    if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
-    if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
-    if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
-    if (
-      await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
-    ) return new Response("OK");
-    if (
-      await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
-    ) return new Response("OK");
-    if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
 
     if (chatMessage === "!logs") {
       if (!isModerator) {
@@ -869,11 +620,11 @@ async function handleRequest(req: Request): Promise<Response> {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
       const help =
         category === "dice"
-          ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
+          ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !help | !guide | !link"
             : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
+              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar"
               : category === "party"
                 ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
                 : category === "combat"
@@ -883,7 +634,7 @@ async function handleRequest(req: Request): Promise<Response> {
                     : category === "maps"
                       ? "🗺️ Battle maps: !map create <name> [WxH] [template] (mod) | !map templates | !map list | !map view <name> | !map delete <name> / !map remove <name> (mod) | !map terrains | !map fill <name> <terrain> (mod) | !map paint <name> <x> <y> <terrain> (mod) | !map addchar <name> [x y] | !map addchar <name> @user [x y] (mod) | !map move <name> <x> <y> | !map move <name> @user <x> <y> (mod) | !map removechar <name> [@user]"
                       : category === "custom"
-                        ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list | !timedmsg add <minutes> <message> | !timedmsg edit <id> <message> | !timedmsg interval <id> <minutes> | !timedmsg enable/disable <id> | !timedmsg remove <id> | !timedmsg list | !dashboard [reset] (mod) get a web link to manage all of these — add/edit/remove/cooldown/interval/enable/disable are mod-only, list is open to everyone"
+                        ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/edit/remove/cooldown are mod-only, list is open to everyone"
                         : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
@@ -1024,93 +775,11 @@ async function handleRequest(req: Request): Promise<Response> {
               `@${display} that's not a valid roll — try !roll, !r, !d20, !roll 2d6+3, !roll dex, !roll stealth, or !roll <question>?`,
               broadcasterId,
             );
+          } else if (rollTarget) {
+            await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result}`, broadcasterId);
           } else {
-            if (result.rawD20 === 20 || result.rawD20 === 1) {
-              await recordDiceRollEvent(
-                broadcasterId,
-                chatter,
-                display,
-                result.rawD20 === 20 ? "nat20" : "nat1",
-              );
-            }
-            if (rollTarget) {
-              await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result.text}`, broadcasterId);
-            } else {
-              await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
-            }
+            await sendChatMessage(`@${display} ${result}`, broadcasterId);
           }
-        }
-      }
-    } else if (/^!rollcall(?:\s+.*)?$/i.test(chatMessage)) {
-      // !rollcall [nat1|nat20] [hour|day|week] — natural 1/20 standings
-      // logged from !roll/!r/!d20 (see recordDiceRollEvent above). Kind
-      // defaults to nat20; with no time frame given, shows a compact top-3
-      // across all three windows in one line, otherwise a bigger top-5 for
-      // just the requested window.
-      //
-      // !rollcall @user [hour|day|week] — one player's own nat1 AND nat20
-      // counts instead of the channel-wide top list. No kind filter here
-      // since the point is seeing both side by side for that person.
-      const rawArgs = chatMessage.replace(/^!rollcall\s*/i, "").trim();
-      const targetMatch = rawArgs.match(/@(\S+)/);
-      const targetDisplay = targetMatch ? targetMatch[1].replace(/[,:]+$/, "") : null;
-      const targetUser = targetDisplay ? targetDisplay.toLowerCase() : null;
-      const lbWords = rawArgs.replace(/@\S+/g, "").toLowerCase().split(/\s+/).filter(Boolean);
-      const windowMs: Record<"hour" | "day" | "week", number> = {
-        hour: 60 * 60 * 1000,
-        day: 24 * 60 * 60 * 1000,
-        week: 7 * 24 * 60 * 60 * 1000,
-      };
-      const windowAliases: Record<string, "hour" | "day" | "week"> = {
-        hour: "hour", "1hr": "hour", "1h": "hour",
-        day: "day", "1d": "day",
-        week: "week", "1w": "week",
-      };
-      const requestedWindow = lbWords.map((w) => windowAliases[w]).find(Boolean);
-
-      if (targetUser) {
-        if (requestedWindow) {
-          const stats = await getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs[requestedWindow]);
-          await sendChatMessage(
-            `@${display} 🎲 @${targetDisplay}'s rolls (past ${requestedWindow}): 🌟 Nat20 x${stats.nat20} | 💀 Nat1 x${stats.nat1}`,
-            broadcasterId,
-          );
-        } else {
-          const [hourStats, dayStats, weekStats] = await Promise.all([
-            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.hour),
-            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.day),
-            getDiceStatsForUser(broadcasterId, targetUser, Date.now() - windowMs.week),
-          ]);
-          await sendChatMessage(
-            `@${display} 🎲 @${targetDisplay}'s rolls — 🌟 Nat20 (Hour ${hourStats.nat20}, Day ${dayStats.nat20}, Week ${weekStats.nat20}) | 💀 Nat1 (Hour ${hourStats.nat1}, Day ${dayStats.nat1}, Week ${weekStats.nat1})`,
-            broadcasterId,
-          );
-        }
-      } else {
-        const kind: "nat1" | "nat20" = lbWords.includes("nat1") || lbWords.includes("1") ? "nat1" : "nat20";
-        const label = kind === "nat20" ? "Natural 20" : "Natural 1";
-        const emoji = kind === "nat20" ? "🌟" : "💀";
-        const formatEntries = (rows: { displayName: string; count: number }[]) =>
-          rows.length ? rows.map((r) => `${r.displayName} x${r.count}`).join(", ") : "none yet";
-
-        if (requestedWindow) {
-          const rows = await getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs[requestedWindow], 5);
-          await sendChatMessage(
-            `@${display} ${emoji} ${label} leaderboard (past ${requestedWindow}): ${formatEntries(rows)}`,
-            broadcasterId,
-          );
-        } else {
-          const [hourRows, dayRows, weekRows] = await Promise.all([
-            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.hour, 3),
-            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.day, 3),
-            getDiceLeaderboard(broadcasterId, kind, Date.now() - windowMs.week, 3),
-          ]);
-          await sendChatMessages(
-            `@${display} ${emoji} ${label} leaderboard — Hour: ${formatEntries(hourRows)} | Day: ${formatEntries(dayRows)} | Week: ${formatEntries(weekRows)}. Try !rollcall ${
-              kind === "nat20" ? "nat1" : "nat20"
-            }, !rollcall ${kind} week for a bigger top 5, or !rollcall @user for one player's stats.`,
-            broadcasterId,
-          );
         }
       }
     } else if (chatMessage === "!bg3roll") {
@@ -1127,27 +796,6 @@ async function handleRequest(req: Request): Promise<Response> {
       const hugMatch = chatMessage.match(/^!hug(?:\s+@?(\S+))?$/i)!;
       const hugTarget = hugMatch[1] ? hugMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
       await sendChatMessage(rollHug(display, hugTarget), broadcasterId);
-    } else if (/^!shmash(?:\s+@?\S+)?$/i.test(chatMessage)) {
-      // Purely cosmetic (no HP/game state touched) — pulls each side's
-      // character (race/class) when they have one saved, plain username
-      // otherwise, and falls back to a comedic target when none is given.
-      const shmashMatch = chatMessage.match(/^!shmash(?:\s+@?(\S+))?$/i)!;
-      const shmashTarget = shmashMatch[1] ? shmashMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
-      const actorChar = await getCharacter(chatter, broadcasterId);
-      const actorDesc = actorChar
-        ? `@${display}'s ${formatRaceName(actorChar.race, actorChar.subrace)} ${actorChar.cls}`
-        : `@${display}`;
-      if (!shmashTarget) {
-        await sendChatMessage(renderShmash(actorDesc), broadcasterId);
-      } else if (shmashTarget === chatter) {
-        await sendChatMessage(renderShmash(actorDesc, null, true), broadcasterId);
-      } else {
-        const targetChar = await getCharacter(shmashTarget, broadcasterId);
-        const targetDesc = targetChar
-          ? `@${shmashTarget}'s ${formatRaceName(targetChar.race, targetChar.subrace)} ${targetChar.cls}`
-          : `@${shmashTarget}`;
-        await sendChatMessage(renderShmash(actorDesc, targetDesc), broadcasterId);
-      }
     } else if (/^!createchar(?:\s+@?\S+)?$/i.test(chatMessage)) {
       const createMatch = chatMessage.match(/^!createchar(?:\s+@?(\S+))?$/i)!;
       const createTarget = createMatch[1] ? createMatch[1].toLowerCase() : null;
@@ -1237,22 +885,11 @@ async function handleRequest(req: Request): Promise<Response> {
       // Plain-chat "goodnight" detection (not a "!" command). Cooldown per
       // channel so a wave of goodnights from many viewers only draws one reply.
       if (await checkGoodnightCooldown(broadcasterId, GOODNIGHT_COOLDOWN_MS)) {
-        await sendChatMessage(goodnightReply(display), broadcasterId);
+        await sendChatMessage(goodnightReply(), broadcasterId);
       }
     } else {
-      // Plain (non-"!") chat — check passive keyword triggers first (part
-      // of the "custom" dashboard group); only roll the chronicle's random
-      // quote-back (then NPC chatter) if no trigger already replied, so a
-      // single message never draws two separate unprompted replies.
-      const triggerFired = (await isCommandGroupEnabled(broadcasterId, "custom"))
-        ? await handleTriggerMatch(chatMessage, display, broadcasterId)
-        : false;
-      if (!triggerFired) {
-        const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId);
-        if (!chronicleFired) {
-          await maybeNpcChatter(chatMessage, display, broadcasterId);
-        }
-      }
+      // Plain (non-"!") chat — check passive keyword triggers.
+      await handleTriggerMatch(chatMessage, display, broadcasterId);
     }
   }
 
