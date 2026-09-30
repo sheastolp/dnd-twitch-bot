@@ -3,8 +3,8 @@
 // chatter's message contains the phrase, the bot permanently bans them and
 // posts a short D&D-flavored "I just banned another one for you" line.
 //
-// Off by default per channel (toggle: !autoban on|off|status, broadcaster
-// only for on/off) because a permanent ban is not something to switch on for
+// Off by default per channel (toggle: !autoban on|off|status; on/off are
+// broadcaster or mod) because a permanent ban is not something to switch on for
 // a channel that didn't ask for it.
 //
 // Bans go through Helix Ban User, which needs a *user* access token for a
@@ -114,6 +114,13 @@ async function getBanToken(broadcasterId: string): Promise<BanToken> {
   return { token };
 }
 
+/** Whether the channel's stored token was granted the ban scope. Read-only
+ * (no refresh, no Twitch call) so the dashboard can show it cheaply. */
+export async function hasBanPermission(broadcasterId: string): Promise<boolean> {
+  const row = await getBroadcasterAdToken(broadcasterId);
+  return String(row?.scope ?? "").split(/\s+/).includes(BAN_SCOPE);
+}
+
 async function sendPermissionHint(broadcasterId: string, baseUrl: string) {
   const now = Date.now();
   if (now - (lastPermissionHintAt.get(broadcasterId) ?? 0) < PERMISSION_HINT_COOLDOWN_MS) return;
@@ -189,12 +196,13 @@ export async function maybeAutoBan(
 // ── Command ──
 
 /** Handles !autoban on | off | status. `status` is open to everyone;
- * `on`/`off` are broadcaster-only since bans run on the broadcaster's own
- * token. Returns true if the message matched. */
+ * `on`/`off` are broadcaster/mod. Bans still run on the broadcaster's own
+ * token, so only the broadcaster can grant the permission by reconnecting.
+ * Returns true if the message matched. */
 export async function handleAutoBanCommand(
   chatMessage: string,
   display: string,
-  chatterId: string,
+  isModerator: boolean,
   broadcasterId: string,
   baseUrl: string,
 ): Promise<boolean> {
@@ -207,14 +215,14 @@ export async function handleAutoBanCommand(
     await sendChatMessage(
       `@${display} Auto-ban is ${
         enabled ? 'on — anyone who is not a mod saying "ai viewers" is permanently banned' : "off in this channel"
-      }. Broadcaster can toggle with !autoban on or !autoban off.`,
+      }. Mods can toggle with !autoban on or !autoban off.`,
       broadcasterId,
     );
     return true;
   }
 
-  if (chatterId !== broadcasterId) {
-    await sendChatMessage(`@${display} only the broadcaster can toggle auto-ban.`, broadcasterId);
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can toggle auto-ban.`, broadcasterId);
     return true;
   }
 
@@ -228,7 +236,7 @@ export async function handleAutoBanCommand(
   const auth = await getBanToken(broadcasterId);
   if ("problem" in auth) {
     await sendChatMessage(
-      `@${display} Auto-ban is on, but I don't have ban permission yet — reconnect at ${baseUrl}/connect and approve the new permission.`,
+      `@${display} Auto-ban is on, but I don't have ban permission yet — the broadcaster needs to reconnect at ${baseUrl}/connect and approve the new permission.`,
       broadcasterId,
     );
   } else {

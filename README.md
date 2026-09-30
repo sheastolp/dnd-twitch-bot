@@ -43,7 +43,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **haggle.ts** | `!haggle <pitch>` — AI-voiced sassy haggling over the merchant's current listing (see `merchant_listings` in db.ts); no API key setup needed, uses Val Town's built-in `std/openai`, same as npcs.ts |
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
-| **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; broadcaster-only toggle, off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
+| **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; mod/broadcaster toggle (chat or dashboard "Bot & feature switches"), off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
 | **types.ts** | Shared types |

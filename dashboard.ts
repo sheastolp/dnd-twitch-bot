@@ -51,6 +51,7 @@ import {
   setCommandGroupEnabled,
 } from "./db.ts";
 import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, isNpcChatterEnabled, setNpcChatterEnabled } from "./social_db.ts";
+import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { COMMAND_GROUPS } from "./utils.ts";
 import {
@@ -216,7 +217,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -226,6 +227,8 @@ export async function renderDashboard(
     isNpcEnabled(channelId),
     isNpcChatterEnabled(channelId),
     getCommandGroupToggles(channelId),
+    isAutoBanEnabled(channelId),
+    hasBanPermission(channelId),
   ]);
   const data: DashboardData = {
     broadcasterId: channelId,
@@ -245,6 +248,8 @@ export async function renderDashboard(
     npcEnabled,
     npcChatterEnabled,
     groupToggles,
+    autoBanEnabled,
+    autoBanPermitted,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
@@ -509,6 +514,17 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       const enabled = intent === "chronicle_on";
       await setChronicleEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Chronicle turned ${enabled ? "on" : "off"}.` }));
+    }
+    case "autoban_on":
+    case "autoban_off": {
+      const enabled = intent === "autoban_on";
+      await setAutoBanEnabled(channelId, enabled);
+      const needsReconnect = enabled && !(await hasBanPermission(channelId));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, {
+        notice: needsReconnect
+          ? "Auto-ban turned on, but ban permission hasn't been granted yet — the broadcaster needs to reconnect via /connect to approve it."
+          : `Auto-ban turned ${enabled ? "on" : "off"}.`,
+      }));
     }
     case "npc_on":
     case "npc_off": {
