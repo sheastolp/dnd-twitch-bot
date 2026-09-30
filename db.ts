@@ -1080,24 +1080,35 @@ export async function clearPendingEventSubCancellation(subscriptionId: string) {
   await sqlite.execute("DELETE FROM pending_eventsub_cancellations WHERE subscription_id = ?", [subscriptionId]);
 }
 
+let lastEventSubPrune = 0;
 export async function claimEventSubMessage(messageId: string, now = Date.now()) {
   if (!messageId) return false;
   try {
     await sqlite.execute("INSERT INTO eventsub_messages (message_id,received_at) VALUES (?,?)", [messageId, now]);
-    await sqlite.execute("DELETE FROM eventsub_messages WHERE received_at < ?", [now - 24 * 60 * 60 * 1000]);
+    // Pruning old rows doesn't need to happen on every message — at most
+    // once a minute per isolate is plenty and saves a round-trip per event.
+    if (now - lastEventSubPrune > 60_000) {
+      lastEventSubPrune = now;
+      sqlite.execute("DELETE FROM eventsub_messages WHERE received_at < ?", [now - 24 * 60 * 60 * 1000]).catch(() => {});
+    }
     return true;
   } catch (_) {
     return false;
   }
 }
 
+let lastRateLimitPrune = 0;
 export async function checkCommandRateLimit(broadcasterId: string, username: string, cooldownMs = 1200) {
   const now = Date.now();
   const res = await sqlite.execute("SELECT last_at FROM command_rate_limits WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username]);
   const last = Number(res.rows[0]?.last_at ?? 0);
   if (now - last < cooldownMs) return false;
   await sqlite.execute("INSERT OR REPLACE INTO command_rate_limits (broadcaster_id,username,last_at) VALUES (?,?,?)", [broadcasterId, username, now]);
-  await sqlite.execute("DELETE FROM command_rate_limits WHERE last_at < ?", [now - 10 * 60 * 1000]);
+  // Throttled prune (see claimEventSubMessage) — not needed on every command.
+  if (now - lastRateLimitPrune > 60_000) {
+    lastRateLimitPrune = now;
+    sqlite.execute("DELETE FROM command_rate_limits WHERE last_at < ?", [now - 10 * 60 * 1000]).catch(() => {});
+  }
   return true;
 }
 

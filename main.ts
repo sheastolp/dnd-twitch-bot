@@ -191,12 +191,33 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
   }
 }
 
+// Schema setup is ~90 sequential SQLite round-trips (CREATE TABLE IF NOT
+// EXISTS, ALTER TABLE probes, migrations). It only needs to run once per
+// isolate, not on every request — so memoize the promise. If it fails, clear
+// the memo so the next request retries instead of caching the failure.
+let schemaReady: Promise<void> | null = null;
+function ensureSchema(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      // db.ts first (other files' tables don't depend on it, but its
+      // migrations are the slow/ordered part); the rest are independent.
+      await ensureTables();
+      await Promise.all([
+        ensureAdTables(),
+        ensureAutoBanTables(),
+        ensureSocialTables(),
+        ensurePointsTables(),
+      ]);
+    })().catch((e) => {
+      schemaReady = null;
+      throw e;
+    });
+  }
+  return schemaReady;
+}
+
 async function handleRequest(req: Request): Promise<Response> {
-  await ensureTables();
-  await ensureAdTables();
-  await ensureAutoBanTables();
-  await ensureSocialTables();
-  await ensurePointsTables();
+  await ensureSchema();
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -718,11 +739,16 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Only process events for an actively connected broadcaster. This makes a
     // stale EventSub subscription harmless after disconnect/offboarding.
-    const connection = await getBroadcaster(broadcasterId);
+    // The connection row and the operator blocklist are independent reads —
+    // fetch them concurrently instead of back-to-back.
+    const [connection, blocked] = await Promise.all([
+      getBroadcaster(broadcasterId),
+      isChannelBlocked(broadcasterId),
+    ]);
     if (!connection || Number(connection.connected) !== 1) return new Response("OK");
 
     // Operator blocklist always wins.
-    if (await isChannelBlocked(broadcasterId)) return new Response("OK");
+    if (blocked) return new Response("OK");
 
     // Auto-ban "ai viewers" spam (see autoban.ts). Runs before the
     // offline-quiet gate below so spammers are banned even when the stream
