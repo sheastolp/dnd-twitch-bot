@@ -138,6 +138,37 @@ export async function sendSpellSections(sections: string[], display: string, bro
   }
 }
 
+export type BanResult = { ok: true } | { ok: false; status: number; message: string };
+
+/** Permanently bans a user (no duration = permanent) via Helix Ban User.
+ * Needs a *user* access token — not the app token used for chat sends —
+ * belonging to `moderatorId`, a moderator (or the broadcaster) of the
+ * channel, with the moderator:manage:banned_users scope. See autoban.ts. */
+export async function banChatUser(
+  userAccessToken: string,
+  broadcasterId: string,
+  moderatorId: string,
+  targetUserId: string,
+  reason: string,
+): Promise<BanResult> {
+  try {
+    const params = new URLSearchParams({ broadcaster_id: broadcasterId, moderator_id: moderatorId });
+    const res = await fetch(`https://api.twitch.tv/helix/moderation/bans?${params.toString()}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${userAccessToken}`,
+        "Client-Id": env("TWITCH_CLIENT_ID"),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ data: { user_id: targetUserId, reason: reason.slice(0, 500) } }),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, status: res.status, message: (await res.text()).slice(0, 200) };
+  } catch (err) {
+    return { ok: false, status: 0, message: String(err).slice(0, 200) };
+  }
+}
+
 // App access tokens (client_credentials) are valid for ~hours, not one request —
 // cache and reuse instead of re-fetching one from Twitch on every chat send.
 let cachedAppToken: { token: string; expiresAt: number } | null = null;

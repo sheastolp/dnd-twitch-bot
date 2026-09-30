@@ -34,7 +34,7 @@ function minutesUntil(iso: string): number | null {
  * refresh) if the stored one is expiring soon. Returns null if this
  * channel has never granted channel:read:ads, or the refresh itself fails
  * (revoked) — either way the mod needs to (re)visit /connect. */
-async function getValidAdToken(broadcasterId: string): Promise<string | null> {
+export async function getValidAdToken(broadcasterId: string): Promise<string | null> {
   const row = await getBroadcasterAdToken(broadcasterId);
   if (!row) return null;
   if (Date.now() < Number(row.expires_at) - 60_000) {

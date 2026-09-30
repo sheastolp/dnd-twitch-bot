@@ -908,6 +908,8 @@ export function logRowText(r: any) {
 //     gated by the same !market toggle rather than its own, so it's excluded
 //     here too (see haggle.ts / isMerchantEnabled in db.ts).
 //   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
+//   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
+//     per-channel toggle; broadcaster-only so it isn't a dashboard group.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
 //   - !dashboard [reset] — must stay reachable even with "custom" off, or a
 //     steward could lock themselves out of the page that turns things back on.

@@ -66,6 +66,7 @@ import {
 } from "./ads_db.ts";
 import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
+import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
   handleCustomCommandManagement,
@@ -191,6 +192,7 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
 async function handleRequest(req: Request): Promise<Response> {
   await ensureTables();
   await ensureAdTables();
+  await ensureAutoBanTables();
   await ensureSocialTables();
   const url = new URL(req.url);
   const path = url.pathname;
@@ -242,7 +244,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads moderator:manage:banned_users",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -713,6 +715,14 @@ async function handleRequest(req: Request): Promise<Response> {
     // Operator blocklist always wins.
     if (await isChannelBlocked(broadcasterId)) return new Response("OK");
 
+    // Auto-ban "ai viewers" spam (see autoban.ts). Runs before the
+    // offline-quiet gate below so spammers are banned even when the stream
+    // is offline; the announcement itself stays quiet while offline. Off by
+    // default per channel (!autoban on). Mods/broadcaster are exempt.
+    if (
+      await maybeAutoBan(chatMessage, display, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
+    ) return new Response("OK");
+
     // Stay quiet in chat while the channel is offline — but let the
     // broadcaster/mods keep using every command normally so they can test
     // GuildScribe without going live. Ambient/scheduled sends that don't come
@@ -763,6 +773,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (purge) {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
+        await purgeAutoBanData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectAdToken(broadcasterId);
@@ -827,6 +838,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleAutoBanCommand(chatMessage, display, chatterId, broadcasterId, baseUrl)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
     ) return new Response("OK");
@@ -873,7 +885,7 @@ async function handleRequest(req: Request): Promise<Response> {
         category === "dice"
           ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
           : category === "settings"
-            ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !help | !guide | !link"
+            ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (broadcaster, off by default — permanently bans non-mods who say \"ai viewers\") | !help | !guide | !link"
             : category === "character"
               ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"

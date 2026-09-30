@@ -43,6 +43,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **haggle.ts** | `!haggle <pitch>` — AI-voiced sassy haggling over the merchant's current listing (see `merchant_listings` in db.ts); no API key setup needed, uses Val Town's built-in `std/openai`, same as npcs.ts |
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
+| **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; broadcaster-only toggle, off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
 | **types.ts** | Shared types |
@@ -118,7 +119,7 @@ Chat: `!guide` or `!link` posts that same URL.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
-The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads` — `channel:read:subscriptions` powers the sub/resub thank-you (see below), and `channel:read:ads` powers `!adcheck`'s real Twitch ad-schedule lookup (falls back to the manually-logged `!adslogged` timestamp without it). **Channels that connected before these scopes were added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous and real ad-schedule checks to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
+The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads moderator:manage:banned_users` — `channel:read:subscriptions` powers the sub/resub thank-you (see below), `channel:read:ads` powers `!adcheck`'s real Twitch ad-schedule lookup (falls back to the manually-logged `!adslogged` timestamp without it), and `moderator:manage:banned_users` lets `!autoban` ban "ai viewers" spammers (without it, auto-ban stays inert and tells the broadcaster to reconnect). **Channels that connected before these scopes were added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous and real ad-schedule checks to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
