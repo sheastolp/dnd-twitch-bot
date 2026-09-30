@@ -28,8 +28,9 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Timed messages** | Broadcasters/mods schedule recurring announcements (`!timedmsg`) that post automatically on their own rotating interval |
 | **Web dashboard** | `!dashboard` hands out a private link for managing custom commands, triggers, and timed messages from a browser instead of chat syntax |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
+| **Coin & giveaways** | Viewers earn **copper** by chatting while the stream is live, shown as gold, silver and copper (10 cp = 1 sp, 10 sp = 1 gp). `!gold` balance + rank, `!gold top` / `!goldboard` leaderboard, `!gold give` gifting, mod-run `!giveaway` draws with optional paid, weighted tickets, and real coin prices for `!haggle`. **On by default**, toggled per channel with `!gold on/off` or the web dashboard |
 | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
-| **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict (refuse, discount, counter, or a silly trade demand). Rides on the `!market` toggle, one attempt per viewer per listing; flavor only, same as Market |
+| **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict. Rides on the `!market` toggle, one attempt per viewer per listing. It's a real purchase in **coin**: the peddler's listed price, your offer, and the price he agrees to all count, and a deal is paid for on the spot. A refusal costs nothing. Free banter if a channel turns gold off |
 
 ---
 
@@ -44,6 +45,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
 | **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; mod/broadcaster toggle (chat or dashboard "Bot & feature switches"), off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
+| **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
 | **types.ts** | Shared types |
@@ -101,6 +103,8 @@ Chat: `!guide` or `!link` posts that same URL.
 | `AD_REMINDER_MINUTES` | *(optional)* How often `!adcheck` re-flags a stale/missing ad break; default 20 |
 | `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message gets chronicled; default 3 |
 | `CHRONICLE_COOLDOWN_MS` | *(optional)* Minimum gap between chronicle quotes in a channel; default 600000ms (10 min), floor 30000ms |
+| `POINTS_PER_MESSAGE` | *(optional)* Copper earned per qualifying chat message; default 1, range 1–1000 |
+| `POINTS_EARN_COOLDOWN_SECONDS` | *(optional)* Seconds a viewer must wait between earning copper; default 60, floor 10 |
 | `CHRONICLE_MIN_MESSAGES` | *(optional)* Chat messages required since the last quote before another can fire; default 15 |
 | `MAX_NPCS_PER_OWNER` | *(optional)* NPC roster cap per channel (or the global roster); default 25 |
 | `NPC_MODEL` | *(optional)* LLM model used for `!npc talk` replies; default gpt-4o-mini |
@@ -132,7 +136,7 @@ Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`
 |---------|-------------|
 | `!help` | Guild hall welcome + path to begin |
 | `!guide` / `!link` | **Posts the Guild Codex URL** (`/guide`) |
-| `!dndbothelp` | Codex chapters: dice, character, party, combat, lookup, maps, custom, settings |
+| `!dndbothelp` | Codex chapters: dice, character, party, combat, lookup, maps, gold, custom, settings |
 | `!dndbothelp <chapter>` | Detailed syntax for that chapter |
 
 ### Adventurer's parchment (character)
@@ -218,6 +222,33 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
 
+### Gold, leaderboard & giveaways
+**On by default.** A mod or the broadcaster can turn it off with `!gold off` (or the **Gold, leaderboard & giveaways** switch on the web dashboard) and back on with `!gold on`. While on, viewers earn **copper** for chatting **while the stream is live** (plain messages only, `POINTS_PER_MESSAGE` copper once per `POINTS_EARN_COOLDOWN_SECONDS`, default 1 cp a minute). Balances are per channel and are kept when the system is switched off; `!dndbot leave` keeps them, and `!dndbot leave purge` deletes all balances and giveaways.
+
+**Coins.** Everything is stored as whole copper and shown as gold, silver and copper using the 5e rates: **10 cp = 1 sp, 10 sp = 1 gp** (so 100 cp = 1 gp), e.g. `1 gp 2 sp 3 cp`. Wherever a command takes an amount you can type `50` (bare numbers are copper), `5sp`, `1gp`, or a mix such as `1gp 2sp 3cp` or `1g2s3c`. The same coins pay for `!haggle` and giveaway tickets.
+
+The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `!points` and `!leaderboard` are already claimed by StreamElements and other bots (the same collision that turned the dice leaderboard into `!rollcall`).
+
+| Command | Description |
+|---------|-------------|
+| `!gold` | Your purse and rank |
+| `!gold @user` | Someone else's purse and rank |
+| `!gold top [N]` / `!goldboard [N]` | Richest adventurers (default 5, max 10) |
+| `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
+| `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
+| `!gold on` / `off` | Turn coin, the leaderboard, giveaways and paid haggling on or off; on by default *(mod)* |
+| `!gold status` | Check whether it's on (open to everyone) |
+| `!giveaway` | Current giveaway, ticket price and entry counts |
+| `!giveaway enter [tickets]` | Enter; free giveaways are one entry, paid ones cost coin per ticket up to the per-person cap |
+| `!giveaway start [cost=<amount>] [max=N] <prize>` | Open a giveaway, e.g. `!giveaway start cost=5sp max=5 Steam key` (no spaces inside the cost) *(mod)* |
+| `!giveaway draw` | Pick a winner (weighted by tickets) and close entries *(mod)* |
+| `!giveaway reroll` | Draw again, excluding anyone already drawn *(mod)* |
+| `!giveaway cancel` | Call it off and refund every ticket *(mod)* |
+
+Only one giveaway exists per channel at a time; starting a new one replaces the previous (closed) one. When the system is off, `!gold` and `!giveaway` commands are silent except `!gold on/off/status`.
+
+**Upgrading from the first gold version:** balances and giveaway prices written back when 1 chat message earned "1 gold" are converted once, automatically, on the next request (×100, so 1 old gold becomes 1 gp). A fresh install has nothing to convert.
+
 ### Custom commands & triggers
 Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but different subcommands (`add`/`edit`/`remove`/`cooldown`/`list` vs. `on`/`off`/`status`/`leave`), so there's no collision.
 
@@ -276,7 +307,7 @@ Responses support `{count}` (times posted so far) and `{random:a|b|c}`. Interval
 | `!dashboard` | Post a private link to this channel's web dashboard *(mod)* |
 | `!dashboard reset` | Invalidate the old link (if it leaked) and issue a new one *(mod)* |
 
-The dashboard (`GET /dashboard?channel=<id>&key=<dashboard_key>`) is a plain-HTML page for adding, editing, and deleting custom commands, chat triggers, and timed messages with forms instead of chat syntax. Two independent layers gate access to it:
+The dashboard (`GET /dashboard?channel=<id>&key=<dashboard_key>`) is a plain-HTML page for adding, editing, and deleting custom commands, chat triggers, and timed messages with forms instead of chat syntax, plus the on/off switches for the bot's features (including **Gold, leaderboard & giveaways**). Two independent layers gate access to it:
 
 1. **The link itself.** The `key` is a per-channel capability token (see `db.ts`'s `dashboard_key` column) — it's only ever handed out via the mod-gated `!dashboard` command, never posted automatically or shown to everyone.
 2. **A live Twitch login.** Opening the link (even with a valid key) first shows a "Log in with Twitch" gate. Logging in checks — at that moment, via Twitch's Get Moderated Channels API — whether the logged-in account is actually a moderator or the broadcaster of *that* channel. Only then does a signed, channel-scoped session cookie (12-hour expiry) unlock the actual management UI. This means a screenshotted or leaked link is useless to anyone who isn't currently a mod of that channel on Twitch, even though it still requires the OAuth redirect URI in step 4 above.
@@ -307,11 +338,13 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
 |---------|-------------|
 | `!dndbot on` / `off` / `status` | Open or close the guild hall in this channel *(mod)* |
 | `!dndbot leave` | Broadcaster-only: cancel EventSub and disconnect this channel |
-| `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/logs/gameplay state |
+| `!dndbot leave purge` | Broadcaster-only: disconnect and purge this channel's stored characters/parties/gold balances/giveaways/logs/gameplay state |
 | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
 | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
 
 `!haggle <pitch>` (open to everyone, e.g. `!haggle come on, five copper is robbery`) rides on this same toggle — it bargains over whatever the merchant last listed, with an AI-voiced, sassy in-character verdict. No listing yet, or the market's off? It says so instead of calling the AI. One attempt per viewer per listing.
+
+**Haggling is a real purchase in coin.** While coin is on (the default), the numbers in the haggle decide what changes hands. The listing's price (e.g. "1 silver 2 copper" = 12 cp), any offer named in your pitch (`!haggle come on, five copper is robbery` offers 5 cp), and the price the peddler agrees to in his reply are all used: the peddler ends with a machine-read `DEAL <copper>` or `NO DEAL` tag (stripped before chat sees it), and on a deal you pay that price on the spot. The price is clamped between your offer and the sticker price, so he can never charge more than listed or accept less than you asked. A refusal, a silly trade demand, or an AI failure costs nothing. If you can't afford the lowest price your pitch could settle at, he won't start haggling and your attempt isn't used up; if he agrees to a price above your purse, there's no sale. The wares themselves stay flavor (no inventory). With coin switched off (`!gold off`), haggling is free banter and nothing is charged.
 
 **Quiet while offline:** GuildScribe tracks each channel's live/offline status via Twitch's `stream.online`/`stream.offline` EventSub events (pushed to the bot, not polled — no extra Twitch API call on chat messages). While a channel is offline, regular viewers' commands and ambient chat (goodnight replies, chronicle quotes, NPC chatter, sub/raid thank-yous, merchant ads, timed messages) are silently skipped — the broadcaster and mods can still use every command normally so they can test the bot without going live. `!dndbot leave`/`leave purge` and `!dndbot on`/`off`/`status` are unaffected by this check. Channels connected before this feature shipped get caught up automatically (a one-time backfill the first time they'd otherwise be silenced) — no need to disconnect/reconnect.
 

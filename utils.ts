@@ -906,11 +906,17 @@ export function logRowText(r: any) {
 //   - !market on/off/status — merchant flavor ads, own dashboard toggle.
 //   - !haggle <message> — bargains over the merchant's current listing;
 //     gated by the same !market toggle rather than its own, so it's excluded
-//     here too (see haggle.ts / isMerchantEnabled in db.ts).
+//     here too (see haggle.ts / isMerchantEnabled in db.ts). It also spends
+//     and charges coin for agreed prices when coin is on (points_db.ts),
+//     which has no effect on this exclusion.
 //   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
 //   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
 //     per-channel toggle; broadcaster-only so it isn't a dashboard group.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
+//   - !gold, !goldboard, !giveaway — coin (copper/silver/gold), leaderboard & giveaways
+//     (points.ts). Passive earning isn't a "!" command, so it has its own
+//     per-channel toggle (isPointsEnabled in points_db.ts, on by default)
+//     instead of a group; !gold on/off must also stay reachable while off.
 //   - !dashboard [reset] — must stay reachable even with "custom" off, or a
 //     steward could lock themselves out of the page that turns things back on.
 //   - !help, !guide, !link, !dndbothelp — always available so players can

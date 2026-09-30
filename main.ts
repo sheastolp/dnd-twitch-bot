@@ -66,6 +66,8 @@ import {
 } from "./ads_db.ts";
 import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
+import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
+import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
@@ -194,6 +196,7 @@ async function handleRequest(req: Request): Promise<Response> {
   await ensureAdTables();
   await ensureAutoBanTables();
   await ensureSocialTables();
+  await ensurePointsTables();
   const url = new URL(req.url);
   const path = url.pathname;
 
@@ -215,7 +218,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
   if (req.method === "GET" && path === "/privacy") {
-    return page("GuildScribe Privacy Policy", `<h1>GuildScribe Privacy Policy</h1><p>GuildScribe receives Twitch usernames/user IDs, channel IDs, command text, character/party/gameplay data, and basic connection/subscription state when a channel connects the bot.</p><h2>How it is used</h2><p>Data is used only to operate the Twitch bot, keep characters and parties working, troubleshoot abuse/errors, and provide channel activity logs to that channel's broadcaster/moderators.</p><h2>Retention</h2><p>Activity logs are kept for up to 90 days and are capped at 5,000 rows per channel. Character and party data remains while a channel uses GuildScribe unless the channel requests deletion. OAuth state records expire after 10 minutes. Connection records are removed when a channel disconnects.</p><h2>Deletion</h2><p>The connected broadcaster can use <code>!dndbot leave purge</code> to disconnect and request deletion of that channel's stored characters, parties, logs, and gameplay state. For other deletion requests, contact ${escapeHtml(Deno.env.get("SUPPORT_URL") ?? "the project operator through the support link on the home page")}.</p><p><a href="/">Return to GuildScribe</a></p>`);
+    return page("GuildScribe Privacy Policy", `<h1>GuildScribe Privacy Policy</h1><p>GuildScribe receives Twitch usernames/user IDs, channel IDs, command text, character/party/gameplay data, coin (points) balances and giveaway entries for channels that turn those on, and basic connection/subscription state when a channel connects the bot.</p><h2>How it is used</h2><p>Data is used only to operate the Twitch bot, keep characters and parties working, troubleshoot abuse/errors, and provide channel activity logs to that channel's broadcaster/moderators.</p><h2>Retention</h2><p>Activity logs are kept for up to 90 days and are capped at 5,000 rows per channel. Character and party data remains while a channel uses GuildScribe unless the channel requests deletion. OAuth state records expire after 10 minutes. Connection records are removed when a channel disconnects.</p><h2>Deletion</h2><p>The connected broadcaster can use <code>!dndbot leave purge</code> to disconnect and request deletion of that channel's stored characters, parties, coin balances, giveaway entries, logs, and gameplay state. For other deletion requests, contact ${escapeHtml(Deno.env.get("SUPPORT_URL") ?? "the project operator through the support link on the home page")}.</p><p><a href="/">Return to GuildScribe</a></p>`);
   }
   if (req.method === "GET" && (path === "/terms" || path === "/tos")) {
     return page("GuildScribe Terms of Service", `<h1>GuildScribe Terms of Service</h1><p>GuildScribe is a fan-made Twitch utility for D&amp;D-style character and chat gameplay. Use it lawfully and respectfully, and follow Twitch's rules and the streamer/channel's rules.</p><p>Do not use the bot to harass, spam, abuse, evade moderation, or interfere with other users. Channel owners are responsible for deciding whether the bot is appropriate for their community.</p><p>The service may be changed, limited, suspended, or removed at any time. Gameplay data and generated results are not guaranteed to be preserved.</p><p>Report abuse or request account/channel assistance through the support contact on the home page.</p><p><a href="/">Return to GuildScribe</a></p>`);
@@ -774,8 +777,10 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
+        await purgePointsData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
+        await disconnectPointsData(broadcasterId);
         await disconnectAdToken(broadcasterId);
       }
       return new Response("OK");
@@ -819,6 +824,10 @@ async function handleRequest(req: Request): Promise<Response> {
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
       const group = groupForCommand(commandWord.replace(/^!/, ""));
       if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
+    } else if (Number(connection.is_live) === 1) {
+      // Copper for chatting (see points.ts): plain messages only, live only,
+      // and a silent no-op unless the channel turned gold on (!gold on).
+      await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
     }
 
     // Command handlers (return true if handled)
@@ -838,6 +847,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
@@ -885,7 +895,7 @@ async function handleRequest(req: Request): Promise<Response> {
         category === "dice"
           ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
           : category === "settings"
-            ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !help | !guide | !link"
+            ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !gold on | !gold off | !gold status (coin, leaderboard, giveaways & paid !haggle — on by default) | !help | !guide | !link"
             : category === "character"
               ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"
@@ -896,9 +906,11 @@ async function handleRequest(req: Request): Promise<Response> {
                     ? "📚 Guild archives: !spell <name> [+N] | !item <name> [+N] | !class <name> | !feat <name> | !ability <score> | !race <name> | !subrace <name> | !monster <name> | !rule <topic> | !rules <topic> (e.g. !spell fireball, !rules magic, !monster goblin) | !bg3lookup <name> — BG3 companions/origins/classes/races/locations/factions/deities/villains/items (e.g. !bg3lookup astarion, !bg3lookup moonrise towers)"
                     : category === "maps"
                       ? "🗺️ Battle maps: !map create <name> [WxH] [template] (mod) | !map templates | !map list | !map view <name> | !map delete <name> / !map remove <name> (mod) | !map terrains | !map fill <name> <terrain> (mod) | !map paint <name> <x> <y> <terrain> (mod) | !map addchar <name> [x y] | !map addchar <name> @user [x y] (mod) | !map move <name> <x> <y> | !map move <name> @user <x> <y> (mod) | !map removechar <name> [@user]"
+                      : category === "gold"
+                        ? "💰 Coin & giveaways (on by default — mods can switch off with !gold off): chat while live to earn copper; 10 cp = 1 sp, 10 sp = 1 gp; amounts like 50, 5sp, 1gp, 1gp 2sp | !gold (your purse + rank) | !gold @user | !gold top [N] / !goldboard (richest adventurers) | !gold give @user <amount> | !gold add/remove/set @user <amount> (mod) | !gold on/off/status | !giveaway (status) | !giveaway enter [tickets] | !giveaway start [cost=<amount>] [max=N] <prize> (mod) | !giveaway draw / reroll / cancel (mod) | !haggle <pitch> — the peddler's coin prices are real, a deal is paid on the spot, a refusal is free"
                       : category === "custom"
                         ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list | !timedmsg add <minutes> <message> | !timedmsg edit <id> <message> | !timedmsg interval <id> <minutes> | !timedmsg enable/disable <id> | !timedmsg remove <id> | !timedmsg list | !dashboard [reset] (mod) get a web link to manage all of these — add/edit/remove/cooldown/interval/enable/disable are mod-only, list is open to everyone"
-                        : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
+                        : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | gold | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
       const match = chatMessage.match(/^!levelup(?:\s+([+-]\d+))?$/i)!;

@@ -146,7 +146,7 @@ export const RESERVED_NAMES = new Set([
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "link", "guide",
   "cmd", "trigger", "command", "commands", "hug", "map", "mod", "admin", "bot",
-  "timedmsg", "timedmessage", "timer", "dashboard", "autoban",
+  "timedmsg", "timedmessage", "timer", "dashboard", "autoban", "gold", "goldboard", "giveaway",
 ]);
 
 const NAME_RE = /^[a-z0-9_-]{2,25}$/;

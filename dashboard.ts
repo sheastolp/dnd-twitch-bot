@@ -52,6 +52,7 @@ import {
 } from "./db.ts";
 import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, isNpcChatterEnabled, setNpcChatterEnabled } from "./social_db.ts";
 import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
+import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { COMMAND_GROUPS } from "./utils.ts";
 import {
@@ -217,7 +218,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -229,6 +230,7 @@ export async function renderDashboard(
     getCommandGroupToggles(channelId),
     isAutoBanEnabled(channelId),
     hasBanPermission(channelId),
+    isPointsEnabled(channelId),
   ]);
   const data: DashboardData = {
     broadcasterId: channelId,
@@ -250,6 +252,7 @@ export async function renderDashboard(
     groupToggles,
     autoBanEnabled,
     autoBanPermitted,
+    pointsEnabled,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
@@ -525,6 +528,12 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
           ? "Auto-ban turned on, but ban permission hasn't been granted yet — the broadcaster needs to reconnect via /connect to approve it."
           : `Auto-ban turned ${enabled ? "on" : "off"}.`,
       }));
+    }
+    case "points_on":
+    case "points_off": {
+      const enabled = intent === "points_on";
+      await setPointsEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Gold, leaderboard & giveaways turned ${enabled ? "on" : "off"}.` }));
     }
     case "npc_on":
     case "npc_off": {
