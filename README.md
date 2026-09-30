@@ -20,7 +20,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!rollcall` natural 1/20 leaderboard, `!oracle` names a random chatter, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
 | **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts**, and `!rob @user` robbery duels that move coin |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
-| **XP** | From **monster** victories only (not PvP) |
+| **XP & loot** | From **monster** victories only (not PvP): XP, plus a small coin drop scaled to the monster's CR while coin is on |
 | **Subs** | D&D-themed auto thank-you in chat for new subs, renewals, and gift subs — including a welcome for the recipient and (unless anonymous) a shout-out to the gifter (requires `channel:read:subscriptions`) |
 | **Raids** | D&D-themed auto thank-you in chat when another channel raids in, naming the raiding channel and party size — no extra OAuth scope needed |
 | **Stewards** | Channel on/off, disconnect/purge, in-chat activity logs, OAuth connect |
@@ -45,6 +45,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
 | **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; mod/broadcaster toggle (chat or dashboard "Bot & feature switches"), off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
+| **loot.ts** | Coin dropped by slain monsters (solo fights and party hunts), scaled by CR and split among surviving hunters; called from `combat.ts` next to each XP award |
 | **rob.ts** | `!rob @user` — robbery duel: both saved characters fight via the shared `resolvePlayerDuel` in `combat.ts`; the loser pays the winner 1–9% of their coin. Cooldowns live in `points_db.ts` (`rob_cooldowns`) |
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
@@ -104,6 +105,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `AD_REMINDER_MINUTES` | *(optional)* How often `!adcheck` re-flags a stale/missing ad break; default 20 |
 | `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message gets chronicled; default 3 |
 | `CHRONICLE_COOLDOWN_MS` | *(optional)* Minimum gap between chronicle quotes in a channel; default 600000ms (10 min), floor 30000ms |
+| `HUNT_LOOT_MULTIPLIER` | *(optional)* Scales the coin dropped by slain monsters; default 1, 0 disables monster loot |
 | `ROB_COOLDOWN_SECONDS` | *(optional)* Seconds a player must wait between `!rob` attempts; default 300, floor 10 |
 | `ROB_PROTECT_SECONDS` | *(optional)* Seconds a player is left alone after being targeted by `!rob`, win or lose; default 600, 0 disables |
 | `POINTS_PER_MESSAGE` | *(optional)* Copper earned per qualifying chat message; default 1, range 1–1000 |
@@ -224,10 +226,12 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
 
+**Loot:** every monster kill (solo fights and party hunts, classic or auto) also drops a small amount of coin while coin is on, paid next to the XP and shown in the victory message (e.g. `🪙 Loot: +2 sp 3 cp.`). The drop is the monster's XP value ÷ 10 with ±25% variation, at least 1 cp — roughly 2 sp for a CR 1 monster and 1 gp 8 sp for CR 5. A party hunt drops **one hoard that the surviving members split** (everyone gets at least 1 cp), so a bigger company doesn't multiply the payout. PvP (`!dndduel @user`, `!rob`) drops none. Scale it with `HUNT_LOOT_MULTIPLIER` (0 turns loot off); `!gold off` pauses it along with the rest of the coin system.
+
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
 
 ### Gold, leaderboard & giveaways
-**On by default.** A mod or the broadcaster can turn it off with `!gold off` (or the **Gold, leaderboard & giveaways** switch on the web dashboard) and back on with `!gold on`. While on, viewers earn **copper** for chatting **while the stream is live** (plain messages only, `POINTS_PER_MESSAGE` copper once per `POINTS_EARN_COOLDOWN_SECONDS`, default 1 cp a minute). Balances are per channel and are kept when the system is switched off; `!dndbot leave` keeps them, and `!dndbot leave purge` deletes all balances and giveaways.
+**On by default.** A mod or the broadcaster can turn it off with `!gold off` (or the **Gold, leaderboard & giveaways** switch on the web dashboard) and back on with `!gold on`. While on, viewers earn **copper** for chatting **while the stream is live** and a small coin drop for every monster they slay (solo or on a party hunt — see *Loot* under Arena & wilds) (plain messages only, `POINTS_PER_MESSAGE` copper once per `POINTS_EARN_COOLDOWN_SECONDS`, default 1 cp a minute). Balances are per channel and are kept when the system is switched off; `!dndbot leave` keeps them, and `!dndbot leave purge` deletes all balances and giveaways.
 
 **Coins.** Everything is stored as whole copper and shown as gold, silver and copper using the 5e rates: **10 cp = 1 sp, 10 sp = 1 gp** (so 100 cp = 1 gp), e.g. `1 gp 2 sp 3 cp`. Wherever a command takes an amount you can type `50` (bare numbers are copper), `5sp`, `1gp`, or a mix such as `1gp 2sp 3cp` or `1g2s3c`. The same coins pay for `!haggle` and giveaway tickets.
 
@@ -415,6 +419,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 
 - Start: level 1, 0 XP  
 - Monster CR → XP; thresholds can auto-level  
+- Monster CR → a small coin drop (XP ÷ 10, ±25%), split among surviving hunters  
 - Monsters chosen by **level** (and party size on hunts), with win-friendly balance  
 - Large solo roster across CR bands  
 

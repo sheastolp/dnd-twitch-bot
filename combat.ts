@@ -24,6 +24,7 @@ import {
 } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
+import { awardMonsterLoot, partyLootNote, soloLootNote } from "./loot.ts";
 
 // Target win rate for the challenger in auto solo monster duels (bare
 // !dndduel). Chosen once per fight before simulating; the sim below is
@@ -757,6 +758,7 @@ export async function handleMonsterDuelCommand(
     ]);
     const won = monsterHp <= 0 && playerHp > 0;
     let xpNote = "";
+    let lootNote = "";
     if (won) {
       const xp = await awardMonsterXp(username, monster.cr, broadcasterId);
       if (xp) {
@@ -764,6 +766,7 @@ export async function handleMonsterDuelCommand(
           xp.leveledTo ? ` — leveled to ${xp.leveledTo}!` : ""
         }`;
       }
+      lootNote = soloLootNote(await awardMonsterLoot([username], monster.cr, broadcasterId));
     }
     await sendChatMessages(
       `@${display} the D20 of Fate summons a ${monster.name} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
@@ -772,7 +775,7 @@ export async function handleMonsterDuelCommand(
         won
           ? `${username} defeats ${monster.name}! ${
             duelNarration("victory")
-          }${xpNote}`
+          }${xpNote}${lootNote}`
           : `${monster.name} wins. ${duelNarration("defeat")}`
       } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`,
       broadcasterId,
@@ -836,10 +839,13 @@ export async function handleMonsterDuelCommand(
           xp.leveledTo ? ` — leveled to ${xp.leveledTo}!` : ""
         }`
         : "";
+      const lootNote = soloLootNote(
+        await awardMonsterLoot([username], String(active.monster_cr ?? "1"), broadcasterId),
+      );
       await sendChatMessage(
         `@${display} ${playerResult} ${active.monster_name} is defeated! ${
           duelNarration("victory")
-        }${xpNote}`,
+        }${xpNote}${lootNote}`,
         broadcasterId,
       );
       return true;
@@ -1366,10 +1372,17 @@ export async function handlePartyDuelCommand(
             if (xp) xpNotes.push(`${n}+${xp.gained}`);
           }
         }
+        const lootNote = partyLootNote(
+          await awardMonsterLoot(
+            partyHunt.members.filter((n: string) => (partyHunt.member_hp[n] ?? 0) > 0),
+            String(partyHunt.monster_cr),
+            broadcasterId,
+          ),
+        );
         await sendChatMessages(
           `@${display} ${playerResult} ${partyHunt.monster_name} falls! ${
             duelNarration("victory")
-          } XP: ${xpNotes.join(", ") || "none"}.`,
+          } XP: ${xpNotes.join(", ") || "none"}.${lootNote}`,
           broadcasterId,
         );
         return true;
@@ -1579,6 +1592,7 @@ export async function handlePartyDuelCommand(
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const xpNotes: string[] = [];
+      let lootNote = "";
       if (partyWon) {
         for (const n of livingMembers) {
           if (hp[n] > 0) {
@@ -1590,6 +1604,9 @@ export async function handlePartyDuelCommand(
             }
           }
         }
+        lootNote = partyLootNote(
+          await awardMonsterLoot(livingMembers.filter((n) => hp[n] > 0), monster.cr, broadcasterId),
+        );
       }
       const roster = livingMembers.map((n) => `${n}:${hp[n]}`).join(", ");
       await sendChatMessages(
@@ -1597,7 +1614,7 @@ export async function handlePartyDuelCommand(
           duelNarration("challenge")
         } Auto (${swings} rounds): ${highlights.join(" · ")} — ${
           partyWon
-            ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}`
+            ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}`
             : `Defeat. ${duelNarration("defeat")}`
         } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`,
         broadcasterId,
