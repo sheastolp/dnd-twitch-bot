@@ -18,7 +18,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Company** | Parties with invite, roster (members listed), disband |
 | **Archives** | Spells, items, classes, feats, races, **rules** (+ public links), plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
 | **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!rollcall` natural 1/20 leaderboard, `!oracle` names a random chatter, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
-| **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts** |
+| **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts**, and `!rob @user` robbery duels that move coin |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
 | **XP** | From **monster** victories only (not PvP) |
 | **Subs** | D&D-themed auto thank-you in chat for new subs, renewals, and gift subs — including a welcome for the recipient and (unless anonymous) a shout-out to the gifter (requires `channel:read:subscriptions`) |
@@ -45,6 +45,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
 | **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; mod/broadcaster toggle (chat or dashboard "Bot & feature switches"), off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
+| **rob.ts** | `!rob @user` — robbery duel: both saved characters fight via the shared `resolvePlayerDuel` in `combat.ts`; the loser pays the winner 1–9% of their coin. Cooldowns live in `points_db.ts` (`rob_cooldowns`) |
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
@@ -103,6 +104,8 @@ Chat: `!guide` or `!link` posts that same URL.
 | `AD_REMINDER_MINUTES` | *(optional)* How often `!adcheck` re-flags a stale/missing ad break; default 20 |
 | `CHRONICLE_QUOTE_CHANCE_PERCENT` | *(optional)* Odds any single qualifying chat message gets chronicled; default 3 |
 | `CHRONICLE_COOLDOWN_MS` | *(optional)* Minimum gap between chronicle quotes in a channel; default 600000ms (10 min), floor 30000ms |
+| `ROB_COOLDOWN_SECONDS` | *(optional)* Seconds a player must wait between `!rob` attempts; default 300, floor 10 |
+| `ROB_PROTECT_SECONDS` | *(optional)* Seconds a player is left alone after being targeted by `!rob`, win or lose; default 600, 0 disables |
 | `POINTS_PER_MESSAGE` | *(optional)* Copper earned per qualifying chat message; default 1, range 1–1000 |
 | `POINTS_EARN_COOLDOWN_SECONDS` | *(optional)* Seconds a viewer must wait between earning copper; default 60, floor 10 |
 | `CHRONICLE_MIN_MESSAGES` | *(optional)* Chat messages required since the last quote before another can fire; default 15 |
@@ -216,6 +219,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!dndduel party hunt <party>` | Auto **company vs monster** |
 | `!dndduel party hunt classic <party>` | Classic hunt |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
+| `!rob @user` | **Robbery duel:** your saved character fights theirs (same auto engine as `!dndduel @user`, no accept step). The loser pays the winner a random **1–9%** of the loser's coin (min 1 cp) — so a failed robbery costs the robber. Needs coin on; see *Robbing* under Gold, leaderboard & giveaways |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
@@ -246,6 +250,14 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!giveaway cancel` | Call it off and refund every ticket *(mod)* |
 
 Only one giveaway exists per channel at a time; starting a new one replaces the previous (closed) one. When the system is off, `!gold` and `!giveaway` commands are silent except `!gold on/off/status`.
+
+#### Robbing (`!rob`)
+`!rob @player` turns a pickpocket attempt into a fight. Your saved character and theirs are put through the same auto-resolved duel as `!dndduel @user` (there is **no accept step** — a robbery isn't a polite challenge — but a coin flip decides who swings first, so it's a fair fight). When it ends, the **loser** pays the **winner** a random whole-number **1–9%** of the *loser's own* coin, rounded down but at least 1 cp. Win and you lift a slice of their purse; lose and you pay them a fine out of yours.
+
+- Both players need a saved character (`!createchar` / `!newchar` / `!bg3`) and must actually carry coin — the robber needs some to risk, and the target needs something worth stealing.
+- Only coin moves. Characters aren't hurt and earn no XP.
+- Cooldowns stop abuse: a robber waits `ROB_COOLDOWN_SECONDS` (default 5 min) between attempts, and a target is left alone for `ROB_PROTECT_SECONDS` (default 10 min) after being targeted, win or lose.
+- `!rob` is silent while coin is off (`!gold off`). It also belongs to the dashboard's **Arena & company** command group, so a steward can switch robbing off there while leaving the rest of the coin system on.
 
 **Upgrading from the first gold version:** balances and giveaway prices written back when 1 chat message earned "1 gold" are converted once, automatically, on the next request (×100, so 1 old gold becomes 1 gp). A fresh install has nothing to convert.
 

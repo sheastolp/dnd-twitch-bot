@@ -56,6 +56,17 @@ export async function ensurePointsTables() {
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
+  // !rob cooldowns (rob.ts): when a player last robbed someone, and when
+  // they were last targeted, so robbing can't be spammed or dogpiled.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS rob_cooldowns (
+      broadcaster_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      robber_at INTEGER NOT NULL DEFAULT 0,
+      victim_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (broadcaster_id, username)
+    )`,
+  );
   await migrateToCopper();
 }
 
@@ -352,6 +363,45 @@ export async function cancelGiveaway(broadcasterId: string): Promise<number> {
   return refunded;
 }
 
+// ── Robbery cooldowns (see rob.ts) ──
+
+/** Milliseconds until `username` may rob again (0 = allowed now). */
+export async function robberWaitMs(broadcasterId: string, username: string, cooldownMs: number): Promise<number> {
+  const res = await sqlite.execute(
+    "SELECT robber_at FROM rob_cooldowns WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, username.toLowerCase()],
+  );
+  const last = Number(res.rows[0]?.robber_at ?? 0);
+  return Math.max(0, last + cooldownMs - Date.now());
+}
+
+/** Milliseconds `username` is still protected from being targeted (0 = fair game). */
+export async function victimProtectedMs(broadcasterId: string, username: string, protectMs: number): Promise<number> {
+  const res = await sqlite.execute(
+    "SELECT victim_at FROM rob_cooldowns WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, username.toLowerCase()],
+  );
+  const last = Number(res.rows[0]?.victim_at ?? 0);
+  return Math.max(0, last + protectMs - Date.now());
+}
+
+/** Stamps a robbery that is about to happen: the robber's cooldown starts and
+ * the target's protection window starts, before the duel so a burst of
+ * messages can't slip several robberies through. */
+export async function stampRobbery(broadcasterId: string, robber: string, victim: string) {
+  const now = Date.now();
+  await sqlite.execute(
+    `INSERT INTO rob_cooldowns (broadcaster_id, username, robber_at, victim_at) VALUES (?,?,?,0)
+     ON CONFLICT(broadcaster_id, username) DO UPDATE SET robber_at = excluded.robber_at`,
+    [broadcasterId, robber.toLowerCase(), now],
+  );
+  await sqlite.execute(
+    `INSERT INTO rob_cooldowns (broadcaster_id, username, robber_at, victim_at) VALUES (?,?,0,?)
+     ON CONFLICT(broadcaster_id, username) DO UPDATE SET victim_at = excluded.victim_at`,
+    [broadcasterId, victim.toLowerCase(), now],
+  );
+}
+
 // ── Offboarding ──
 
 /** `!dndbot leave` (no purge): drop the on/off override (back to the
@@ -362,7 +412,7 @@ export async function disconnectPointsData(broadcasterId: string) {
 
 /** `!dndbot leave purge`: delete everything points-related for the channel. */
 export async function purgePointsData(broadcasterId: string) {
-  for (const table of ["points_settings", "points_balances", "giveaways", "giveaway_entries"]) {
+  for (const table of ["points_settings", "points_balances", "giveaways", "giveaway_entries", "rob_cooldowns"]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
 }

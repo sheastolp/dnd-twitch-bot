@@ -151,8 +151,9 @@ function simulateAttack(
   return `${attackerName} miss`;
 }
 
-/** Auto-resolve a 1v1 duel. Returns chat-ready summary lines. */
-function resolvePlayerDuel(
+/** Auto-resolve a 1v1 duel. Returns chat-ready summary lines. Exported so
+ * !rob (rob.ts) fights with exactly the same engine as !dndduel. */
+export function resolvePlayerDuel(
   aName: string,
   bName: string,
   aChar: any,
