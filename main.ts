@@ -125,7 +125,6 @@ import {
   rollNewSubThankYou,
   rollResubThankYou,
   rollGiftSubThankYou,
-  rollGiftedSubWelcome,
   rollRaidThankYou,
   resolveCheckKind,
   modifier,
@@ -643,9 +642,15 @@ async function handleRequest(req: Request): Promise<Response> {
       // this reuses the connection row already fetched above (no extra call).
       if (Number(subConnection.is_live) !== 1) return new Response("OK");
 
+      // A gift batch fires ONE channel.subscription.gift (with the total)
+      // plus one channel.subscribe (is_gift=true) per recipient. Only the
+      // batch event gets a thank-you, so a 10-gift bomb is one message
+      // instead of eleven.
+      if (subscriptionType === "channel.subscribe" && body.event?.is_gift) return new Response("OK");
+
       const thankYou =
         subscriptionType === "channel.subscribe"
-          ? (body.event?.is_gift ? rollGiftedSubWelcome(subDisplay, tier) : rollNewSubThankYou(subDisplay, tier))
+          ? rollNewSubThankYou(subDisplay, tier)
           : subscriptionType === "channel.subscription.gift"
             ? rollGiftSubThankYou(isAnonymousGifter ? null : subDisplay, Number(body.event?.total ?? 1), tier)
             : rollResubThankYou(subDisplay, Number(body.event?.cumulative_months ?? 1), tier);
