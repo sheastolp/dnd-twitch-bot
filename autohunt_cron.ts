@@ -1,0 +1,42 @@
+// GuildScribe — autohunt settlement.
+// Val Town CRON TRIGGER (interval val). Set the schedule in the Val Town UI;
+// every 15 minutes is Val Town's minimum and is plenty: each run settles every
+// bout that has come due since the last one and posts ONE report per hunter, so
+// a slower tick just means slightly bigger reports (see autohunt.ts).
+//
+// Only channels that are live get settled; an offline channel's sessions wait
+// (their end time still counts down, so the hunt can finish the moment the
+// stream returns). A session's own !autohunt / status / stop also settles it,
+// and claims are atomic, so the two can never both pay the same bout.
+
+import { ensureTables, recordMonitorEvent } from "./db.ts";
+import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
+import { settleAutohunt } from "./autohunt.ts";
+import { sendChatMessages } from "./twitch.ts";
+
+export default async function () {
+  await ensureTables();
+  await ensureAutohuntTables();
+  const now = Date.now();
+  const due = await getDueAutohuntSessions(now);
+  let reports = 0;
+  let skippedOffline = 0;
+
+  for (const { is_live, ...session } of due) {
+    if (!is_live) {
+      skippedOffline++;
+      continue;
+    }
+    try {
+      const text = await settleAutohunt(session, { now });
+      if (text) {
+        await sendChatMessages(text, session.broadcaster_id);
+        reports++;
+      }
+    } catch (e) {
+      await recordMonitorEvent("autohunt_settle_error", `${session.broadcaster_id}#${session.username}: ${String(e)}`);
+    }
+  }
+
+  console.log(`GuildScribe autohunt cron: ${reports} report(s) from ${due.length} due session(s) (${skippedOffline} skipped offline)`);
+}

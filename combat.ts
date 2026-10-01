@@ -6,6 +6,7 @@ import {
   scaleMonsterForLevel,
 } from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
+import { BattleLog, simulateAttack, simulateMonsterFight } from "./battle.ts";
 import {
   createPartyInvite,
   deletePartyInvite,
@@ -25,16 +26,6 @@ import {
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, partyLootNote, soloLootNote } from "./loot.ts";
-
-// Auto solo monster duels (bare !dndduel / !dndduel <name>) are decided by the
-// actual dice, not a fixed win rate: the odds come from the real matchup
-// (character vs. the level-scaled monster), so a goblin is a fair bet for a
-// novice, a dragon is a death wish, and every fight can still turn on a
-// natural 20. The only nudge fate gives is FATE_STAYS_HAND below.
-//
-// Once per fight, when a blow would drop the hero to 0 HP, they roll a d20;
-// this number or higher and fate stays its hand, leaving them on 1 HP.
-const FATE_STAYS_HAND_DC = 18;
 
 /** "a Goblin" / "an Owlbear" — new bestiary names (Adult…, Elder…) made the bare "a" read wrong. */
 const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
@@ -125,39 +116,6 @@ export async function duelSummary(d: any) {
   } HP. Turn: ${d.current_turn}.`;
 }
 
-/** Simulate one attack; mutates hp map. Returns a short log line. */
-function simulateAttack(
-  attackerName: string,
-  defenderName: string,
-  attacker: { proficiency: number; scores: Record<string, number> },
-  defender: { proficiency: number; scores: Record<string, number> },
-  hp: Record<string, number>,
-): string {
-  const stats = combatStats(attacker as any);
-  const targetStats = combatStats(defender as any);
-  const roll = 1 + Math.floor(Math.random() * 20);
-  const total = roll + stats.mod + attacker.proficiency;
-  const critical = roll === 20;
-  const hit = critical || (roll !== 1 && total >= targetStats.attack);
-  const dice = critical
-    ? 1 + Math.floor(Math.random() * stats.die) +
-      (1 + Math.floor(Math.random() * stats.die))
-    : 1 + Math.floor(Math.random() * stats.die);
-  const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-  if (hit) hp[defenderName] = Math.max(0, (hp[defenderName] ?? 0) - damage);
-  if (critical) {
-    return `${attackerName} CRIT ${damage}→${defenderName}(${
-      hp[defenderName]
-    }HP)`;
-  }
-  if (hit) {
-    return `${attackerName} hit ${damage}→${defenderName}(${
-      hp[defenderName]
-    }HP)`;
-  }
-  return `${attackerName} miss`;
-}
-
 /** Auto-resolve a 1v1 duel. Returns chat-ready summary lines. Exported so
  * !rob (rob.ts) fights with exactly the same engine as !dndduel. */
 export function resolvePlayerDuel(
@@ -170,38 +128,27 @@ export function resolvePlayerDuel(
     [aName]: aChar.hpMax,
     [bName]: bChar.hpMax,
   };
-  const maxRounds = 40;
-  const highlights: string[] = [];
+  const maxRounds = 20; // 40 swings, same cap as before
+  const battle = new BattleLog();
   let rounds = 0;
-  let turn = aName;
   while (hp[aName] > 0 && hp[bName] > 0 && rounds < maxRounds) {
     rounds++;
-    const attackerName = turn;
-    const defenderName = turn === aName ? bName : aName;
-    const attacker = turn === aName ? aChar : bChar;
-    const defender = turn === aName ? bChar : aChar;
-    const line = simulateAttack(
-      attackerName,
-      defenderName,
-      attacker,
-      defender,
-      hp,
-    );
-    // Keep crits, finishing blows, and a sample of early hits
-    if (
-      line.includes("CRIT") || hp[defenderName] <= 0 || highlights.length < 6
-    ) {
-      highlights.push(line);
+    battle.nextRound();
+    // aName always swings first; bName answers if still standing.
+    battle.strike(simulateAttack(aName, bName, aChar, bChar, hp));
+    if (hp[bName] > 0) {
+      battle.strike(simulateAttack(bName, aName, bChar, aChar, hp));
     }
-    turn = defenderName;
   }
   const winner = hp[aName] > 0 ? aName : bName;
   const log = [
-    `${aName} ${aChar.hpMax}HP vs ${bName} ${bChar.hpMax}HP — auto-resolved in ${rounds} swings.`,
-    highlights.join(" · "),
-    `${winner} wins! ${duelNarration("victory")} Final: ${aName} ${
+    `${aName} (${aChar.hpMax} HP) vs ${bName} (${bChar.hpMax} HP) — auto-resolved in ${rounds} round${
+      rounds === 1 ? "" : "s"
+    }.`,
+    battle.render(),
+    `— ${winner} wins! ${duelNarration("victory")} Final: ${aName} ${
       hp[aName]
-    }HP, ${bName} ${hp[bName]}HP.`,
+    }/${aChar.hpMax} HP, ${bName} ${hp[bName]}/${bChar.hpMax} HP.`,
   ].join(" ");
   return { winner, log, rounds };
 }
@@ -369,12 +316,17 @@ export async function handleDuelCommand(
       active.defender_hp = Math.max(0, active.defender_hp - damage);
     } else active.challenger_hp = Math.max(0, active.challenger_hp - damage);
     const defeated = active.challenger_hp <= 0 || active.defender_hp <= 0;
-    const result = `${username} rolled ${roll}${
+    const targetHpNow = active.challenger === username
+      ? active.defender_hp
+      : active.challenger_hp;
+    const result = `${username} attacks ${targetName}: d20 ${roll}${
       critical ? " CRITICAL" : ""
     } + ${
       stats.mod + attacker.proficiency
-    } = ${total} vs AC ${targetStats.attack}: ${
-      hit ? `hit for ${damage} damage` : "miss"
+    } = ${total} vs AC ${targetStats.attack} → ${
+      hit
+        ? `hit for ${damage} (${targetName} ${targetHpNow}/${target.hpMax} HP)`
+        : "miss"
     }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
     if (defeated) {
       const winner = active.challenger_hp > 0
@@ -684,78 +636,8 @@ export async function handleMonsterDuelCommand(
     } else {
       monster = pickMonsterForLevel(c.level);
     }
-    let playerHp = c.hpMax;
-    let monsterHp = monster.hp;
-    const pStats = combatStats(c);
-    // Slightly forgiving AC for stream pacing
-    const playerAc = 11 + pStats.mod + c.proficiency;
-    const highlights: string[] = [];
-    let swings = 0;
-    // High enough that even a long slog against a big monster is settled by
-    // the dice; the cap only exists to guarantee the loop ends.
-    const maxSwings = 100;
-    const dmgDie = 10; // heroes hit a bit harder vs monsters than PvP d8
-    let fateUsed = false;
-
-    while (playerHp > 0 && monsterHp > 0 && swings < maxSwings) {
-      swings++;
-      const roll = 1 + Math.floor(Math.random() * 20);
-      const total = roll + pStats.mod + c.proficiency + 1; // +1 to-hit bias
-      const critical = roll === 20;
-      const hit = critical || (roll !== 1 && total >= monster.ac);
-      const dice = critical
-        ? 1 + Math.floor(Math.random() * dmgDie) + 1 +
-          Math.floor(Math.random() * dmgDie)
-        : 1 + Math.floor(Math.random() * dmgDie);
-      const damage = hit ? Math.max(1, dice + pStats.mod + 1) : 0;
-      if (hit) monsterHp = Math.max(0, monsterHp - damage);
-      if (critical || monsterHp <= 0 || highlights.length < 4) {
-        highlights.push(
-          hit
-            ? `${username}${
-              critical ? " CRIT" : ""
-            } ${damage}→${monster.name}(${monsterHp})`
-            : `${username} miss`,
-        );
-      }
-      if (monsterHp <= 0) break;
-      const mRoll = 1 + Math.floor(Math.random() * 20);
-      const mTotal = mRoll + monster.attack;
-      const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
-      const mDice = 1 + Math.floor(Math.random() * monster.die);
-      const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
-      if (mHit) playerHp = Math.max(0, playerHp - mDamage);
-      let fateSaved = false;
-      if (playerHp <= 0 && !fateUsed) {
-        fateUsed = true;
-        if (1 + Math.floor(Math.random() * 20) >= FATE_STAYS_HAND_DC) {
-          playerHp = 1;
-          fateSaved = true;
-        }
-      }
-      if (mRoll === 20 || playerHp <= 0 || fateSaved || highlights.length < 8) {
-        highlights.push(
-          mHit
-            ? `${monster.name} ${mDamage}→${username}(${playerHp})`
-            : `${monster.name} miss`,
-        );
-        if (fateSaved) highlights.push("✨ fate stays its hand — 1 HP left");
-      }
-    }
-
-    // Only reachable if the swing cap is hit with both sides standing: the one
-    // in better shape (by share of HP left) is the last one on its feet.
-    if (playerHp > 0 && monsterHp > 0) {
-      const playerWins = playerHp / c.hpMax >= monsterHp / monster.hp;
-      highlights.push(
-        playerWins
-          ? `${monster.name} falters, spent, as ${username} stands firm`
-          : `${username} falters, spent, as ${monster.name} presses on`,
-      );
-      if (playerWins) monsterHp = 0;
-      else playerHp = 0;
-    }
-
+    const fight = simulateMonsterFight(c, username, monster);
+    const { playerHp, monsterHp, battle } = fight;
     await sqlite.execute("DELETE FROM monster_duels WHERE broadcaster_id = ?", [
       broadcasterId,
     ]);
@@ -774,7 +656,9 @@ export async function handleMonsterDuelCommand(
     await sendChatMessages(
       `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
         duelNarration("challenge")
-      } Auto-resolved (${swings} exchanges): ${highlights.join(" · ")} — ${
+      } Auto-resolved in ${battle.roundCount} round${
+        battle.roundCount === 1 ? "" : "s"
+      } (${username} vs ${monster.name}): ${battle.render()} — ${
         won
           ? `${username} defeats ${monster.name}! ${
             duelNarration("victory")
@@ -824,8 +708,10 @@ export async function handleMonsterDuelCommand(
     const playerResult =
       `${username} attacks ${active.monster_name}: d20 ${roll}${
         critical ? " CRITICAL" : ""
-      } + ${toHitBonus} = ${total} vs AC ${active.monster_ac}; ${
-        hit ? `hit for ${damage} damage` : "miss"
+      } + ${toHitBonus} = ${total} vs AC ${active.monster_ac} → ${
+        hit
+          ? `hit for ${damage} (${active.monster_name} ${active.monster_hp}/${active.monster_hp_max} HP)`
+          : "miss"
       }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
     if (active.monster_hp <= 0) {
       await sqlite.execute(
@@ -866,8 +752,10 @@ export async function handleMonsterDuelCommand(
     const nextPlayerHp = Math.max(0, playerHp - monsterDamage);
     active.player_hp = nextPlayerHp;
     const monsterResult =
-      `${active.monster_name} retaliates: d20 ${monsterRoll} + ${active.monster_attack} = ${monsterTotal} vs AC ${playerAc}; ${
-        monsterHit ? `hit for ${monsterDamage} damage` : "miss"
+      `${active.monster_name} strikes back at ${username}: d20 ${monsterRoll} + ${active.monster_attack} = ${monsterTotal} vs AC ${playerAc} → ${
+        monsterHit
+          ? `hit for ${monsterDamage} (${username} ${nextPlayerHp}/${player.hpMax} HP)`
+          : "miss"
       }. ${duelNarration(monsterHit ? "hit" : "miss")}`;
     if (nextPlayerHp <= 0) {
       await sqlite.execute(
@@ -1357,8 +1245,10 @@ export async function handlePartyDuelCommand(
           critical ? " CRITICAL" : ""
         } + ${
           stats.mod + attacker.proficiency
-        } = ${total} vs AC ${partyHunt.monster_ac}; ${
-          hit ? `hit for ${damage}` : "miss"
+        } = ${total} vs AC ${partyHunt.monster_ac} → ${
+          hit
+            ? `hit for ${damage} (${partyHunt.monster_name} ${partyHunt.monster_hp}/${partyHunt.monster_hp_max} HP)`
+            : "miss"
         }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
 
       if (partyHunt.monster_hp <= 0) {
@@ -1419,8 +1309,10 @@ export async function handlePartyDuelCommand(
         );
       }
       const monsterResult =
-        `${partyHunt.monster_name} strikes ${targetName}: d20 ${mRoll} + ${partyHunt.monster_attack} = ${mTotal} vs AC ${playerAc}; ${
-          mHit ? `hit for ${mDamage}` : "miss"
+        `${partyHunt.monster_name} strikes ${targetName}: d20 ${mRoll} + ${partyHunt.monster_attack} = ${mTotal} vs AC ${playerAc} → ${
+          mHit
+            ? `hit for ${mDamage} (${targetName} ${partyHunt.member_hp[targetName]}/${targetChar?.hpMax ?? "?"} HP)`
+            : "miss"
         }.`;
 
       const stillAlive = partyHunt.members.some((n: string) =>
@@ -1565,7 +1457,7 @@ export async function handlePartyDuelCommand(
       // Auto-resolve: each living member attacks, then monster hits a random member
       let monsterHp = monster.hp;
       const hp = { ...memberHp };
-      const highlights: string[] = [];
+      const battle = new BattleLog();
       let swings = 0;
       const maxSwings = 100;
       while (
@@ -1573,6 +1465,7 @@ export async function handlePartyDuelCommand(
         swings < maxSwings
       ) {
         swings++;
+        battle.nextRound();
         for (const n of livingMembers) {
           if (hp[n] <= 0 || monsterHp <= 0) continue;
           const stats = combatStats(chars[n]);
@@ -1586,11 +1479,19 @@ export async function handlePartyDuelCommand(
             : 1 + Math.floor(Math.random() * 8);
           const damage = hit ? Math.max(1, dice + stats.mod) : 0;
           if (hit) monsterHp = Math.max(0, monsterHp - damage);
-          if (critical || monsterHp <= 0 || highlights.length < 10) {
-            highlights.push(
-              hit ? `${n}${critical ? " CRIT" : ""} ${damage}` : `${n} miss`,
-            );
-          }
+          battle.strike({
+            actor: n,
+            target: monster.name,
+            hit,
+            crit: critical,
+            fumble: roll === 1,
+            roll,
+            total,
+            ac: monster.ac,
+            damage,
+            targetHp: monsterHp,
+            targetMax: monster.hp,
+          });
         }
         if (monsterHp <= 0) break;
         const living = livingMembers.filter((n) => hp[n] > 0);
@@ -1604,13 +1505,19 @@ export async function handlePartyDuelCommand(
         const mDice = 1 + Math.floor(Math.random() * monster.die);
         const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
         if (mHit) hp[victim] = Math.max(0, hp[victim] - mDamage);
-        if (mRoll === 20 || hp[victim] <= 0 || highlights.length < 14) {
-          highlights.push(
-            mHit
-              ? `${monster.name}→${victim} ${mDamage}`
-              : `${monster.name} miss`,
-          );
-        }
+        battle.strike({
+          actor: monster.name,
+          target: victim,
+          hit: mHit,
+          crit: mRoll === 20,
+          fumble: mRoll === 1,
+          roll: mRoll,
+          total: mTotal,
+          ac: playerAc,
+          damage: mDamage,
+          targetHp: hp[victim],
+          targetMax: Number(chars[victim].hpMax ?? memberHp[victim] ?? 0),
+        });
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const xpNotes: string[] = [];
@@ -1634,7 +1541,9 @@ export async function handlePartyDuelCommand(
       await sendChatMessages(
         `@${display} party ${partyName} hunts ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
           duelNarration("challenge")
-        } Auto (${swings} rounds): ${highlights.join(" · ")} — ${
+        } Auto-resolved in ${battle.roundCount} round${
+          battle.roundCount === 1 ? "" : "s"
+        }: ${battle.render(1500)} — ${
           partyWon
             ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}`
             : `Defeat. ${duelNarration("defeat")}`
@@ -1778,40 +1687,38 @@ export async function handlePartyDuelCommand(
       return true;
     }
 
-    // Auto-resolve party duel
-    const highlights: string[] = [];
-    let side: "challenger" | "defender" = "challenger";
-    let swings = 0;
-    const maxSwings = 80;
+    // Auto-resolve party duel. One round = each side's front-line fighter
+    // (first member still standing) swings once, challenger first.
+    const battle = new BattleLog();
+    let rounds = 0;
+    const maxRounds = 40; // 80 swings, same cap as before
     while (
       attackers.some((n) => aHp[n] > 0) &&
       defenders.some((n) => dHp[n] > 0) &&
-      swings < maxSwings
+      rounds < maxRounds
     ) {
-      swings++;
-      const atkMembers = side === "challenger" ? attackers : defenders;
-      const atkHp = side === "challenger" ? aHp : dHp;
-      const atkChars = side === "challenger" ? aChars : dChars;
-      const defMembers = side === "challenger" ? defenders : attackers;
-      const defHp = side === "challenger" ? dHp : aHp;
-      const defChars = side === "challenger" ? dChars : aChars;
-      const attackerName = atkMembers.find((n) => atkHp[n] > 0);
-      const defenderName = defMembers.find((n) => defHp[n] > 0);
-      if (!attackerName || !defenderName) break;
-      const line = simulateAttack(
-        attackerName,
-        defenderName,
-        atkChars[attackerName],
-        defChars[defenderName],
-        defHp,
-      );
-      if (
-        line.includes("CRIT") || defHp[defenderName] <= 0 ||
-        highlights.length < 8
-      ) {
-        highlights.push(line);
+      rounds++;
+      battle.nextRound();
+      for (const side of ["challenger", "defender"] as const) {
+        const atkMembers = side === "challenger" ? attackers : defenders;
+        const atkHp = side === "challenger" ? aHp : dHp;
+        const atkChars = side === "challenger" ? aChars : dChars;
+        const defMembers = side === "challenger" ? defenders : attackers;
+        const defHp = side === "challenger" ? dHp : aHp;
+        const defChars = side === "challenger" ? dChars : aChars;
+        const attackerName = atkMembers.find((n) => atkHp[n] > 0);
+        const defenderName = defMembers.find((n) => defHp[n] > 0);
+        if (!attackerName || !defenderName) break;
+        battle.strike(
+          simulateAttack(
+            attackerName,
+            defenderName,
+            atkChars[attackerName],
+            defChars[defenderName],
+            defHp,
+          ),
+        );
       }
-      side = side === "challenger" ? "defender" : "challenger";
     }
     const challengerAlive = attackers.some((n) => aHp[n] > 0);
     const winnerParty = challengerAlive
@@ -1825,9 +1732,9 @@ export async function handlePartyDuelCommand(
     await sendChatMessages(
       `@${display} party duel accepted! ${
         duelNarration("accept")
-      } ${challenge.challenger_party} vs ${challenge.defender_party} auto-resolved (${swings} swings). ${
-        highlights.join(" · ")
-      } — ${winnerParty} wins! ${
+      } ${challenge.challenger_party} vs ${challenge.defender_party} auto-resolved in ${rounds} round${
+        rounds === 1 ? "" : "s"
+      }. ${battle.render(1500)} — ${winnerParty} wins! ${
         duelNarration("victory")
       } HP [${left}] vs [${right}]`,
       broadcasterId,
@@ -1927,12 +1834,14 @@ export async function handlePartyDuelCommand(
       : 1 + Math.floor(Math.random() * 8);
     const damage = hit ? Math.max(1, dice + stats.mod) : 0;
     enemyHp[targetName] = Math.max(0, enemyHp[targetName] - damage);
-    const result = `${attackerName} rolled ${roll}${
+    const result = `${attackerName} attacks ${targetName}: d20 ${roll}${
       critical ? " CRITICAL" : ""
     } + ${
       stats.mod + attacker.proficiency
-    } = ${total} vs AC ${targetStats.attack}: ${
-      hit ? `hit ${targetName} for ${damage} damage` : "miss"
+    } = ${total} vs AC ${targetStats.attack} → ${
+      hit
+        ? `hit for ${damage} (${targetName} ${enemyHp[targetName]}/${target.hpMax} HP)`
+        : "miss"
     }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
     const defeated = enemyMembers.every((n: string) => Number(enemyHp[n]) <= 0);
     if (defeated) {

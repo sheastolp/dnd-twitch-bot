@@ -223,12 +223,19 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random level-scaled foe, or name one (e.g. `!dndduel party hunt crew beholder`) |
 | `!dndduel party hunt classic <party> [monster]` | Classic hunt (same optional monster name) |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
+| `!autohunt [duration]` | **Timed solo hunt** — your saved hero fights a level-scaled monster about every 5 minutes (same dice engine, XP and loot as `!dndduel`). Duration is `20m`, `1h`, `1h30m` or a bare number of minutes; default 15m, allowed 10m–2h. Bouts are settled in batches with one chat report each time |
+| `!autohunt status` / `!autohuntstatus` | Progress so far (settles anything already due) |
+| `!autohunt stop` / `!autohuntstop` | Recall the hero early and post the trip total |
 | `!rob @user` | **Robbery duel:** your saved character fights theirs (same auto engine as `!dndduel @user`, no accept step). The loser pays the winner a random **1–9%** of the loser's coin (min 1 cp) — so a failed robbery costs the robber. Needs coin on; see *Robbing* under Gold, leaderboard & giveaways |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 
 **XP** is granted only when a **monster** falls (solo or party hunt). PvP awards none.
 
 **Loot:** every monster kill (solo fights and party hunts, classic or auto) also drops a small amount of coin while coin is on, paid next to the XP and shown in the victory message (e.g. `🪙 Loot: +2 sp 3 cp.`). The drop is the monster's XP value ÷ 10 with ±25% variation, at least 1 cp — roughly 2 sp for a CR 1 monster and 1 gp 8 sp for CR 5. A party hunt drops **one hoard that the surviving members split** (everyone gets at least 1 cp), so a bigger company doesn't multiply the payout. PvP (`!dndduel @user`, `!rob`) drops none. Scale it with `HUNT_LOOT_MULTIPLIER` (0 turns loot off); `!gold off` pauses it along with the rest of the coin system.
+
+**Autohunt:** `!autohunt` sends your hero out for a set time. Val Town has no always-on process, so a hunt is a stored schedule whose due bouts are *settled* — simulated with the real dice, paid out, and reported in one chat message — whenever the autohunt cron (`autohunt_cron.ts`, set it to every 15 minutes in Val Town) runs or the hunter uses `!autohunt` / `status` / `stop`. Settling is claimed atomically, so a bout is never paid twice. Only live channels are settled by the cron. Unlike Hunt & Hoard there is no auto-rest: heroes start every fight at full HP, so a loss just forfeits that bout's XP and loot. Limits: one hunt per viewer, 10 hunters per channel (`AUTOHUNT_MAX_ACTIVE`), bout length `AUTOHUNT_BOUT_MINUTES` (default 5). Hunts end when the bot leaves the channel. Controlled by the same dashboard toggle as the rest of *Arena & company*.
+
+**Battle logs:** every auto-resolved fight prints each swing as `attacker hits target [roll vs AC] for N (target HP/max)`, grouped into rounds (`R1: … | R2: …`); crits show `💥 CRITS`, fumbles `fumbles (nat 1)`, and rounds trimmed for chat length show as `…R4–R7…`. Classic turn messages show the target's remaining HP the same way.
 
 **Timeouts:** a pending challenge (`accept`/`decline`) expires after 5 minutes if unanswered. Any active classic (turn-based) duel — 1v1, party vs. party, or a party hunt — auto-forfeits to the non-idle side if nobody acts for 10 minutes, so an abandoned duel can't block that channel's dueling into the next stream. Both windows are checked lazily the next time anyone runs a `!dndduel` command in that channel (no idle duel needs to be manually ended first).
 
