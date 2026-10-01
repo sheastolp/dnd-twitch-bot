@@ -138,6 +138,7 @@ import {
   groupForCommand,
 } from "./utils.ts";
 import { classes } from "./data.ts";
+import { chatHelpText } from "./help.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp, handleBg3Command } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
@@ -948,26 +949,7 @@ async function handleRequest(req: Request): Promise<Response> {
       );
     } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
       const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
-      const help =
-        category === "dice"
-          ? "🎲 Fate's dice: !d20 | !d20 @user | !roll | !r | !roll NdS[+/-M] (e.g. !roll 2d6+3) | !roll @user [NdS[+/-M]] | !roll <ability> saving throw (e.g. !roll dex) | !roll <skill> check (e.g. !roll stealth) — uses your saved character | !roll <question>? for a D&D-flavored yes/no verdict (e.g. !roll is enya going to die this time?) | !rollcall [nat1/nat20] [hour/day/week] for the natural 1/20 leaderboard, or !rollcall @user [hour/day/week] for one player's own nat1/nat20 counts | !oracle <question> for the oracle to name a random recent chatter as the answer (e.g. !oracle who should stream next?) | !bg3roll for a random Baldur's Gate 3 style character | !bg3companion for a random BG3 companion match | !bg3origin to be cast as a random Origin Character | !bg3loot for a random BG3-style magic item drop | !bg3camp for a random camp-night vignette"
-          : category === "settings"
-            ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !gold on | !gold off | !gold status (coin, leaderboard, giveaways & paid !haggle — on by default) | !help | !guide | !link"
-            : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !roster (link to a web page of every adventurer, party and party member) | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !resetchar @user (mod) | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
-              : category === "party"
-                ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !roster (web page of every party and its members) | !party leave <name> | !party disband <name>"
-                : category === "combat"
-                  ? "⚔️ Arena & wilds: !dndduel @user (auto) | !dndduel classic @user | !dndduel accept/decline/attack/status/end | !dndduel [monster] (auto) | !dndduel monster [classic] [monster] | !dndduel party A B | !dndduel party classic A B | !dndduel party accept/decline/attack/status/end | !dndduel party hunt <party> [monster] | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack/status/end | !turn start | !turn roll | !turn add <name> <init> | !turn show | !turn next | !turn prev | !turn remove <name> | !turn end | !rob @user (your characters duel; the loser pays the winner 1-9% of their coin — needs coin on, see !dndbothelp gold) | Slaying a monster (solo or on a hunt) also drops a little coin, split among surviving hunters"
-                  : category === "lookup"
-                    ? "📚 Guild archives: !spell <name> [+N] | !item <name> [+N] | !class <name> | !feat <name> | !ability <score> | !race <name> | !subrace <name> | !monster <name> | !rule <topic> | !rules <topic> (e.g. !spell fireball, !rules magic, !monster goblin) | !bg3lookup <name> — BG3 companions/origins/classes/races/locations/factions/deities/villains/items (e.g. !bg3lookup astarion, !bg3lookup moonrise towers)"
-                    : category === "maps"
-                      ? "🗺️ Battle maps: !map create <name> [WxH] [template] (mod) | !map templates | !map list | !map view <name> | !map delete <name> / !map remove <name> (mod) | !map terrains | !map fill <name> <terrain> (mod) | !map paint <name> <x> <y> <terrain> (mod) | !map addchar <name> [x y] | !map addchar <name> @user [x y] (mod) | !map move <name> <x> <y> | !map move <name> @user <x> <y> (mod) | !map removechar <name> [@user]"
-                      : category === "gold"
-                        ? "💰 Coin & giveaways (on by default — mods can switch off with !gold off): chat while live and slay monsters (solo or on hunts) to earn copper; 10 cp = 1 sp, 10 sp = 1 gp; amounts like 50, 5sp, 1gp, 1gp 2sp | !gold (your purse + rank) | !gold @user | !gold top [N] / !goldboard (richest adventurers) | !gold give @user <amount> | !gold add/remove/set @user <amount> (mod) | !gold on/off/status | !giveaway (status) | !giveaway enter [tickets] | !giveaway start [cost=<amount>] [max=N] <prize> (mod) | !giveaway draw / reroll / cancel (mod) | !rob @user — duel their character; the loser pays the winner a random 1-9% of their coin | !haggle <pitch> — the peddler's coin prices are real, a deal is paid on the spot, a refusal is free"
-                      : category === "custom"
-                        ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list | !timedmsg add <minutes> <message> | !timedmsg edit <id> <message> | !timedmsg interval <id> <minutes> | !timedmsg enable/disable <id> | !timedmsg remove <id> | !timedmsg list | !dashboard [reset] (mod) get a web link to manage all of these — add/edit/remove/cooldown/interval/enable/disable are mod-only, list is open to everyone"
-                        : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | gold | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
+      const help = chatHelpText(category, PUBLIC_BASE_URL);
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+\S+)*$/i.test(chatMessage)) {
       // !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only)
