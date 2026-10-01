@@ -24,6 +24,7 @@ import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot } from "./loot.ts";
 import { formatCoins } from "./coins.ts";
+import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
 import {
   addAutohuntProgress,
@@ -73,10 +74,10 @@ export function formatDuration(ms: number): string {
 }
 
 /** How many bouts are due at `now` for a session whose next bout is `nextAt`. */
-export function dueBouts(nextAt: number, endsAt: number, now: number): number {
+export function dueBouts(nextAt: number, endsAt: number, now: number, intervalMs = BOUT_INTERVAL_MS): number {
   const cutoff = Math.min(now, endsAt);
   if (nextAt > cutoff) return 0;
-  return Math.min(MAX_BOUTS_PER_SETTLE, Math.floor((cutoff - nextAt) / BOUT_INTERVAL_MS) + 1);
+  return Math.min(MAX_BOUTS_PER_SETTLE, Math.floor((cutoff - nextAt) / intervalMs) + 1);
 }
 
 const tally = (s: { wins: number; losses: number }) => `${s.wins}W/${s.losses}L`;
@@ -93,7 +94,10 @@ export async function settleAutohunt(
 ): Promise<string | null> {
   const { broadcaster_id: bid, username } = session;
   const now = opts.now ?? Date.now();
-  const count = dueBouts(session.next_at, session.ends_at, now);
+  // Bouts are spaced by the bout interval or the channel's hunting cooldown,
+  // whichever is longer, so a long cooldown slows an autohunt down.
+  const intervalMs = Math.max(BOUT_INTERVAL_MS, await getHuntCooldownMs(bid));
+  const count = dueBouts(session.next_at, session.ends_at, now, intervalMs);
   const expired = now >= session.ends_at;
   const closing = expired || !!opts.forceEnd;
   if (count === 0 && !closing) return null;
@@ -101,7 +105,7 @@ export async function settleAutohunt(
   // Claim the due bouts before paying anything. When closing with nothing
   // due there is nothing to claim; the delete below is idempotent.
   if (count > 0) {
-    const claimed = await claimAutohuntBouts(bid, username, session.next_at, session.next_at + count * BOUT_INTERVAL_MS);
+    const claimed = await claimAutohuntBouts(bid, username, session.next_at, session.next_at + count * intervalMs);
     if (!claimed) return null;
   }
 
@@ -143,6 +147,8 @@ export async function settleAutohunt(
   }
 
   if (wins + losses > 0) {
+    // Manual hunts respect the cooldown from the hero's latest bout.
+    await stampHunt(bid, [username], now);
     await addAutohuntProgress(bid, username, { bouts: wins + losses, wins, losses, xp, copper, levels });
   }
 
@@ -247,6 +253,9 @@ export async function handleAutohuntCommand(
     await say(`@${display} the hunting grounds are crowded (${MAX_ACTIVE_PER_CHANNEL} heroes out already) — try again shortly.`);
     return true;
   }
+  // Starting a hunt is subject to the same cooldown as every other hunt.
+  if (!(await claimHunt(broadcasterId, [user], display, { self: user }))) return true;
+  const firstBoutIn = Math.max(BOUT_INTERVAL_MS, await getHuntCooldownMs(broadcasterId));
   const now = Date.now();
   await createAutohuntSession({
     broadcaster_id: broadcasterId,
@@ -254,7 +263,7 @@ export async function handleAutohuntCommand(
     display_name: display,
     started_at: now,
     ends_at: now + duration,
-    next_at: now + BOUT_INTERVAL_MS, // first bout one interval in, so a quick !autohunt stop can't be abused
+    next_at: now + firstBoutIn, // first bout one interval (or cooldown) in, so a quick !autohunt stop can't be abused
     bouts: 0,
     wins: 0,
     losses: 0,
@@ -264,7 +273,7 @@ export async function handleAutohuntCommand(
   });
   await say(
     `@${display} 🏹 your hero heads into the wilds for ${formatDuration(duration)}. ` +
-      `A monster every ~${formatDuration(BOUT_INTERVAL_MS)} at your level, same dice as !dndduel, with a report in chat as bouts are settled. ` +
+      `A monster every ~${formatDuration(firstBoutIn)} at your level, same dice as !dndduel, with a report in chat as bouts are settled. ` +
       `!autohunt status to check in, !autohunt stop to recall.`,
   );
   return true;

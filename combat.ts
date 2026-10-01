@@ -26,6 +26,7 @@ import {
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, partyLootNote, soloLootNote } from "./loot.ts";
+import { claimHunt } from "./huntcooldown.ts";
 
 /** "a Goblin" / "an Owlbear" — new bestiary names (Adult…, Elder…) made the bare "a" read wrong. */
 const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
@@ -585,6 +586,7 @@ export async function handleMonsterDuelCommand(
     } else {
       monster = pickMonsterForLevel(c.level);
     }
+    if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
     await sqlite.execute(
       "INSERT OR REPLACE INTO monster_duels (broadcaster_id,player,monster_name,monster_cr,monster_ac,monster_hp,monster_hp_max,monster_attack,monster_damage_die,monster_damage_bonus,current_turn,active,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
@@ -636,6 +638,7 @@ export async function handleMonsterDuelCommand(
     } else {
       monster = pickMonsterForLevel(c.level);
     }
+    if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
     const fight = simulateMonsterFight(c, username, monster);
     const { playerHp, monsterHp, battle } = fight;
     await sqlite.execute("DELETE FROM monster_duels WHERE broadcaster_id = ?", [
@@ -1452,6 +1455,10 @@ export async function handlePartyDuelCommand(
       2,
       monster.attack + Math.floor((livingMembers.length - 1) / 3),
     );
+
+    // One cooldown for all hunting, per hero: every member of the company
+    // must be clear, and all of them are stamped together.
+    if (!(await claimHunt(broadcasterId, livingMembers, display, { self: username }))) return true;
 
     if (!classic) {
       // Auto-resolve: each living member attacks, then monster hits a random member

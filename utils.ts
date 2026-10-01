@@ -942,8 +942,8 @@ export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] 
     commands: ["rules", "rule", "spell", "class", "feat", "item", "ability", "race", "subrace", "monster"],
   },
   combat: {
-    label: "Arena & company (!turn, !party, !dndduel, !autohunt, !rob)",
-    commands: ["turn", "party", "dndduel", "autohunt", "autohuntstatus", "autohuntstop", "rob"],
+    label: "Arena & company (!turn, !party, !dndduel, !autohunt, !huntcooldown, !rob)",
+    commands: ["turn", "party", "dndduel", "autohunt", "autohuntstatus", "autohuntstop", "huntcooldown", "huntcd", "rob"],
   },
   maps: {
     label: "Battle maps (!map)",

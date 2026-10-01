@@ -71,6 +71,7 @@ import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage 
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
+import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
@@ -213,6 +214,7 @@ function ensureSchema(): Promise<void> {
         ensureSocialTables(),
         ensurePointsTables(),
         ensureAutohuntTables(),
+        ensureHuntCooldownTables(),
       ]);
     })().catch((e) => {
       schemaReady = null;
@@ -834,6 +836,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
       await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
       await purgeAutohuntData(broadcasterId); // hunts stop with the bot, purge or not
+      await purgeHuntCooldownData(broadcasterId, purge);
       if (purge) {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
@@ -911,6 +914,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
