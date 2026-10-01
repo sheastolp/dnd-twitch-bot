@@ -926,8 +926,8 @@ export function logRowText(r: any) {
 // group check below because on/off/status are matched and returned first.
 export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] }> = {
   character: {
-    label: "Character sheet (!char, !createchar, !newchar, !bg3, !levelup, !hp, !savechar, !loadchar, !resetchar)",
-    commands: ["char", "createchar", "newchar", "bg3", "levelup", "hp", "savechar", "loadchar", "resetchar"],
+    label: "Character sheet (!char, !roster, !createchar, !newchar, !bg3, !levelup, !hp, !savechar, !loadchar, !resetchar)",
+    commands: ["char", "roster", "createchar", "newchar", "bg3", "levelup", "hp", "savechar", "loadchar", "resetchar"],
   },
   dice: {
     label: "Dice & fate (!roll, !r, !d20, !oracle)",

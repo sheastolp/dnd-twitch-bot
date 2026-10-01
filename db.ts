@@ -962,6 +962,57 @@ export async function getPartyMembers(broadcasterId: string, partyName: string) 
   return res.rows.map((r: any) => String(r.username));
 }
 
+// ── Roster (web page + !roster) ──
+// Read-only listings for the public GET /roster page (see renderRosterPage in
+// pages.ts): every saved character in a channel, plus every party with its
+// leader and members. Deliberately does NOT go through getCharacter(), which
+// bumps channel_characters.updated_at — merely viewing the roster shouldn't
+// count as character activity.
+
+/** Every saved character in a channel, highest level first. */
+export async function listChannelCharacters(broadcasterId: string, limit = 1000): Promise<Character[]> {
+  const res = await sqlite.execute(
+    "SELECT * FROM characters WHERE broadcaster_id = ? ORDER BY level DESC, xp DESC, username ASC LIMIT ?",
+    [broadcasterId, limit],
+  );
+  return res.rows.map(rowToCharacter);
+}
+
+export interface PartyRosterEntry {
+  party_name: string;
+  owner: string;
+  created_at: number;
+  /** Usernames in join order (the leader is normally first). */
+  members: string[];
+}
+
+/** Every party in a channel with its members, alphabetical by party name. */
+export async function listChannelParties(broadcasterId: string): Promise<PartyRosterEntry[]> {
+  const [parties, members] = await Promise.all([
+    sqlite.execute(
+      "SELECT party_name, owner, created_at FROM parties WHERE broadcaster_id = ? ORDER BY party_name ASC",
+      [broadcasterId],
+    ),
+    sqlite.execute(
+      "SELECT party_name, username FROM party_members WHERE broadcaster_id = ? ORDER BY joined_at ASC",
+      [broadcasterId],
+    ),
+  ]);
+  const byParty = new Map<string, string[]>();
+  for (const m of members.rows as any[]) {
+    const key = String(m.party_name);
+    const list = byParty.get(key) ?? [];
+    list.push(String(m.username));
+    byParty.set(key, list);
+  }
+  return (parties.rows as any[]).map((p) => ({
+    party_name: String(p.party_name),
+    owner: String(p.owner ?? ""),
+    created_at: Number(p.created_at ?? 0),
+    members: byParty.get(String(p.party_name)) ?? [],
+  }));
+}
+
 // A party invite must be explicitly accepted by the target before they're
 // added to party_members — see !party invite / accept / decline.
 export async function createPartyInvite(

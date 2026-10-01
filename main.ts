@@ -17,6 +17,8 @@ import {
   recordActivity,
   getRecentLogs,
   getBroadcaster,
+  listChannelCharacters,
+  listChannelParties,
   getBroadcasterByLogin,
   getOrCreateDashboardKey,
   regenerateDashboardKey,
@@ -136,7 +138,7 @@ import {
   groupForCommand,
 } from "./utils.ts";
 import { classes } from "./data.ts";
-import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderAdminLogsPage } from "./pages.ts";
+import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp, handleBg3Command } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
 
@@ -418,6 +420,25 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!map) return new Response("No map found with that name in this channel.", { status: 404 });
     const [cells, tokens] = await Promise.all([getMapCells(channelId, mapName), getMapTokens(channelId, mapName)]);
     return new Response(renderMapPage(map, cells, tokens, PUBLIC_BASE_URL), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
+  // Public roster: every saved character plus every party and its members for
+  // one channel — the page the !roster chat command links to. Same trust model
+  // as /maps (the channel must be connected). Must stay above the catch-all GET
+  // block further down.
+  if (req.method === "GET" && path === "/roster") {
+    const channelId = url.searchParams.get("channel");
+    if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster = await getBroadcaster(channelId);
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Roster unavailable for this channel.", { status: 404 });
+    const ROSTER_LIMIT = 1000;
+    const [fetched, parties] = await Promise.all([listChannelCharacters(channelId, ROSTER_LIMIT + 1), listChannelParties(channelId)]);
+    const truncated = fetched.length > ROSTER_LIMIT;
+    const characters = truncated ? fetched.slice(0, ROSTER_LIMIT) : fetched;
+    const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
+    return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
@@ -930,9 +951,9 @@ async function handleRequest(req: Request): Promise<Response> {
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !gold on | !gold off | !gold status (coin, leaderboard, giveaways & paid !haggle — on by default) | !help | !guide | !link"
             : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !resetchar @user (mod) | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
+              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !roster (link to a web page of every adventurer, party and party member) | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !resetchar @user (mod) | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"
-                ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
+                ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !roster (web page of every party and its members) | !party leave <name> | !party disband <name>"
                 : category === "combat"
                   ? "⚔️ Arena & wilds: !dndduel @user (auto) | !dndduel classic @user | !dndduel accept/decline/attack/status/end | !dndduel [monster] (auto) | !dndduel monster [classic] [monster] | !dndduel party A B | !dndduel party classic A B | !dndduel party accept/decline/attack/status/end | !dndduel party hunt <party> [monster] | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack/status/end | !turn start | !turn roll | !turn add <name> <init> | !turn show | !turn next | !turn prev | !turn remove <name> | !turn end | !rob @user (your characters duel; the loser pays the winner 1-9% of their coin — needs coin on, see !dndbothelp gold) | Slaying a monster (solo or on a hunt) also drops a little coin, split among surviving hunters"
                   : category === "lookup"
@@ -1281,6 +1302,11 @@ async function handleRequest(req: Request): Promise<Response> {
           broadcasterId,
         );
       }
+    } else if (/^!roster$/i.test(chatMessage)) {
+      await sendChatMessage(
+        `@${display} 📜 The guild roster — every adventurer and party in this channel: ${baseUrl}/roster?channel=${broadcasterId}`,
+        broadcasterId,
+      );
     } else if (chatMessage.startsWith("!hp ")) {
       const delta = Number.parseInt(chatMessage.slice(4).trim());
       if (Number.isNaN(delta)) {

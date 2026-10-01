@@ -156,6 +156,7 @@ Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`
 Every adventurer keeps exactly one active character and one saved backup per channel. `!createchar`, `!newchar`, and `!bg3` all warn before overwriting an existing active character — reply `!answer yes` to confirm the overwrite or `!answer no` to keep what you have.
 | `!cancel` | Cancel wizard / `!bg3` creation |
 | `!char` / `!char @user` | Sheet summary (level, **XP**, stats, HP) |
+| `!roster` | Link to the **guild roster** web page — every adventurer, party and party member in the channel (searchable) |
 | `!levelup` / `!levelup +/-N` | Adjust level |
 | `!hp` / `!hp +/-N` | Show or change HP |
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |
@@ -385,6 +386,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 !map create/paint    ──►  Grid + terrain, edited by mods only
 !map addchar / move  ──►  Character tokens, placed/moved by their owner (mod for others)
 !map view <name>     ──►  Live read-only web page at PUBLIC_BASE_URL/map
+!roster              ──►  Read-only web page of all characters + parties at /roster?channel=<id>
 ```
 
 ---
@@ -411,6 +413,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `POST /admin/channels/<id>/enable` | Operator-only unblock |
 | `GET /?channel=<broadcaster_id>&user=<username>` | Channel-scoped character sheet |
 | `GET /maps?channel=<broadcaster_id>` | List a channel's battle maps |
+| `GET /roster?channel=<broadcaster_id>` | Every saved character, plus every party and its members, for a connected channel (linked by `!roster`) |
 | `GET /map?channel=<broadcaster_id>&map=<name>` | Live, auto-refreshing visual battle map (terrain grid + character tokens); read-only — editing happens via chat |
 | `POST /` | EventSub (chat + webhooks) |
 
