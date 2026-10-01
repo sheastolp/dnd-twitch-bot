@@ -2,8 +2,8 @@
 // any chatter name in a message, so an auto-resolved battle log that repeats a
 // viewer's name on every swing lights up like a Christmas tree. A name keeps
 // its normal, highlightable form for its first MAX_NAME_MENTIONS appearances in
-// a response; after that a zero-width space is slipped inside it so it still
-// reads as the same plain name but no longer matches a chatter.
+// a response; after that one lookalike letter is swapped so it still reads as
+// the same plain name but no longer matches a chatter.
 //
 // Applied across the WHOLE response before it is split into chat parts, so the
 // count isn't reset by the part breaks.
@@ -13,8 +13,20 @@ const ZWSP = "\u200B";
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Plain name with a zero-width space after its first character. */
-export const quietName = (name: string) => (name.length > 1 ? name[0] + ZWSP + name.slice(1) : name);
+// Latin letters that have a Cyrillic twin. Swapping ONE of them makes the name
+// look identical but no longer match the chatter. Twitch can strip zero-width
+// characters, so a zero-width space alone isn't a reliable way to defuse a
+// highlight; it's only the fallback for names with no swappable letter.
+const TWINS: Record<string, string> = { a: "а", c: "с", e: "е", o: "о", p: "р", x: "х", y: "у", i: "і" };
+
+/** The same name, readable as-is, that Twitch will not highlight. */
+export function quietName(name: string): string {
+  for (let i = name.length - 1; i >= 0; i--) {
+    const twin = TWINS[name[i]];
+    if (twin) return name.slice(0, i) + twin + name.slice(i + 1);
+  }
+  return name.length > 1 ? name[0] + ZWSP + name.slice(1) : name;
+}
 
 /**
  * Keeps the first `max` appearances of each name (case-insensitive, whole

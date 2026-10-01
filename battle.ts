@@ -42,15 +42,22 @@ interface Strike {
   targetMax: number;
 }
 
+/** Pass as the hero's label to narrate the viewer in the second person
+ * ("You hit the Goblin", "the Goblin hits you") instead of repeating their
+ * name, which Twitch boxes on every appearance. */
+export const YOU = "you";
+
 function fmtStrike(s: Strike): string {
   const check = `${s.total} vs AC ${s.ac}`;
-  if (s.fumble) return `${s.actor} fumbles (nat 1)`;
-  if (!s.hit) return `${s.actor} misses ${s.target} [${check}]`;
-  const verb = s.crit ? "💥 CRITS" : "hits";
+  const you = s.actor === YOU;
+  const actor = you ? "You" : s.actor;
+  if (s.fumble) return `${actor} ${you ? "fumble" : "fumbles"} (nat 1)`;
+  if (!s.hit) return `${actor} ${you ? "miss" : "misses"} ${s.target} [${check}]`;
+  const verb = s.crit ? (you ? "💥 CRIT" : "💥 CRITS") : (you ? "hit" : "hits");
   const tail = s.targetHp <= 0
-    ? ` — ${s.target} falls!`
+    ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!`
     : ` (${s.target} ${s.targetHp}/${s.targetMax} HP)`;
-  return `${s.actor} ${verb} ${s.target} [${s.crit ? "nat 20" : check}] for ${s.damage}${tail}`;
+  return `${actor} ${verb} ${s.target} [${s.crit ? "nat 20" : check}] for ${s.damage}${tail}`;
 }
 
 export class BattleLog {
@@ -238,7 +245,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
       targetMax: c.hpMax,
     });
     if (fateSaved) {
-      battle.note(`✨ fate stays its hand — ${username} is left at 1 HP`);
+      battle.note(`✨ fate stays its hand — ${username === YOU ? "you are" : username + " is"} left at 1 HP`);
     }
   }
 
@@ -248,8 +255,8 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
     const playerWins = playerHp / c.hpMax >= monsterHp / monster.hp;
     battle.note(
       playerWins
-        ? `${monster.name} falters, spent, as ${username} stands firm`
-        : `${username} falters, spent, as ${monster.name} presses on`,
+        ? `${monster.name} falters, spent, as ${username === YOU ? "you stand" : username + " stands"} firm`
+        : `${username === YOU ? "you falter" : username + " falters"}, spent, as ${monster.name} presses on`,
     );
     if (playerWins) monsterHp = 0;
     else playerHp = 0;
