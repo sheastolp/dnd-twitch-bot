@@ -28,6 +28,7 @@ import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
 import {
   addAutohuntProgress,
+  bumpAutohuntReports,
   type AutohuntSession,
   claimAutohuntBouts,
   countAutohuntSessions,
@@ -49,6 +50,10 @@ export const MAX_DURATION_MS = 120 * MIN;
 /** Hunters allowed at once per channel — bounds both chat noise and cron work. */
 export const MAX_ACTIVE_PER_CHANNEL = envMinutes("AUTOHUNT_MAX_ACTIVE", 10);
 const MAX_BOUTS_PER_SETTLE = Math.ceil(MAX_DURATION_MS / BOUT_INTERVAL_MS);
+/** Unprompted (cron) reports that @-tag the hunter; later ones use the plain
+ * name so a long hunt doesn't ping the same viewer every 15 minutes. Reports
+ * the hunter asks for (!autohunt, status, stop) always tag them. */
+export const TAGGED_REPORTS = 2;
 /** Bouts spelled out individually in a report; the rest are summarized. */
 const MAX_LISTED_BOUTS = 6;
 
@@ -90,7 +95,7 @@ const tally = (s: { wins: number; losses: number }) => `${s.wins}W/${s.losses}L`
  */
 export async function settleAutohunt(
   session: AutohuntSession,
-  opts: { forceEnd?: boolean; now?: number } = {},
+  opts: { forceEnd?: boolean; now?: number; direct?: boolean } = {},
 ): Promise<string | null> {
   const { broadcaster_id: bid, username } = session;
   const now = opts.now ?? Date.now();
@@ -108,6 +113,13 @@ export async function settleAutohunt(
     const claimed = await claimAutohuntBouts(bid, username, session.next_at, session.next_at + count * intervalMs);
     if (!claimed) return null;
   }
+
+  // Tag the hunter when they asked for this report, or for the first
+  // TAGGED_REPORTS unprompted ones. Read the live count: the caller's copy of
+  // the session may be stale.
+  const sent = (await getAutohuntSession(bid, username))?.reports_sent ?? session.reports_sent;
+  const tag = opts.direct || sent < TAGGED_REPORTS ? "@" : "";
+  if (!opts.direct) await bumpAutohuntReports(bid, username);
 
   const lines: string[] = [];
   let wins = 0;
@@ -155,7 +167,7 @@ export async function settleAutohunt(
   const name = session.display_name;
   if (missing) {
     await deleteAutohuntSession(bid, username);
-    return `@${name} your hero is no longer on the roster, so the autohunt is called off.`;
+    return `${tag}${name} your hero is no longer on the roster, so the autohunt is called off.`;
   }
 
   const shown = lines.slice(0, MAX_LISTED_BOUTS).join(" · ") +
@@ -171,11 +183,11 @@ export async function settleAutohunt(
       (fresh.total_copper > 0 ? `, 🪙 +${formatCoins(fresh.total_copper)}` : "");
     const recent = lines.length ? `Latest: ${shown}. ` : "";
     const lv = fresh.levels_gained > 0 ? ` 🎉 Leveled up ${fresh.levels_gained} time${fresh.levels_gained === 1 ? "" : "s"}!` : "";
-    return `@${name} 🏹 autohunt over after ${formatDuration(now - fresh.started_at)} (${why}): ${recent}Trip total: ${total}.${lv}`;
+    return `${tag}${name} 🏹 autohunt over after ${formatDuration(now - fresh.started_at)} (${why}): ${recent}Trip total: ${total}.${lv}`;
   }
 
   const left = formatDuration(session.ends_at - now);
-  return `@${name} 🏹 autohunt report — ${lines.length} bout${lines.length === 1 ? "" : "s"} (${wins}W/${losses}L): ${shown} | ${gains}${levelNote} | ${left} left.`;
+  return `${tag}${name} 🏹 autohunt report — ${lines.length} bout${lines.length === 1 ? "" : "s"} (${wins}W/${losses}L): ${shown} | ${gains}${levelNote} | ${left} left.`;
 }
 
 /** Handles !autohunt, !autohunt status|stop, !autohuntstatus, !autohuntstop. */
@@ -201,7 +213,7 @@ export async function handleAutohuntCommand(
       return true;
     }
     // Pay anything already due so the numbers below are current.
-    const report = await settleAutohunt(existing);
+    const report = await settleAutohunt(existing, { direct: true });
     if (report) await say(report);
     const s = await getAutohuntSession(broadcasterId, user);
     if (!s) return true; // that settle ended the session
@@ -221,7 +233,7 @@ export async function handleAutohuntCommand(
       await say(`@${display} no autohunt is running for you.`);
       return true;
     }
-    const report = await settleAutohunt(existing, { forceEnd: true });
+    const report = await settleAutohunt(existing, { forceEnd: true, direct: true });
     // null means the cron settled it in the same instant; the session is gone either way.
     await say(report ?? `@${display} 🏹 your autohunt has already wrapped up.`);
     return true;
@@ -270,6 +282,7 @@ export async function handleAutohuntCommand(
     total_xp: 0,
     total_copper: 0,
     levels_gained: 0,
+    reports_sent: 0,
   });
   await say(
     `@${display} 🏹 your hero heads into the wilds for ${formatDuration(duration)}. ` +

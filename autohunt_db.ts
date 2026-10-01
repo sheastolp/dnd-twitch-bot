@@ -18,6 +18,7 @@ export interface AutohuntSession {
   total_xp: number;
   total_copper: number;
   levels_gained: number;
+  reports_sent: number; // unprompted (cron) reports posted so far; see TAGGED_REPORTS in autohunt.ts
 }
 
 export async function ensureAutohuntTables() {
@@ -27,10 +28,16 @@ export async function ensureAutohuntTables() {
       started_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, next_at INTEGER NOT NULL,
       bouts INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
       total_xp INTEGER NOT NULL DEFAULT 0, total_copper INTEGER NOT NULL DEFAULT 0,
-      levels_gained INTEGER NOT NULL DEFAULT 0,
+      levels_gained INTEGER NOT NULL DEFAULT 0, reports_sent INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
+  // Tables created before reports_sent existed.
+  try {
+    await sqlite.execute(`ALTER TABLE autohunt_sessions ADD COLUMN reports_sent INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {
+    /* column already exists */
+  }
 }
 
 function rowToSession(r: any): AutohuntSession {
@@ -47,6 +54,7 @@ function rowToSession(r: any): AutohuntSession {
     total_xp: Number(r.total_xp),
     total_copper: Number(r.total_copper),
     levels_gained: Number(r.levels_gained),
+    reports_sent: Number(r.reports_sent ?? 0),
   };
 }
 
@@ -69,11 +77,11 @@ export async function countAutohuntSessions(broadcasterId: string): Promise<numb
 export async function createAutohuntSession(s: AutohuntSession) {
   await sqlite.execute(
     `INSERT OR REPLACE INTO autohunt_sessions
-      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained, reports_sent)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       s.broadcaster_id, s.username.toLowerCase(), s.display_name, s.started_at, s.ends_at, s.next_at,
-      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained,
+      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained, s.reports_sent,
     ],
   );
 }
@@ -110,6 +118,13 @@ export async function addAutohuntProgress(
        total_xp = total_xp + ?, total_copper = total_copper + ?, levels_gained = levels_gained + ?
      WHERE broadcaster_id = ? AND username = ?`,
     [d.bouts, d.wins, d.losses, d.xp, d.copper, d.levels, broadcasterId, username.toLowerCase()],
+  );
+}
+
+export async function bumpAutohuntReports(broadcasterId: string, username: string) {
+  await sqlite.execute(
+    "UPDATE autohunt_sessions SET reports_sent = reports_sent + 1 WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, username.toLowerCase()],
   );
 }
 
