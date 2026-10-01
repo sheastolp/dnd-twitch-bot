@@ -930,7 +930,7 @@ async function handleRequest(req: Request): Promise<Response> {
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !gold on | !gold off | !gold status (coin, leaderboard, giveaways & paid !haggle — on by default) | !help | !guide | !link"
             : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
+              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !resetchar @user (mod) | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"
                 ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
                 : category === "combat"
@@ -1309,12 +1309,34 @@ async function handleRequest(req: Request): Promise<Response> {
           : `@${display} no saved backup found — try !savechar first`,
         broadcasterId,
       );
-    } else if (chatMessage === "!resetchar") {
-      await resetCharacter(chatter, broadcasterId);
-      await sendChatMessage(
-        `@${display} character reset — use !createchar to roll a new one`,
-        broadcasterId,
-      );
+    } else if (/^!resetchar(?:\s+@?\S+)?$/i.test(chatMessage)) {
+      const resetMatch = chatMessage.match(/^!resetchar(?:\s+@?(\S+))?$/i)!;
+      const resetTarget = resetMatch[1] ? resetMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
+      if (resetTarget && resetTarget !== chatter && !isModerator) {
+        // Mod gate: only the broadcaster/mods may reset someone else's character.
+        await sendChatMessage(
+          `@${display} only the broadcaster or a moderator can reset a character for someone else.`,
+          broadcasterId,
+        );
+      } else if (resetTarget && resetTarget !== chatter) {
+        // Targeted reset (mod/broadcaster): confirm the target actually has a character first.
+        const existing = await getCharacter(resetTarget, broadcasterId);
+        if (!existing) {
+          await sendChatMessage(`@${display} @${resetTarget} has no character to reset.`, broadcasterId);
+        } else {
+          await resetCharacter(resetTarget, broadcasterId);
+          await sendChatMessage(
+            `@${display} reset @${resetTarget}'s character — they can use !createchar to roll a new one`,
+            broadcasterId,
+          );
+        }
+      } else {
+        await resetCharacter(chatter, broadcasterId);
+        await sendChatMessage(
+          `@${display} character reset — use !createchar to roll a new one`,
+          broadcasterId,
+        );
+      }
     } else if (chatMessage.startsWith("!")) {
       // Nothing built-in matched — try a chat-authored custom command.
       await handleCustomCommandInvocation(chatMessage, display, broadcasterId);
