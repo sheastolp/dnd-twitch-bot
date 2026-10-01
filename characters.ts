@@ -116,6 +116,11 @@ export function xpForMonsterCr(cr: string): number {
     "10": 5900,
     "11": 7200,
     "12": 8400,
+    "13": 10000,
+    "14": 11500,
+    "15": 13000,
+    "16": 15000,
+    "17": 18000,
   };
   return table[String(cr).trim()] ?? 100;
 }

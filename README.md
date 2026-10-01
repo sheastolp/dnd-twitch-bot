@@ -213,13 +213,13 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!dndduel classic @user` | Turn-based PvP |
 | `!dndduel accept` / `decline` | Answer challenge |
 | `!dndduel attack` / `status` / `end` | Classic turn / status / end |
-| `!dndduel` | Auto **solo monster** (level-scaled) |
-| `!dndduel monster` | Classic solo monster |
+| `!dndduel [monster]` | Auto **solo monster** — random level-scaled foe, or name one (e.g. `!dndduel goblin`) |
+| `!dndduel monster [classic] [monster]` | Classic solo monster, optionally named |
 | `!dndduel party A B` | Auto party vs party |
 | `!dndduel party classic A B` | Classic party vs party |
 | `!dndduel party accept` / `decline` / `attack` / `status` / `end` | Party duel flow |
-| `!dndduel party hunt <party>` | Auto **company vs monster** |
-| `!dndduel party hunt classic <party>` | Classic hunt |
+| `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random level-scaled foe, or name one (e.g. `!dndduel party hunt crew beholder`) |
+| `!dndduel party hunt classic <party> [monster]` | Classic hunt (same optional monster name) |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
 | `!rob @user` | **Robbery duel:** your saved character fights theirs (same auto engine as `!dndduel @user`, no accept step). The loser pays the winner a random **1–9%** of the loser's coin (min 1 cp) — so a failed robbery costs the robber. Needs coin on; see *Robbing* under Gold, leaderboard & giveaways |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
@@ -420,8 +420,13 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 - Start: level 1, 0 XP  
 - Monster CR → XP; thresholds can auto-level  
 - Monster CR → a small coin drop (XP ÷ 10, ±25%), split among surviving hunters  
-- Monsters chosen by **level** (and party size on hunts), with win-friendly balance  
-- Large solo roster across CR bands  
+- Monsters chosen by **level** (and party size on hunts), with win-friendly balance; auto solo duels are settled by the real dice, not a fixed win rate — the odds come from the actual matchup (roughly 80–90% wins against a level-appropriate foe early on, tapering toward even at level 20), once per fight a d20 of 18+ lets a hero who would drop to 0 HP cling on at 1 HP, and a mismatch (a novice naming a dragon) is a genuine loss. Bosses far above your level are meant for **party hunts**: a lone hero has no real shot at a beholder, but a big enough company does  
+- Large solo roster across CR bands (CR 1/8 through 17), including:
+  - **Beholder kin** — Gazer, Spectator, Gauth, Beholder Zombie, Death Kiss, Beholder, Xanathar, Death Tyrant
+  - **Dragons** — chromatic and metallic wyrmlings, young dragons and adult dragons (e.g. `Adult Red Dragon`, `Young Silver Dragon`, `Green Dragon Wyrmling`), plus Pseudodragon and Dragon Turtle
+  - **Baldur's Gate 3** — Intellect Devourer, Githyanki Warrior/Knight, Hook Horror, Auntie Ethel, Drider, Ulitharid, Elder Brain and more
+  - **Published campaigns** — Curse of Strahd, Tomb of Annihilation, Descent into Avernus, Out of the Abyss, Princes of the Apocalypse, Waterdeep: Dragon Heist, Ghosts of Saltmarsh and others
+- Random picks (`!dndduel`, party hunts) stay within the level-appropriate CR band; the high-CR entries (roughly CR 7+) are only fought by name: `!dndduel <name>` / `!dndduel monster [classic] <name>` solo, or `!dndduel party hunt [classic] <party> <name>` with a company, e.g. `!dndduel party hunt crew beholder`. Names match exactly first, then by substring; a few generic words are pinned (`dragon`, `black dragon`, `blue`, `devil`, `hag`, `fire`, etc.) so they keep resolving to the same entry  
 
 ---
 

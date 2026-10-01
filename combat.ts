@@ -26,12 +26,18 @@ import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, partyLootNote, soloLootNote } from "./loot.ts";
 
-// Target win rate for the challenger in auto solo monster duels (bare
-// !dndduel). Chosen once per fight before simulating; the sim below is
-// nudged onto that outcome afterward so the rate holds regardless of which
-// monster/stat matchup got picked for that fight. Does not affect classic
-// (turn-based) monster duels, PvP duels (!dndduel @user), or party hunts.
-const AUTO_DUEL_PLAYER_WIN_RATE = 0.6;
+// Auto solo monster duels (bare !dndduel / !dndduel <name>) are decided by the
+// actual dice, not a fixed win rate: the odds come from the real matchup
+// (character vs. the level-scaled monster), so a goblin is a fair bet for a
+// novice, a dragon is a death wish, and every fight can still turn on a
+// natural 20. The only nudge fate gives is FATE_STAYS_HAND below.
+//
+// Once per fight, when a blow would drop the hero to 0 HP, they roll a d20;
+// this number or higher and fate stays its hand, leaving them on 1 HP.
+const FATE_STAYS_HAND_DC = 18;
+
+/** "a Goblin" / "an Owlbear" — new bestiary names (Adult…, Elder…) made the bare "a" read wrong. */
+const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
 
 // A pending challenge (!dndduel @user / !dndduel party <a> <b>) must be
 // accepted within this window or it silently expires — capped at 5 minutes
@@ -685,13 +691,11 @@ export async function handleMonsterDuelCommand(
     const playerAc = 11 + pStats.mod + c.proficiency;
     const highlights: string[] = [];
     let swings = 0;
-    const maxSwings = 40;
+    // High enough that even a long slog against a big monster is settled by
+    // the dice; the cap only exists to guarantee the loop ends.
+    const maxSwings = 100;
     const dmgDie = 10; // heroes hit a bit harder vs monsters than PvP d8
-
-    // Decide the outcome up front so the win rate is exact regardless of the
-    // specific monster/stat matchup; the rolls below still drive the blow-by-
-    // blow narration.
-    const playerShouldWin = Math.random() < AUTO_DUEL_PLAYER_WIN_RATE;
+    let fateUsed = false;
 
     while (playerHp > 0 && monsterHp > 0 && swings < maxSwings) {
       swings++;
@@ -721,36 +725,35 @@ export async function handleMonsterDuelCommand(
       const mDice = 1 + Math.floor(Math.random() * monster.die);
       const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
       if (mHit) playerHp = Math.max(0, playerHp - mDamage);
-      if (mRoll === 20 || playerHp <= 0 || highlights.length < 8) {
+      let fateSaved = false;
+      if (playerHp <= 0 && !fateUsed) {
+        fateUsed = true;
+        if (1 + Math.floor(Math.random() * 20) >= FATE_STAYS_HAND_DC) {
+          playerHp = 1;
+          fateSaved = true;
+        }
+      }
+      if (mRoll === 20 || playerHp <= 0 || fateSaved || highlights.length < 8) {
         highlights.push(
           mHit
             ? `${monster.name} ${mDamage}→${username}(${playerHp})`
             : `${monster.name} miss`,
         );
+        if (fateSaved) highlights.push("✨ fate stays its hand — 1 HP left");
       }
     }
 
-    // If the natural rolls didn't land on the chosen outcome (mutual
-    // knockout, or the fight timed out at maxSwings without a clean winner),
-    // resolve the last exchange in the chosen winner's favor so the target
-    // win rate actually holds over many duels.
-    const playerNaturallyWon = monsterHp <= 0 && playerHp > 0;
-    if (playerShouldWin !== playerNaturallyWon) {
-      if (playerShouldWin) {
-        monsterHp = 0;
-        if (playerHp <= 0) playerHp = Math.max(1, Math.floor(c.hpMax * 0.15));
-        highlights.push(
-          `${username} turns the tide with a decisive final blow→${monster.name}(0)`,
-        );
-      } else {
-        playerHp = 0;
-        if (monsterHp <= 0) {
-          monsterHp = Math.max(1, Math.floor(monster.hp * 0.15));
-        }
-        highlights.push(
-          `${monster.name} turns the tide with a decisive final blow→${username}(0)`,
-        );
-      }
+    // Only reachable if the swing cap is hit with both sides standing: the one
+    // in better shape (by share of HP left) is the last one on its feet.
+    if (playerHp > 0 && monsterHp > 0) {
+      const playerWins = playerHp / c.hpMax >= monsterHp / monster.hp;
+      highlights.push(
+        playerWins
+          ? `${monster.name} falters, spent, as ${username} stands firm`
+          : `${username} falters, spent, as ${monster.name} presses on`,
+      );
+      if (playerWins) monsterHp = 0;
+      else playerHp = 0;
     }
 
     await sqlite.execute("DELETE FROM monster_duels WHERE broadcaster_id = ?", [
@@ -769,7 +772,7 @@ export async function handleMonsterDuelCommand(
       lootNote = soloLootNote(await awardMonsterLoot([username], monster.cr, broadcasterId));
     }
     await sendChatMessages(
-      `@${display} the D20 of Fate summons a ${monster.name} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
+      `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
         duelNarration("challenge")
       } Auto-resolved (${swings} exchanges): ${highlights.join(" · ")} — ${
         won
@@ -1252,9 +1255,11 @@ export async function handlePartyDuelCommand(
   const me = username.toLowerCase();
 
   // ── Party vs monster (hunt): party fights one scaled monster together ──
-  // !dndduel party hunt <party>              → auto
-  // !dndduel party hunt classic <party>      → turn-based
+  // !dndduel party hunt <party> [monster]          → auto
+  // !dndduel party hunt classic <party> [monster]  → turn-based
   // !dndduel party hunt attack|status|end
+  // A monster name (multi-word ok, e.g. "adult red dragon") targets that
+  // bestiary entry instead of a random level-scaled pick.
   if (sub === "hunt") {
     const huntAction = (parts[3] ?? "").toLowerCase();
     let partyHunt = await getPartyMonsterDuel(broadcasterId);
@@ -1467,18 +1472,31 @@ export async function handlePartyDuelCommand(
     // Start hunt: !dndduel party hunt [classic] <party-name>
     let classic = false;
     let partyName = "";
+    let monsterNameArg = "";
     if (
       huntAction === "classic" || huntAction === "turn" ||
       huntAction === "manual"
     ) {
       classic = true;
       partyName = (parts[4] ?? "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      monsterNameArg = parts.slice(5).join(" ").trim();
     } else {
       partyName = huntAction.replace(/[^a-z0-9_-]/g, "");
+      monsterNameArg = parts.slice(4).join(" ").trim();
     }
     if (!partyName) {
       await sendChatMessage(
-        `@${display} Party hunt: !dndduel party hunt <party> (auto) | !dndduel party hunt classic <party> | !dndduel party hunt attack | status | end`,
+        `@${display} Party hunt: !dndduel party hunt <party> [monster] (auto) | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack | status | end`,
+        broadcasterId,
+      );
+      return true;
+    }
+    // Resolve the target up front so a typo is reported before anything else
+    // (and before a party-membership message), without starting a hunt.
+    const namedBase = monsterNameArg ? findMonsterByName(monsterNameArg) : undefined;
+    if (monsterNameArg && !namedBase) {
+      await sendChatMessage(
+        `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or leave it off for a random foe.`,
         broadcasterId,
       );
       return true;
@@ -1530,8 +1548,12 @@ export async function handlePartyDuelCommand(
       return true;
     }
     const avgLevel = Math.max(1, Math.round(levelSum / livingMembers.length));
-    // Scale monster gently for group size (still player-favored).
-    const monster = pickMonsterForLevel(avgLevel);
+    // Scale monster gently for group size (still player-favored). A named
+    // target is scaled to the party's average level the same way a random
+    // pick is; the group-size tweak below applies to both.
+    const monster = namedBase
+      ? scaleMonsterForLevel(namedBase, avgLevel)
+      : pickMonsterForLevel(avgLevel);
     const sizeScale = 0.5 + livingMembers.length * 0.22; // 1p~0.72, 2p~0.94, 3p~1.16
     monster.hp = Math.max(10, Math.round(monster.hp * sizeScale));
     monster.attack = Math.max(
@@ -1610,7 +1632,7 @@ export async function handlePartyDuelCommand(
       }
       const roster = livingMembers.map((n) => `${n}:${hp[n]}`).join(", ");
       await sendChatMessages(
-        `@${display} party ${partyName} hunts a ${monster.name} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
+        `@${display} party ${partyName} hunts ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
           duelNarration("challenge")
         } Auto (${swings} rounds): ${highlights.join(" · ")} — ${
           partyWon
