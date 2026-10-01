@@ -531,7 +531,7 @@ export async function handleBg3Command(
       await saveCharacter(c, broadcasterId);
       await clearCreationSession(username, broadcasterId);
       await sendChatMessage(
-        `@${display} Character saved! ${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${username}`,
+        `@${display} Character saved! ${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${username}&channel=${broadcasterId}`,
         broadcasterId,
       );
     } else if (answer.toLowerCase() === "no") {

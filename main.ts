@@ -1279,7 +1279,7 @@ async function handleRequest(req: Request): Promise<Response> {
           const c = generateCharacter(targetUser);
           await saveCharacter(c, broadcasterId);
           await sendChatMessage(
-            `@${display} created a level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}`,
+            `@${display} created a level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
             broadcasterId,
           );
         }
@@ -1291,7 +1291,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (c) {
         const label = targetUser === chatter ? "" : `@${targetUser} `;
         await sendChatMessage(
-          `@${display} ${label}${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}`,
+          `@${display} ${label}${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
           broadcasterId,
         );
       } else {
@@ -1331,7 +1331,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const c = await loadBackup(chatter, broadcasterId);
       await sendChatMessage(
         c
-          ? `@${display} character loaded! ${formatStatLine(c)} — ${baseUrl}/?user=${chatter}`
+          ? `@${display} character loaded! ${formatStatLine(c)} — ${baseUrl}/?user=${chatter}&channel=${broadcasterId}`
           : `@${display} no saved backup found — try !savechar first`,
         broadcasterId,
       );
