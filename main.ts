@@ -72,6 +72,7 @@ import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
+import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
@@ -215,6 +216,7 @@ function ensureSchema(): Promise<void> {
         ensurePointsTables(),
         ensureAutohuntTables(),
         ensureHuntCooldownTables(),
+        ensureViewerNameTables(),
       ]);
     })().catch((e) => {
       schemaReady = null;
@@ -837,6 +839,7 @@ async function handleRequest(req: Request): Promise<Response> {
       await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
       await purgeAutohuntData(broadcasterId); // hunts stop with the bot, purge or not
       await purgeHuntCooldownData(broadcasterId, purge);
+      await purgeViewerNames(broadcasterId);
       if (purge) {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
@@ -881,6 +884,7 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!isModerator && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
       const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
       await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
+      await recordViewerName(broadcasterId, chatter, display); // for battle-log short names
       // Dashboard-controlled feature groups (see COMMAND_GROUPS in
       // utils.ts). Silent no-op when disabled, same as the master
       // isChannelEnabled check just above — features with their own

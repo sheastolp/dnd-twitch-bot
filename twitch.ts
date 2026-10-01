@@ -1,6 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
-import { limitNameMentions, mentionNames } from "./mentions.ts";
+import { limitNameMentions, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 
@@ -110,8 +110,17 @@ export async function sendChatMessages(
   opts?: { maxParts?: number; names?: string[] },
 ) {
   const maxParts = opts?.maxParts ?? MAX_PARTS;
-  // A name repeated through a long response (battle logs) is only left
-  // highlightable for its first couple of appearances; see mentions.ts.
+  // Battle logs shorten bare names; "@name" tags are capped at two. See mentions.ts.
+  if (opts?.names?.length) {
+    // Battle logs: bare names -> one whole word of the display name ("Stoned").
+    let displays = new Map<string, string>();
+    try {
+      displays = await lookupViewerNames(broadcasterId, opts.names);
+    } catch (_) { /* table not ready: fall back to what the text itself shows */ }
+    const lead = text.match(/^(?:[^\w@]*)@([A-Za-z0-9_]{1,25})\b/)?.[1];
+    if (lead) displays.set(lead.toLowerCase(), lead);
+    text = shortenNames(text, opts.names, displays);
+  }
   text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
