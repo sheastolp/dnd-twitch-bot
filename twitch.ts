@@ -1,5 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
+import { limitNameMentions, mentionNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 
@@ -106,9 +107,12 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
 export async function sendChatMessages(
   text: string,
   broadcasterId: string,
-  opts?: { maxParts?: number },
+  opts?: { maxParts?: number; names?: string[] },
 ) {
   const maxParts = opts?.maxParts ?? MAX_PARTS;
+  // A name repeated through a long response (battle logs) is only left
+  // highlightable for its first couple of appearances; see mentions.ts.
+  text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
   for (let i = 0; i < parts.length; i++) {

@@ -156,6 +156,6 @@ export async function handleRobCommand(
       : `🛡️ @${display} is caught red-handed! ${winnerName} claims ${percent}% of their purse as a fine: ${formatCoins(amount)}.`;
   }
 
-  await sendChatMessages(`🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows! ${result.log} ${outcome}`, broadcasterId);
+  await sendChatMessages(`🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows! ${result.log} ${outcome}`, broadcasterId, { names: [robber, target, display, targetPurse.displayName] });
   return true;
 }

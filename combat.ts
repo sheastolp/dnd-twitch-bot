@@ -247,6 +247,7 @@ export async function handleDuelCommand(
     await sendChatMessages(
       `@${display} accepted! ${duelNarration("accept")} ${result.log}`,
       broadcasterId,
+      { names: [String(challenge.challenger), username] },
     );
     return true;
   }
@@ -669,6 +670,7 @@ export async function handleMonsterDuelCommand(
           : `${monster.name} wins. ${duelNarration("defeat")}`
       } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`,
       broadcasterId,
+      { names: [username] },
     );
     return true;
   }
@@ -1556,6 +1558,7 @@ export async function handlePartyDuelCommand(
             : `Defeat. ${duelNarration("defeat")}`
         } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`,
         broadcasterId,
+        { names: livingMembers },
       );
       return true;
     }
@@ -1745,6 +1748,7 @@ export async function handlePartyDuelCommand(
         duelNarration("victory")
       } HP [${left}] vs [${right}]`,
       broadcasterId,
+      { names: [...attackers, ...defenders] },
     );
     return true;
   }
