@@ -20,7 +20,7 @@
 
 import { getCharacter } from "./db.ts";
 import { pickMonsterForLevel } from "./data.ts";
-import { simulateMonsterFight, YOU } from "./battle.ts";
+import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot } from "./loot.ts";
 import { formatCoins } from "./coins.ts";
@@ -138,7 +138,7 @@ export async function settleAutohunt(
       break;
     }
     const monster = pickMonsterForLevel(c.level);
-    const fight = simulateMonsterFight(c, YOU, monster);
+    const fight = simulateMonsterFight(c, session.display_name, monster);
     if (fight.won) {
       wins++;
       const gained = await awardMonsterXp(username, monster.cr, bid);

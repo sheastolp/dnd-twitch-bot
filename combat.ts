@@ -6,7 +6,7 @@ import {
   scaleMonsterForLevel,
 } from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
-import { BattleLog, simulateAttack, simulateMonsterFight, YOU } from "./battle.ts";
+import { BattleLog, simulateAttack, simulateMonsterFight } from "./battle.ts";
 import {
   createPartyInvite,
   deletePartyInvite,
@@ -640,7 +640,7 @@ export async function handleMonsterDuelCommand(
       monster = pickMonsterForLevel(c.level);
     }
     if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
-    const fight = simulateMonsterFight(c, YOU, monster);
+    const fight = simulateMonsterFight(c, username, monster);
     const { playerHp, monsterHp, battle } = fight;
     await sqlite.execute("DELETE FROM monster_duels WHERE broadcaster_id = ?", [
       broadcasterId,
@@ -662,9 +662,9 @@ export async function handleMonsterDuelCommand(
         duelNarration("challenge")
       } Auto-resolved in ${battle.roundCount} round${
         battle.roundCount === 1 ? "" : "s"
-      } (you vs ${monster.name}): ${battle.render()} — ${
+      } (${username} vs ${monster.name}): ${battle.render()} — ${
         won
-          ? `You defeat ${monster.name}! ${
+          ? `${username} defeats ${monster.name}! ${
             duelNarration("victory")
           }${xpNote}${lootNote}`
           : `${monster.name} wins. ${duelNarration("defeat")}`
