@@ -930,7 +930,7 @@ async function handleRequest(req: Request): Promise<Response> {
           : category === "settings"
             ? "🏛️ Guild stewards (mod/broadcaster): !dndbot on | !dndbot off | !dndbot status | !dndbot leave [purge] | !market on | !market off | !market status (off by default) | !autoban on | !autoban off | !autoban status (off by default — permanently bans non-mods who say \"ai viewers\") | !gold on | !gold off | !gold status (coin, leaderboard, giveaways & paid !haggle — on by default) | !help | !guide | !link"
             : category === "character"
-              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [+/-N] | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
+              ? "⚔️ Adventurer's parchment: !createchar | !createchar @user (mod) | !newchar | !bg3 (random race/class, you choose BG3 point-buy scores) | !answer <choice> | !cancel | !char | !char @user | !levelup [@user] [+/-N] (mod) | !hp [+/-N] | !savechar | !loadchar | !resetchar | !shmash [@user] for a purely-for-fun narrated smash using your character (no HP/game state touched)"
               : category === "party"
                 ? "🛡️ Guild company: !party create <name> | !party join <name> | !party invite @user [name] | !party accept/decline [name] | !party list [name] (roster + members) | !party leave <name> | !party disband <name>"
                 : category === "combat"
@@ -945,27 +945,53 @@ async function handleRequest(req: Request): Promise<Response> {
                         ? "🛠️ Custom commands & triggers: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list | !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list | !timedmsg add <minutes> <message> | !timedmsg edit <id> <message> | !timedmsg interval <id> <minutes> | !timedmsg enable/disable <id> | !timedmsg remove <id> | !timedmsg list | !dashboard [reset] (mod) get a web link to manage all of these — add/edit/remove/cooldown/interval/enable/disable are mod-only, list is open to everyone"
                         : `📜 Guild Codex chapters: dice | character | party | combat | lookup | maps | gold | custom | settings. Example: !dndbothelp party — full book: ${PUBLIC_BASE_URL}/guide`;
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
-    } else if (/^!levelup(?:\s+([+-]\d+))?$/i.test(chatMessage)) {
-      const match = chatMessage.match(/^!levelup(?:\s+([+-]\d+))?$/i)!;
-      const delta = match[1] ? Number.parseInt(match[1], 10) : 1;
-      const result = await adjustLevel(chatter, delta, broadcasterId);
-      if ("error" in result) {
-        const errorText =
-          result.error === "no character"
-            ? "you don't have a character yet — try !createchar"
-            : result.error === "max level"
-              ? "you're already level 20"
-              : result.error === "min level"
-                ? "you're already level 1"
-                : "use !levelup, !levelup +2, or !levelup -1";
-        await sendChatMessage(`@${display} ${errorText}`, broadcasterId);
-      } else {
-        const direction = result.delta > 0 ? "advanced" : "reduced";
-        const hpChange = result.hpGain >= 0 ? `HP +${result.hpGain}` : `HP ${result.hpGain}`;
+    } else if (/^!levelup(?:\s+\S+)*$/i.test(chatMessage)) {
+      // !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only)
+      const args = chatMessage.split(/\s+/).slice(1);
+      let delta = 1;
+      let levelTarget: string | null = null;
+      let validArgs = true;
+      if (args.length > 2) validArgs = false;
+      for (const arg of args) {
+        if (/^[+-]\d+$/.test(arg)) delta = Number.parseInt(arg, 10);
+        else if (/^@?\w+$/.test(arg) && levelTarget === null) levelTarget = arg.replace(/^@/, "").toLowerCase();
+        else validArgs = false;
+      }
+      if (!isModerator) {
         await sendChatMessage(
-          `@${display} level ${direction} from ${result.oldLevel} to ${result.c.level}; ${hpChange}, HP ${result.c.hpCurrent}/${result.c.hpMax}, Prof +${result.c.proficiency}.${result.asi}`,
+          `@${display} only the broadcaster or a moderator can use !levelup.`,
           broadcasterId,
         );
+      } else if (!validArgs) {
+        await sendChatMessage(
+          `@${display} use !levelup, !levelup +2, !levelup @user, or !levelup @user -1`,
+          broadcasterId,
+        );
+      } else {
+        const targetUser = levelTarget || chatter;
+        const forSomeoneElse = targetUser !== chatter;
+        const subject = forSomeoneElse ? `@${targetUser}` : "you";
+        const result = await adjustLevel(targetUser, delta, broadcasterId);
+        if ("error" in result) {
+          const errorText =
+            result.error === "no character"
+              ? forSomeoneElse
+                ? `@${targetUser} doesn't have a character yet — try !createchar @${targetUser}`
+                : "you don't have a character yet — try !createchar"
+              : result.error === "max level"
+                ? `${subject === "you" ? "you're" : `${subject} is`} already level 20`
+                : result.error === "min level"
+                  ? `${subject === "you" ? "you're" : `${subject} is`} already level 1`
+                  : "use !levelup, !levelup +2, !levelup @user, or !levelup @user -1";
+          await sendChatMessage(`@${display} ${errorText}`, broadcasterId);
+        } else {
+          const direction = result.delta > 0 ? "advanced" : "reduced";
+          const hpChange = result.hpGain >= 0 ? `HP +${result.hpGain}` : `HP ${result.hpGain}`;
+          await sendChatMessage(
+            `@${display} ${forSomeoneElse ? `@${targetUser}'s level` : "level"} ${direction} from ${result.oldLevel} to ${result.c.level}; ${hpChange}, HP ${result.c.hpCurrent}/${result.c.hpMax}, Prof +${result.c.proficiency}.${result.asi}`,
+            broadcasterId,
+          );
+        }
       }
     } else if (/^!(spell|item|class|feat|ability|race|subrace|rule|rules|monster)(?:\s+.*)?$/i.test(chatMessage)) {
       const match = chatMessage.match(
