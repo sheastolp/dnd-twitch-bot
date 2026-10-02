@@ -254,8 +254,9 @@ export async function ensureTables() {
   // What's currently on offer per channel — the last-posted merchant ad's
   // item, kept around so !haggle (haggle.ts) knows what to bargain over.
   // One row per channel; each new ad overwrites the previous listing and
-  // resets haggled_by (a JSON array of usernames who already haggled it, so
-  // the same viewer can't re-roll the same item for another attempt).
+  // resets haggled_by (a JSON array with one entry per haggle attempt used —
+  // a username appears once for each attempt that viewer has spent, so a
+  // viewer can't re-roll the same item beyond the per-listing cap).
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS merchant_listings (
       broadcaster_id TEXT PRIMARY KEY, merchant_name TEXT, item_desc TEXT, price_text TEXT,
@@ -834,20 +835,33 @@ export async function getMerchantListing(broadcasterId: string): Promise<Merchan
   };
 }
 
-/** Records that `username` has now haggled the current listing, so they
- * can't keep re-rolling the same item for another discount attempt. Pass
- * the `postedAt` from the listing you just read: if the listing has since
- * moved on (a new ad replaced it) this is a no-op and returns false, so a
- * slow haggle reply can't mark the wrong (newer) listing as haggled. */
-export async function markListingHaggled(broadcasterId: string, username: string, postedAt: number): Promise<boolean> {
+/** How many haggle attempts `username` has already spent on a listing. */
+export function countListingHaggles(listing: MerchantListing, username: string): number {
+  return listing.haggledBy.filter((u) => u === username).length;
+}
+
+/** Records one more haggle attempt by `username` on the current listing, so
+ * they can't keep re-rolling the same item past `maxAttempts` discount
+ * attempts. Pass the `postedAt` from the listing you just read: if the
+ * listing has since moved on (a new ad replaced it) this is a no-op and
+ * returns "no_listing", so a slow haggle reply can't mark the wrong (newer)
+ * listing as haggled. Returns "limit" (and records nothing) if they've
+ * already used all their attempts, otherwise "claimed". */
+export async function markListingHaggled(
+  broadcasterId: string,
+  username: string,
+  postedAt: number,
+  maxAttempts = 1,
+): Promise<"claimed" | "no_listing" | "limit"> {
   const listing = await getMerchantListing(broadcasterId);
-  if (!listing || listing.postedAt !== postedAt) return false;
-  const haggledBy = listing.haggledBy.includes(username) ? listing.haggledBy : [...listing.haggledBy, username];
+  if (!listing || listing.postedAt !== postedAt) return "no_listing";
+  if (countListingHaggles(listing, username) >= maxAttempts) return "limit";
+  const haggledBy = [...listing.haggledBy, username];
   await sqlite.execute(
     "UPDATE merchant_listings SET haggled_by = ? WHERE broadcaster_id = ? AND posted_at = ?",
     [JSON.stringify(haggledBy), broadcasterId, postedAt],
   );
-  return true;
+  return "claimed";
 }
 
 /** Recently-active chatters in a channel (from activity_logs), most-recent

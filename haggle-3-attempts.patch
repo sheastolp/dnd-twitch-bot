@@ -1,0 +1,182 @@
+diff --git a/README.md b/README.md
+index 48f0ec9..a611308 100644
+--- a/README.md
++++ b/README.md
+@@ -30,7 +30,7 @@ Chat: `!guide` or `!link` posts that same URL.
+ | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
+ | **Coin & giveaways** | Viewers earn **copper** by chatting while the stream is live, shown as gold, silver and copper (10 cp = 1 sp, 10 sp = 1 gp). `!gold` balance + rank, `!gold top` / `!goldboard` leaderboard, `!gold give` gifting, mod-run `!giveaway` draws with optional paid, weighted tickets, and real coin prices for `!haggle`. **On by default**, toggled per channel with `!gold on/off` or the web dashboard |
+ | **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
+-| **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict. Rides on the `!market` toggle, one attempt per viewer per listing. It's a real purchase in **coin**: the peddler's listed price, your offer, and the price he agrees to all count, and a deal is paid for on the spot. A refusal costs nothing. `!stall` (open to everyone, read-only) shows the item currently on offer, its price, and how many haggle attempts you have left on it. Free banter if a channel turns gold off |
++| **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict. Rides on the `!market` toggle, three attempts per viewer per listing. It's a real purchase in **coin**: the peddler's listed price, your offer, and the price he agrees to all count, and a deal is paid for on the spot. A refusal costs nothing. `!stall` (open to everyone, read-only) shows the item currently on offer, its price, and how many haggle attempts you have left on it. Free banter if a channel turns gold off |
+ 
+ ---
+ 
+@@ -374,7 +374,7 @@ Coordinates are 1-indexed from the top-left, `(1,1)`. Creating a map, editing te
+ | `!market on` / `off` | Enable or disable the open-stall merchant's periodic ads. **Off by default** *(mod)* |
+ | `!market status` | Check whether the merchant is currently active in this channel (open to everyone) |
+ 
+-`!haggle <pitch>` (open to everyone, e.g. `!haggle come on, five copper is robbery`) rides on this same toggle — it bargains over whatever the merchant last listed, with an AI-voiced, sassy in-character verdict. No listing yet, or the market's off? It says so instead of calling the AI. One attempt per viewer per listing.
++`!haggle <pitch>` (open to everyone, e.g. `!haggle come on, five copper is robbery`) rides on this same toggle — it bargains over whatever the merchant last listed, with an AI-voiced, sassy in-character verdict. No listing yet, or the market's off? It says so instead of calling the AI. Three attempts per viewer per listing.
+ 
+ **Haggling is a real purchase in coin.** While coin is on (the default), the numbers in the haggle decide what changes hands. The listing's price (e.g. "1 silver 2 copper" = 12 cp), any offer named in your pitch (`!haggle come on, five copper is robbery` offers 5 cp), and the price the peddler agrees to in his reply are all used: the peddler ends with a machine-read `DEAL <copper>` or `NO DEAL` tag (stripped before chat sees it), and on a deal you pay that price on the spot. The price is clamped between your offer and the sticker price, so he can never charge more than listed or accept less than you asked. A refusal, a silly trade demand, or an AI failure costs nothing. If you can't afford the lowest price your pitch could settle at, he won't start haggling and your attempt isn't used up; if he agrees to a price above your purse, there's no sale. The wares themselves stay flavor (no inventory). With coin switched off (`!gold off`), haggling is free banter and nothing is charged.
+ 
+diff --git a/db.ts b/db.ts
+index c4cb94e..ff7c9ee 100644
+--- a/db.ts
++++ b/db.ts
+@@ -254,8 +254,9 @@ export async function ensureTables() {
+   // What's currently on offer per channel — the last-posted merchant ad's
+   // item, kept around so !haggle (haggle.ts) knows what to bargain over.
+   // One row per channel; each new ad overwrites the previous listing and
+-  // resets haggled_by (a JSON array of usernames who already haggled it, so
+-  // the same viewer can't re-roll the same item for another attempt).
++  // resets haggled_by (a JSON array with one entry per haggle attempt used —
++  // a username appears once for each attempt that viewer has spent, so a
++  // viewer can't re-roll the same item beyond the per-listing cap).
+   await sqlite.execute(
+     `CREATE TABLE IF NOT EXISTS merchant_listings (
+       broadcaster_id TEXT PRIMARY KEY, merchant_name TEXT, item_desc TEXT, price_text TEXT,
+@@ -834,20 +835,33 @@ export async function getMerchantListing(broadcasterId: string): Promise<Merchan
+   };
+ }
+ 
+-/** Records that `username` has now haggled the current listing, so they
+- * can't keep re-rolling the same item for another discount attempt. Pass
+- * the `postedAt` from the listing you just read: if the listing has since
+- * moved on (a new ad replaced it) this is a no-op and returns false, so a
+- * slow haggle reply can't mark the wrong (newer) listing as haggled. */
+-export async function markListingHaggled(broadcasterId: string, username: string, postedAt: number): Promise<boolean> {
++/** How many haggle attempts `username` has already spent on a listing. */
++export function countListingHaggles(listing: MerchantListing, username: string): number {
++  return listing.haggledBy.filter((u) => u === username).length;
++}
++
++/** Records one more haggle attempt by `username` on the current listing, so
++ * they can't keep re-rolling the same item past `maxAttempts` discount
++ * attempts. Pass the `postedAt` from the listing you just read: if the
++ * listing has since moved on (a new ad replaced it) this is a no-op and
++ * returns "no_listing", so a slow haggle reply can't mark the wrong (newer)
++ * listing as haggled. Returns "limit" (and records nothing) if they've
++ * already used all their attempts, otherwise "claimed". */
++export async function markListingHaggled(
++  broadcasterId: string,
++  username: string,
++  postedAt: number,
++  maxAttempts = 1,
++): Promise<"claimed" | "no_listing" | "limit"> {
+   const listing = await getMerchantListing(broadcasterId);
+-  if (!listing || listing.postedAt !== postedAt) return false;
+-  const haggledBy = listing.haggledBy.includes(username) ? listing.haggledBy : [...listing.haggledBy, username];
++  if (!listing || listing.postedAt !== postedAt) return "no_listing";
++  if (countListingHaggles(listing, username) >= maxAttempts) return "limit";
++  const haggledBy = [...listing.haggledBy, username];
+   await sqlite.execute(
+     "UPDATE merchant_listings SET haggled_by = ? WHERE broadcaster_id = ? AND posted_at = ?",
+     [JSON.stringify(haggledBy), broadcasterId, postedAt],
+   );
+-  return true;
++  return "claimed";
+ }
+ 
+ /** Recently-active chatters in a channel (from activity_logs), most-recent
+diff --git a/haggle.ts b/haggle.ts
+index 76f0d1c..74d2ff9 100644
+--- a/haggle.ts
++++ b/haggle.ts
+@@ -20,8 +20,9 @@
+ //
+ // !stall (below) shows the current item and the asker's remaining attempts.
+ //
+-// One haggle attempt per viewer per listing — see markListingHaggled in
+-// db.ts — so a discount can't be farmed by spamming the same item.
++// Each viewer gets HAGGLES_PER_LISTING (3) haggle attempts per listing — see
++// markListingHaggled in db.ts — so a discount can't be farmed by spamming the
++// same item.
+ //
+ // Requires no API key setup: uses Val Town's built-in std/openai wrapper,
+ // same pattern as npcs.ts.
+@@ -30,6 +31,7 @@ import { OpenAI } from "https://esm.town/v/std/openai";
+ import { sendChatMessages } from "./twitch.ts";
+ import { compactText } from "./utils.ts";
+ import {
++  countListingHaggles,
+   getMerchantListing,
+   isMerchantEnabled,
+   markListingHaggled,
+@@ -42,6 +44,8 @@ const openai = new OpenAI();
+ 
+ const MODEL = Deno.env.get("HAGGLE_MODEL") ?? "gpt-4o-mini";
+ const MAX_HAGGLE_LEN = 300;
++/** How many haggle attempts each viewer gets per listing (see markListingHaggled in db.ts). */
++const HAGGLES_PER_LISTING = 3;
+ const MAX_REPLY_LEN = 380;
+ const REPLY_MAX_TOKENS = 150;
+ 
+@@ -125,7 +129,7 @@ export async function generateHaggleReply(
+ 
+   const listing = await getMerchantListing(broadcasterId);
+   if (!listing) return { ok: false, error: "no_listing" };
+-  if (listing.haggledBy.includes(username)) return { ok: false, error: "already_haggled" };
++  if (countListingHaggles(listing, username) >= HAGGLES_PER_LISTING) return { ok: false, error: "already_haggled" };
+ 
+   const listedCopper = parseFirstPrice(listing.priceText);
+   const offerCopper = parseFirstPrice(message);
+@@ -133,8 +137,9 @@ export async function generateHaggleReply(
+   // Claim the attempt before calling the LLM (rather than after) so two
+   // near-simultaneous !haggle messages from the same user can't both slip
+   // through while the first call is still in flight.
+-  const claimed = await markListingHaggled(broadcasterId, username, listing.postedAt);
+-  if (!claimed) return { ok: false, error: "no_listing" };
++  const claimed = await markListingHaggled(broadcasterId, username, listing.postedAt, HAGGLES_PER_LISTING);
++  if (claimed === "limit") return { ok: false, error: "already_haggled" };
++  if (claimed !== "claimed") return { ok: false, error: "no_listing" };
+ 
+   try {
+     // No `temperature` override here: Val Town's free-tier std/openai routes
+@@ -168,9 +173,6 @@ export async function generateHaggleReply(
+   }
+ }
+ 
+-/** How many haggle attempts each viewer gets per listing (see markListingHaggled in db.ts). */
+-const HAGGLES_PER_LISTING = 1;
+-
+ /** Handles !stall — shows the item currently on the peddler's stall and how
+  * many haggle attempts the asking viewer has left on it. Read-only: it never
+  * claims an attempt or touches coin. Returns true if the message matched. */
+@@ -193,7 +195,7 @@ export async function handleStallCommand(
+     return true;
+   }
+ 
+-  const used = listing.haggledBy.includes(chatter) ? 1 : 0;
++  const used = countListingHaggles(listing, chatter);
+   const left = Math.max(0, HAGGLES_PER_LISTING - used);
+   const attempts = left > 0
+     ? `you have ${left} haggle attempt${left === 1 ? "" : "s"} left on this one — try !haggle <your pitch>.`
+@@ -232,15 +234,15 @@ export async function handleHaggleCommand(
+     return true;
+   }
+ 
+-  // Gold on (the default): haggling is a real purchase. Before burning the
+-  // viewer's one attempt, make sure they can afford at least the lowest
++  // Gold on (the default): haggling is a real purchase. Before burning one of
++  // the viewer's attempts, make sure they can afford at least the lowest
+   // price this pitch could settle at (their own offer, or 1 cp) — otherwise
+   // the peddler can't even start bargaining and nothing is used up.
+   const useCoin = await isPointsEnabled(broadcasterId);
+   if (useCoin) {
+     const listing = await getMerchantListing(broadcasterId);
+     const listed = listing ? parseFirstPrice(listing.priceText) : null;
+-    if (listing && listed !== null && !listing.haggledBy.includes(chatter)) {
++    if (listing && listed !== null && countListingHaggles(listing, chatter) < HAGGLES_PER_LISTING) {
+       const need = lowestPrice(listed, parseFirstPrice(message));
+       const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
+       if (have < need) {
+@@ -258,7 +260,7 @@ export async function handleHaggleCommand(
+     if (result.error === "no_listing") {
+       await sendChatMessages(`@${display} nobody's hawking wares here right now — wait for the next stall to open.`, broadcasterId);
+     } else if (result.error === "already_haggled") {
+-      await sendChatMessages(`@${display} you already tried your luck on this one — wait for the next stall to open.`, broadcasterId);
++      await sendChatMessages(`@${display} you've used all ${HAGGLES_PER_LISTING} of your haggle attempts on this one — wait for the next stall to open.`, broadcasterId);
+     } else {
+       await sendChatMessages(`@${display} the peddler seems distracted and doesn't catch that — try again in a moment.`, broadcasterId);
+     }
