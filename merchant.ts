@@ -14,6 +14,10 @@ import { pick } from "./utils.ts";
 const MIN_INTERVAL_MINUTES = Math.max(5, Number(Deno.env.get("MERCHANT_MIN_INTERVAL_MINUTES") ?? "25"));
 const MAX_INTERVAL_MINUTES = Math.max(MIN_INTERVAL_MINUTES, Number(Deno.env.get("MERCHANT_MAX_INTERVAL_MINUTES") ?? "60"));
 
+/** Chance (0-1) that a roll turns up a rare legendary relic instead of the usual
+ * junk. Override with MERCHANT_LEGENDARY_CHANCE; 0 disables relics entirely. */
+const LEGENDARY_CHANCE = Math.min(1, Math.max(0, Number(Deno.env.get("MERCHANT_LEGENDARY_CHANCE") ?? "0.08")));
+
 /** A fresh randomized gap (ms) until the merchant's next ad, per channel. */
 export function randomMerchantIntervalMs(): number {
   const minMs = MIN_INTERVAL_MINUTES * 60_000;
@@ -132,6 +136,55 @@ const MERCHANT_CLOSERS: string[] = [
   "Not a fortune to be made here, just enough for supper.",
 ];
 
+// Rare, mostly-forgotten legendary relics. The peddler found them in a
+// bottomless sack and has no idea what they are, so they're priced like
+// curiosities — a steal for anyone who recognizes them. Prices stay in plain
+// "<n> gold" form so coins.ts's parseFirstPrice (and !haggle) can read them.
+const LEGENDARY_ITEMS: MerchantItem[] = [
+  { desc: "the Apparatus of Kwalish, a lobster-shaped iron submersible, 'only slightly rusted shut'", price: "90 gold" },
+  { desc: "an Iron Flask etched with sigils, humming faintly and rattling whenever you look away", price: "75 gold" },
+  { desc: "a Cubic Gate, a small stone cube with six faces, each one a door to somewhere else", price: "120 gold" },
+  { desc: "the Ring of Three Wishes — the peddler swears it has 'at least two left'", price: "150 gold" },
+  { desc: "Fragarach, the Sword of Answering, which sulks in its sheath until someone lies to it", price: "110 gold" },
+  { desc: "an Anstruth Harp, a bardic instrument of a lost college, still tuned to a forgotten song", price: "85 gold" },
+  { desc: "a Talisman of Pure Good that glows warmly and makes the nearby chickens behave", price: "95 gold" },
+  { desc: "a Talisman of Ultimate Evil, kept in a lead-lined pickle jar for everyone's safety", price: "40 gold" },
+  { desc: "a Mirror of Life Trapping with a crack down one side and a distinct sense of being watched", price: "70 gold" },
+  { desc: "the Cloak of Invisibility, 'sold as seen' (nobody has seen it yet)", price: "100 gold" },
+  { desc: "the Robe of the Archmagi, patched at the elbows and reeking of ozone", price: "130 gold" },
+  { desc: "an Orb of Dragonkind that goes cold whenever a dragon is within a thousand miles", price: "140 gold" },
+  { desc: "the Rod of Seven Parts — six of seven, the peddler is 'still looking for the last one'", price: "60 gold" },
+  { desc: "the Staff of the Magi, a splintered old staff that crackles whenever it hears the word 'counterspell'", price: "125 gold" },
+  { desc: "a Plate Armor of Etherealness that vanishes entirely, the peddler warns, 'if you get excited'", price: "115 gold" },
+  { desc: "the Sword of Kas, a pitch-black blade that whispers rude things about its former owner", price: "80 gold" },
+  { desc: "a Luck Blade with a sheepish grin and exactly one wish remaining", price: "105 gold" },
+  { desc: "an Ioun Stone of Mastery spinning lazily in the air above the table, bothering no one", price: "65 gold" },
+  { desc: "the Hammer of Thunderbolts, a dwarven masterwork the peddler mistook for a 'really good doorstop'", price: "135 gold" },
+  { desc: "the Scroll of Protection from Everything, written in a language that only exists in dreams", price: "55 gold" },
+];
+
+// The peddler has no clue what's on the table when a relic turns up — that is
+// the whole joke — so the framing is a notch more breathless than the usual pitch.
+const LEGENDARY_INTROS: Array<(name: string) => string> = [
+  (name) => `✨ ${name} drags a strangely heavy sack onto the table and hisses, "Don't tell the guards where I got this."`,
+  (name) => `✨ The air hums as ${name} unwraps something from an oily rag — the crowd goes quiet.`,
+  (name) => `✨ ${name} squints at a dusty find and mutters, "Huh. Never seen THAT one before."`,
+  (name) => `✨ Something at ${name}'s stall is glowing, and for once it's not the stew.`,
+  (name) => `✨ ${name} pulls a relic out of a barrel of turnips and holds it aloft, unsure why everyone is staring.`,
+  (name) => `✨ ${name} shoos a stray cat off a priceless-looking heirloom and gives a hopeful cough.`,
+];
+
+const LEGENDARY_CLOSERS: string[] = [
+  "Rare find. Possibly cursed. Definitely not returnable.",
+  "No idea what it does, but the dust says it's old.",
+  "Priced to move before the previous owner shows up.",
+  "Whatever it is, it was in my grandmother's cellar. Allegedly.",
+  "The last three buyers all vanished in a bright light — good omen, I say.",
+  "Handled with care, mostly. A few singed fingers, nothing serious.",
+  "Legend says it's one of a kind. Legend also says a lot of things.",
+  "Quick, before it starts whispering to the next customer.",
+];
+
 export interface MerchantOffer {
   merchantName: string;
   itemDesc: string;
@@ -145,6 +198,16 @@ export interface MerchantOffer {
  * same roll instead of them drifting apart. */
 export function rollMerchantOffer(): MerchantOffer {
   const name = pick(MERCHANT_NAMES);
+  // Occasionally the peddler stumbles onto a legendary relic instead of junk.
+  if (Math.random() < LEGENDARY_CHANCE) {
+    const relic = pick(LEGENDARY_ITEMS);
+    return {
+      merchantName: name,
+      itemDesc: relic.desc,
+      priceText: relic.price,
+      ad: `🛒 ${pick(LEGENDARY_INTROS)(name)} Legendary find: ${relic.desc} — ${relic.price}. ${pick(LEGENDARY_CLOSERS)}`,
+    };
+  }
   const intro = pick(MERCHANT_INTROS)(name);
   const item = pick(MERCHANT_ITEMS);
   const closer = pick(MERCHANT_CLOSERS);
