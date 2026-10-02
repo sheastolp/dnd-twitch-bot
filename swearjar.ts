@@ -23,7 +23,8 @@
 //
 // Detection is word-based (see countSwearWords), so innocent words that
 // merely contain a swear ("class", "assassin", "Scunthorpe") are never hit.
-// Edit SWEAR_BASES below to tune the list.
+// Edit SWEAR_BASES below to tune the list (it includes UK/Irish slang such as
+// "bloody", "bugger", "wanker" and "bollocks" — delete any you don't want charged).
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { sendChatMessage } from "./twitch.ts";
@@ -86,6 +87,10 @@ const SWEAR_BASES = [
   "fuck", "shit", "bitch", "bastard", "asshole", "ass", "arse", "arsehole", "dick", "cunt", "piss",
   "damn", "dammit", "damnit", "whore", "slut", "prick", "twat", "wanker", "bollocks", "douche",
   "douchebag", "pussy", "motherfucker", "fuk", "fck", "fack",
+  // UK / Irish slang
+  "bloody", "bugger", "sod", "sodding", "shite", "gobshite", "bollock", "bollox", "wank", "tosser", "tosspot",
+  "knobhead", "knobend", "bellend", "arsewipe", "pillock", "plonker", "wazzock", "minger", "minging", "munter",
+  "berk", "feck", "feckin",
 ];
 const SWEAR_PREFIXES = ["mother", "bull", "dumb", "jack", "god", "bat", "ape", "horse", "chicken", "dip"];
 const SWEAR_SUFFIXES = [
