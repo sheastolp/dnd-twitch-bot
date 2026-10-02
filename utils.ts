@@ -952,8 +952,8 @@ export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] 
     commands: ["map"],
   },
   custom: {
-    label: "Custom commands, triggers & timed messages (!dndbot add/edit/remove/list, !trigger, !timedmsg, passive keyword triggers)",
-    commands: ["trigger", "dndbot", "timedmsg"],
+    label: "Custom commands, triggers, variables & timed messages (!dndbot add/edit/remove/list, !trigger, !var, !timedmsg, passive keyword triggers)",
+    commands: ["trigger", "dndbot", "timedmsg", "var"],
   },
   misc: {
     label: "Misc (!hug, !rollcall, !watchtime, !followage, !nick, !logs, !connections, !adcheck, !adslogged)",

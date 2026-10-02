@@ -377,6 +377,16 @@ export async function ensureTables() {
       PRIMARY KEY (broadcaster_id, keyword)
     )`,
   );
+  // Named per-channel variables for custom command/trigger responses
+  // ({var:name}, {var:name+1}, …) and the !var chat command — see
+  // customcommands.ts. Values are stored as text; numeric ops coerce.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS custom_variables (
+      broadcaster_id TEXT, name TEXT, value TEXT NOT NULL DEFAULT '',
+      updated_by TEXT, updated_at INTEGER,
+      PRIMARY KEY (broadcaster_id, name)
+    )`,
+  );
   // Timed messages: broadcaster/mod-authored announcements posted on a
   // recurring interval by timedmessages_cron.ts (a separate Val Town cron
   // trigger, same shape as merchant_cron.ts). Each row schedules itself via
@@ -1419,6 +1429,41 @@ export async function useCustomCommand(broadcasterId: string, name: string) {
     [now, broadcasterId, name],
   );
   return { row: { ...row, uses: Number(row.uses ?? 0) + 1 }, onCooldown: false as const };
+}
+
+// ── Custom variables ({var:name} placeholders + !var) ──
+
+export async function getCustomVariable(broadcasterId: string, name: string): Promise<string | null> {
+  const res = await sqlite.execute("SELECT value FROM custom_variables WHERE broadcaster_id = ? AND name = ?", [broadcasterId, name]);
+  const row = (res.rows as any[])[0];
+  return row ? String(row.value ?? "") : null;
+}
+
+export async function listCustomVariables(broadcasterId: string) {
+  const res = await sqlite.execute("SELECT name, value FROM custom_variables WHERE broadcaster_id = ? ORDER BY name ASC", [broadcasterId]);
+  return res.rows as any[];
+}
+
+/** Creates or overwrites a variable. Fails only when creating a new one past the channel cap. */
+export async function setCustomVariable(broadcasterId: string, name: string, value: string, updatedBy: string) {
+  const exists = (await getCustomVariable(broadcasterId, name)) !== null;
+  if (!exists) {
+    const max = Math.max(1, Number(Deno.env.get("MAX_CUSTOM_VARIABLES_PER_CHANNEL") ?? "100"));
+    const res = await sqlite.execute("SELECT COUNT(*) AS count FROM custom_variables WHERE broadcaster_id = ?", [broadcasterId]);
+    if (Number((res.rows as any[])[0]?.count ?? 0) >= max) return { ok: false as const, error: "cap" as const, max };
+  }
+  await sqlite.execute(
+    `INSERT INTO custom_variables (broadcaster_id,name,value,updated_by,updated_at) VALUES (?,?,?,?,?)
+     ON CONFLICT(broadcaster_id,name) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    [broadcasterId, name, value, updatedBy, Date.now()],
+  );
+  return { ok: true as const };
+}
+
+export async function deleteCustomVariable(broadcasterId: string, name: string) {
+  if ((await getCustomVariable(broadcasterId, name)) === null) return false;
+  await sqlite.execute("DELETE FROM custom_variables WHERE broadcaster_id = ? AND name = ?", [broadcasterId, name]);
+  return true;
 }
 
 export async function countCustomTriggers(broadcasterId: string) {

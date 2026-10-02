@@ -319,6 +319,10 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger remove <keyword>` | Delete a trigger *(mod)* |
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
+| `!var set <name> <value>` | Create/overwrite a named channel variable *(mod)* |
+| `!var add <name> <n>` | Add `n` to a variable (negative to subtract; defaults to 1) *(mod)* |
+| `!var remove <name>` | Delete a variable *(mod)* |
+| `!var get <name>` / `!var list` | Show one variable / all variables |
 
 Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
@@ -330,11 +334,16 @@ Custom command/trigger names can't reuse a built-in command word, and each chann
 | `{target}` | First `@mention` in a command's arguments (commands only; falls back to `{user}`) |
 | `{touser}` | First word of the arguments, `@` stripped (falls back to `{user}`) |
 | `{args}` | Everything after the command, or the whole message for a trigger |
+| `{1}` … `{9}` | The Nth word of the arguments (blank if missing) |
 | `{count}` | How many times this command/trigger has now fired |
 | `{random:a\|b\|c}` | Picks one option at random (max 5 per response) |
 | `{randnum:MIN-MAX}` | Random integer in range, negatives allowed, e.g. `{randnum:-5-10}` |
 | `{d4}` `{d6}` `{d8}` `{d10}` `{d12}` `{d20}` `{d100}` | Shorthand die-roll expansions |
 | `{repeat:N\|text}` | Repeats `text` back-to-back `N` times (capped at 10) |
+| `{roll:XdY+Z}` | Full dice expression, total only, e.g. `{roll:2d6+3}`, `{roll:d20-1}` (up to 100 dice, d1000) |
+| `{var:name}` | A named channel variable (`0` if unset) |
+| `{var:name+N}` / `{var:name-N}` | Add/subtract `N`, save, and show the new value, e.g. `{var:deaths+1}` |
+| `{var:name=text}` | Set the variable to literal text and show it |
 | `{math:expr}` | Evaluates a numeric expression — digits, `+ - * / % ( ) .` only, e.g. `{math:(3+4)*2}` |
 | `{channel}` | Broadcaster's display name |
 | `{time}` / `{date}` | Current UTC time (`HH:MM`) / date (`YYYY-MM-DD`) |
@@ -342,6 +351,8 @@ Custom command/trigger names can't reuse a built-in command word, and each chann
 | `{twitchemotes}` `{7tvemotes}` `{bttvemotes}` `{ffzemotes}` | A random emote from that provider's set for this channel (public, unauthenticated APIs) |
 
 Every placeholder that needs a network or DB call is only resolved when it actually appears in the response text.
+
+Variables are resolved first (so `{math:{var:wins}*10}` works), user-supplied text (`{args}`, `{1}`…) last, so nothing a chatter types is ever treated as a placeholder. Variable names are letters, numbers and `_` (max 25); values are capped at 100 characters; at most 5 `{var:…}` per response; each channel can hold `MAX_CUSTOM_VARIABLES_PER_CHANNEL` variables (default 100). Variables are shared between commands and triggers, so `!death` can do `{var:deaths+1}` while `!deaths` just shows `{var:deaths}`.
 
 ### Timed messages
 Recurring announcements, posted automatically by a separate cron trigger (`timedmessages_cron.ts`) rather than in response to anything in chat. Each message keeps its own schedule, so several messages with different intervals in the same channel rotate independently instead of firing together.

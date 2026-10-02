@@ -18,6 +18,12 @@
 //   !trigger cooldown <keyword> <seconds>  (mod)
 //   !trigger list                          anyone
 //
+//   !var set <name> <value>   (mod) create/overwrite a named channel variable
+//   !var add <name> <n>       (mod) add n (negative to subtract) to a variable
+//   !var remove <name>        (mod) delete a variable
+//   !var get <name>           anyone — show one variable's value
+//   !var list                 anyone — list variables and their values
+//
 // Responses support several placeholders:
 //   {user} {sender}   display name of whoever triggered it ({sender} is an
 //                     alias of {user})
@@ -27,7 +33,13 @@
 //                     (falls back to {user} if there are no arguments)
 //   {args}            the full text after the command, or the whole message
 //                     for a trigger
+//   {1} … {9}         the Nth word of the arguments (empty if missing)
 //   {count}           how many times this command/trigger has now fired
+//   {var:name}        a named channel variable's value ("0" if unset)
+//   {var:name+N} {var:name-N}  add/subtract N, then show the new value
+//   {var:name=text}   set the variable to literal text, then show it
+//                     (max 5 {var:…} per response; values capped at 100 chars)
+//   {roll:XdY+Z}      full dice expression, e.g. {roll:2d6+3} → total
 //   {random:a|b|c}    picks one option at random (max 5 per response)
 //   {randnum:MIN-MAX} random integer in [MIN, MAX], negatives allowed
 //   {d4} {d6} {d8} {d10} {d12} {d20} {d100}  shorthand die-roll expansions
@@ -55,13 +67,17 @@ import {
   addCustomTrigger,
   deleteCustomCommand,
   deleteCustomTrigger,
+  deleteCustomVariable,
   getBroadcaster,
+  getCustomVariable,
   listCustomCommands,
   listCustomTriggers,
+  listCustomVariables,
   markCustomTriggerUsed,
   editCustomCommand,
   setCustomCommandCooldown,
   setCustomTriggerCooldown,
+  setCustomVariable,
   useCustomCommand,
 } from "./db.ts";
 
@@ -71,6 +87,69 @@ const MAX_RANDOM_BLOCKS = 5;
 const MAX_RANDOM_OPTIONS_LEN = 300;
 const MAX_REPEAT_COUNT = 10;
 const MAX_MATH_EXPR_LEN = 60;
+const MAX_VAR_OPS = 5;
+const MAX_VAR_VALUE_LEN = 100;
+const MAX_ROLL_DICE = 100;
+const MAX_ROLL_SIDES = 1000;
+const VAR_NAME_RE = /^[a-z0-9_]{1,25}$/; // no "-": it's the subtract operator in {var:name-1}
+
+export function sanitizeVariableName(raw: string): string | null {
+  const name = raw.trim().toLowerCase();
+  return VAR_NAME_RE.test(name) ? name : null;
+}
+
+/** Renders a numeric result without float noise (e.g. 0.1+0.2). */
+function formatNumber(n: number): string {
+  return String(Math.round(n * 1000) / 1000);
+}
+
+/**
+ * Resolves {var:name}, {var:name+N}, {var:name-N} and {var:name=text}
+ * left-to-right, so a later {var:name} in the same response sees an earlier
+ * +1. Runs before every other placeholder, so a value can feed into
+ * {math:…}, but never sees user-supplied text ({args}, {1}…), which is
+ * substituted last and never re-parsed.
+ */
+async function resolveVariables(response: string, broadcasterId: string, actor: string): Promise<string> {
+  const re = /\{var:([a-z0-9_]{1,25})(?:([+\-=])([^{}]{0,100}))?\}/gi;
+  let out = "";
+  let last = 0;
+  let ops = 0;
+  for (const m of response.matchAll(re)) {
+    out += response.slice(last, m.index);
+    last = m.index! + m[0].length;
+    ops++;
+    if (ops > MAX_VAR_OPS) continue;
+    const name = m[1].toLowerCase();
+    const op = m[2];
+    const operand = (m[3] ?? "").trim();
+    try {
+      const current = await getCustomVariable(broadcasterId, name);
+      if (!op) {
+        out += current ?? "0";
+        continue;
+      }
+      let next: string;
+      if (op === "=") {
+        next = operand.slice(0, MAX_VAR_VALUE_LEN);
+      } else {
+        const delta = Number(operand || "1");
+        if (!Number.isFinite(delta)) {
+          out += "?";
+          continue;
+        }
+        const base = Number(current ?? "0");
+        next = formatNumber((Number.isFinite(base) ? base : 0) + (op === "+" ? delta : -delta));
+      }
+      const saved = await setCustomVariable(broadcasterId, name, next, actor);
+      out += saved.ok ? next : "?";
+    } catch (err) {
+      console.error("resolveVariables failed", err);
+      out += "?";
+    }
+  }
+  return out + response.slice(last);
+}
 
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -148,6 +227,7 @@ export const RESERVED_NAMES = new Set([
   "cmd", "trigger", "command", "commands", "hug", "map", "roster", "mod", "admin", "bot",
   "timedmsg", "timedmessage", "timer", "dashboard", "autoban", "gold", "goldboard", "giveaway", "rob",
   "stall", "autohunt", "autohuntstatus", "autohuntstop", "huntcooldown", "huntcd", "watchtime", "followage", "nick",
+  "var", "vars", "variable",
 ]);
 
 const NAME_RE = /^[a-z0-9_-]{2,25}$/;
@@ -175,8 +255,10 @@ async function applyTemplate(
     count?: number;
   },
 ): Promise<string> {
+  let out = response.includes("{var:") ? await resolveVariables(response, vars.broadcasterId, vars.user) : response;
+
   let randomBlocks = 0;
-  let out = response.replace(new RegExp(`\\{random:([^{}]{1,${MAX_RANDOM_OPTIONS_LEN}})\\}`, "gi"), (_match, options: string) => {
+  out = out.replace(new RegExp(`\\{random:([^{}]{1,${MAX_RANDOM_OPTIONS_LEN}})\\}`, "gi"), (_match, options: string) => {
     randomBlocks++;
     if (randomBlocks > MAX_RANDOM_BLOCKS) return "";
     const choices = options.split("|").map((s: string) => s.trim()).filter(Boolean);
@@ -191,6 +273,16 @@ async function applyTemplate(
 
   out = out.replace(/\{d(4|6|8|10|12|20|100)\}/gi, (_match, sides: string) => String(randomInt(1, Number(sides))));
 
+  out = out.replace(/\{roll:(\d{1,3})?d(\d{1,4})\s*(?:([+-])\s*(\d{1,4}))?\}/gi, (_match, n: string | undefined, d: string, sign?: string, mod?: string) => {
+    const count = Number(n || "1");
+    const sides = Number(d);
+    if (count < 1 || count > MAX_ROLL_DICE || sides < 2 || sides > MAX_ROLL_SIDES) return "?";
+    let total = 0;
+    for (let i = 0; i < count; i++) total += randomInt(1, sides);
+    if (sign && mod) total += sign === "-" ? -Number(mod) : Number(mod);
+    return String(total);
+  });
+
   out = out.replace(/\{repeat:(\d{1,2})\|([^{}]{1,100})\}/gi, (_match, n: string, text: string) => {
     const count = Math.min(MAX_REPEAT_COUNT, Math.max(0, Number.parseInt(n, 10) || 0));
     return text.repeat(count).slice(0, MAX_CUSTOM_RESPONSE_LEN);
@@ -200,7 +292,7 @@ async function applyTemplate(
     try {
       // deno-lint-ignore no-new-func
       const result = new Function(`"use strict"; return (${expr});`)();
-      return Number.isFinite(result) ? String(Math.round(result * 1000) / 1000) : "?";
+      return Number.isFinite(result) ? formatNumber(result) : "?";
     } catch {
       return "?";
     }
@@ -237,8 +329,11 @@ async function applyTemplate(
   out = out.replaceAll("{sender}", vars.user);
   out = out.replaceAll("{target}", vars.target ?? vars.user);
   out = out.replaceAll("{touser}", vars.touser ?? vars.user);
-  out = out.replaceAll("{args}", vars.args ?? "");
   out = out.replaceAll("{count}", String(vars.count ?? ""));
+  // User-supplied text goes in last, in one pass, so nothing a chatter types
+  // is ever re-parsed as a placeholder.
+  const words = (vars.args ?? "").split(/\s+/).filter(Boolean);
+  out = out.replace(/\{(args|[1-9])\}/g, (_match, key: string) => (key === "args" ? vars.args ?? "" : words[Number(key) - 1] ?? ""));
   return out;
 }
 
@@ -454,6 +549,84 @@ async function handleTriggerSubcommand(
   return true;
 }
 
+async function handleVarSubcommand(
+  chatMessage: string,
+  display: string,
+  broadcasterId: string,
+  isModerator: boolean,
+): Promise<boolean> {
+  const parts = chatMessage.trim().split(/\s+/);
+  const action = (parts[1] ?? "").toLowerCase();
+  const usage =
+    `@${display} Variables: !var set <name> <value> | !var add <name> <n> | !var remove <name> | !var get <name> | !var list — ` +
+    `use {var:name} in a command/trigger response ({var:name+1} to count up). set/add/remove are mod-only`;
+
+  if (action === "list" || action === "") {
+    const rows = await listCustomVariables(broadcasterId);
+    await sendChatMessages(
+      rows.length
+        ? `@${display} Variables (${rows.length}): ${rows.map((r: any) => `${r.name}=${compactText(r.value, 30)}`).join(", ")}`
+        : `@${display} no variables yet.${isModerator ? " Create one with !var set <name> <value>." : ""}`,
+      broadcasterId,
+    );
+    return true;
+  }
+
+  if (action === "get") {
+    const name = sanitizeVariableName(parts[2] ?? "");
+    if (!name) {
+      await sendChatMessage(`@${display} usage: !var get <name>`, broadcasterId);
+      return true;
+    }
+    const value = await getCustomVariable(broadcasterId, name);
+    await sendChatMessage(value === null ? `@${display} no variable named "${name}".` : `@${display} ${name} = ${value}`, broadcasterId);
+    return true;
+  }
+
+  if (action === "set" || action === "add" || action === "remove" || action === "delete") {
+    if (!(await requireModerator(display, broadcasterId, isModerator, "variables"))) return true;
+    const name = sanitizeVariableName(parts[2] ?? "");
+    if (!name) {
+      await sendChatMessage(`@${display} variable names must be 1-25 characters: letters, numbers or _.`, broadcasterId);
+      return true;
+    }
+
+    if (action === "remove" || action === "delete") {
+      const removed = await deleteCustomVariable(broadcasterId, name);
+      await sendChatMessage(removed ? `@${display} removed variable "${name}".` : `@${display} no variable named "${name}".`, broadcasterId);
+      return true;
+    }
+
+    let value: string;
+    if (action === "set") {
+      const m = chatMessage.match(/^!var\s+set\s+\S+\s+([\s\S]+)$/i);
+      // Braces are stripped so a stored value can't smuggle in a placeholder.
+      value = (m?.[1] ?? "").replace(/[{}]/g, "").trim().slice(0, MAX_VAR_VALUE_LEN);
+      if (!value) {
+        await sendChatMessage(`@${display} usage: !var set <name> <value>`, broadcasterId);
+        return true;
+      }
+    } else {
+      const delta = Number(parts[3] ?? "1");
+      if (!Number.isFinite(delta)) {
+        await sendChatMessage(`@${display} usage: !var add <name> <number> (negative to subtract)`, broadcasterId);
+        return true;
+      }
+      const base = Number((await getCustomVariable(broadcasterId, name)) ?? "0");
+      value = formatNumber((Number.isFinite(base) ? base : 0) + delta);
+    }
+    const saved = await setCustomVariable(broadcasterId, name, value, display);
+    await sendChatMessage(
+      saved.ok ? `@${display} ${name} = ${value}` : `@${display} this channel's variable limit (${saved.max}) is reached — remove one with !var remove <name> first.`,
+      broadcasterId,
+    );
+    return true;
+  }
+
+  await sendChatMessage(usage, broadcasterId);
+  return true;
+}
+
 /**
  * Handles !dndbot add/edit/remove/cooldown/list and !trigger ... management
  * syntax. Returns false if the message is neither — in particular, call this
@@ -468,6 +641,7 @@ export async function handleCustomCommandManagement(
 ): Promise<boolean> {
   if (/^!dndbot(?:\s|$)/i.test(chatMessage)) return await handleDndbotCustomCommandSubcommand(chatMessage, display, broadcasterId, isModerator);
   if (/^!trigger(?:\s|$)/i.test(chatMessage)) return await handleTriggerSubcommand(chatMessage, display, broadcasterId, isModerator);
+  if (/^!var(?:\s|$)/i.test(chatMessage)) return await handleVarSubcommand(chatMessage, display, broadcasterId, isModerator);
   return false;
 }
 
