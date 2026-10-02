@@ -808,6 +808,15 @@ export async function handlePartyCommand(
   broadcasterId: string,
 ) {
   if (!/^!party(?:\s|$)/i.test(chatMessage)) return false;
+  // Alias: "!party hunt ..." is the same as "!dndduel party hunt ..."
+  if (/^!party\s+hunt(?:\s|$)/i.test(chatMessage)) {
+    return handlePartyDuelCommand(
+      chatMessage.trim().replace(/^!party\s+hunt/i, "!dndduel party hunt"),
+      username,
+      display,
+      broadcasterId,
+    );
+  }
   // Twitch logins are case-insensitive; always normalize for storage/lookup.
   const me = username.toLowerCase();
   const parts = chatMessage.trim().split(/\s+/);

@@ -223,6 +223,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!dndduel party hunt <party> [monster]` | Auto **company vs monster** — random level-scaled foe, or name one (e.g. `!dndduel party hunt crew beholder`) |
 | `!dndduel party hunt classic <party> [monster]` | Classic hunt (same optional monster name) |
 | `!dndduel party hunt attack` / `status` / `end` | Hunt turns |
+| `!party hunt …` | Alias for `!dndduel party hunt …` — accepts every form above (e.g. `!party hunt crew`, `!party hunt classic crew`, `!party hunt attack`) |
 | `!autohunt [duration]` | **Timed solo hunt** — your saved hero fights a level-scaled monster about every 5 minutes (same dice engine, XP and loot as `!dndduel`). Duration is `20m`, `1h`, `1h30m` or a bare number of minutes; default 15m, allowed 10m–2h. Bouts are settled in batches with one chat report each time |
 | `!autohunt status` / `!autohuntstatus` | Progress so far (settles anything already due) |
 | `!autohunt stop` / `!autohuntstop` | Recall the hero early and post the trip total |
