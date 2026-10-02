@@ -75,6 +75,7 @@ import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData }
 import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
+import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
@@ -283,7 +284,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users moderator:read:followers",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users moderator:read:followers moderator:read:chatters",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -947,6 +948,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
+    if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

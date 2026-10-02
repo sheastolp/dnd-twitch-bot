@@ -1,6 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
-import { limitNameMentions, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
+import { limitNameMentions, lookupNicknames, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 
@@ -117,9 +117,13 @@ export async function sendChatMessages(
     try {
       displays = await lookupViewerNames(broadcasterId, opts.names);
     } catch (_) { /* table not ready: fall back to what the text itself shows */ }
+    let nicks = new Map<string, string>();
+    try {
+      nicks = await lookupNicknames(broadcasterId, opts.names);
+    } catch (_) { /* table not ready: no !nick overrides */ }
     const lead = text.match(/^(?:[^\w@]*)@([A-Za-z0-9_]{1,25})\b/)?.[1];
     if (lead) displays.set(lead.toLowerCase(), lead);
-    text = shortenNames(text, opts.names, displays);
+    text = shortenNames(text, opts.names, displays, nicks);
   }
   text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);

@@ -956,8 +956,8 @@ export const COMMAND_GROUPS: Record<string, { label: string; commands: string[] 
     commands: ["trigger", "dndbot", "timedmsg"],
   },
   misc: {
-    label: "Misc (!hug, !rollcall, !watchtime, !followage, !logs, !connections, !adcheck, !adslogged)",
-    commands: ["hug", "rollcall", "watchtime", "followage", "logs", "connections", "adcheck", "adslogged"],
+    label: "Misc (!hug, !rollcall, !watchtime, !followage, !nick, !logs, !connections, !adcheck, !adslogged)",
+    commands: ["hug", "rollcall", "watchtime", "followage", "nick", "logs", "connections", "adcheck", "adslogged"],
   },
 };
 

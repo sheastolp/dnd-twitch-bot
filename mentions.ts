@@ -33,22 +33,26 @@ export function mentionNames(text: string, extra: string[] = []): string[] {
 // ── Short names for battle logs ─────────────────────────────────────────────
 // Twitch boxes every plain-text chatter name too, so a log that repeats
 // "stonedsheamus" on every swing still lights up. Inside battle logs a bare
-// fighter name (anything but the reply's own @tag) is replaced by ONE COMPLETE
-// WORD of it: the first word of their display name, split on capitals,
-// underscores, digits and hyphens — "StonedSheamus" -> "Stoned",
-// "xX_DragonSlayer_Xx" -> "Dragon". Display names come from the leading @tag,
-// from any mixed-case name passed in, and from viewer_names (remembered
-// whenever someone runs a command). Where no word boundary can be found (an
-// all-lowercase single-token name we have never seen with capitals), it falls
-// back to the first SHORT_NAME_LETTERS letters plus an ellipsis ("Stone…").
-// If two fighters would end up with the same label, those fall back too, with
-// the ellipsis form lengthened until they differ.
+// fighter name (anything but the reply's own @tag) is replaced by a shorter
+// label, chosen in this order:
+//   1. A NICKNAME a mod set with !nick (nick.ts, stored in viewer_nicknames),
+//      then the NAME_ALIASES env var, then BUILTIN_NAME_ALIASES.
+//   2. ONE COMPLETE WORD of the display name, split on capitals, underscores,
+//      digits and hyphens — "StonedSheamus" -> "Stoned", "xX_DragonSlayer_Xx"
+//      -> "Dragon". Display names come from the leading @tag, from any
+//      mixed-case name passed in, and from viewer_names (remembered whenever
+//      someone runs a command).
+//   3. Otherwise (an all-lowercase name with no word boundary) the FIRST FEW
+//      LETTERS with no ellipsis — "felivore" -> "Feli". The length is
+//      SHORT_NAME_LETTERS (default 4; set the env var to 3 for "Fel").
+// If two fighters would end up with the same label, the truncated ones are
+// lengthened one letter at a time until they differ.
 
-export const SHORT_NAME_LETTERS = 5;
+export const SHORT_NAME_LETTERS = Math.min(8, Math.max(2, Math.floor(Number(Deno.env.get("SHORT_NAME_LETTERS") ?? "4")) || 4));
 
 // Hand-picked nicknames for battle logs, keyed by lowercase login. Use these
 // for regulars whose all-lowercase name can't be split into words (so they'd
-// otherwise be chopped to "Feliv…"). More can be added without a deploy via the
+// otherwise be cut to their first few letters). More can be added without a deploy via the
 // NAME_ALIASES env var, formatted "login=Nick,login2=Nick2".
 const BUILTIN_NAME_ALIASES: Record<string, string> = {
   felivore: "Fel",
@@ -67,6 +71,12 @@ export async function ensureViewerNameTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS viewer_names (
       broadcaster_id TEXT NOT NULL, username TEXT NOT NULL, display_name TEXT NOT NULL,
+      PRIMARY KEY (broadcaster_id, username)
+    )`,
+  );
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS viewer_nicknames (
+      broadcaster_id TEXT NOT NULL, username TEXT NOT NULL, nickname TEXT NOT NULL,
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
@@ -95,6 +105,41 @@ export async function lookupViewerNames(broadcasterId: string, names: string[]):
 
 export async function purgeViewerNames(broadcasterId: string) {
   await sqlite.execute("DELETE FROM viewer_names WHERE broadcaster_id = ?", [broadcasterId]);
+  await sqlite.execute("DELETE FROM viewer_nicknames WHERE broadcaster_id = ?", [broadcasterId]);
+}
+
+/** lowercase login -> mod-set nickname (!nick), for whichever of `names` have one. */
+export async function lookupNicknames(broadcasterId: string, names: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const uniq = [...new Set(names.map((n) => n.replace(/^@/, "").trim().toLowerCase()).filter(Boolean))];
+  if (!uniq.length) return out;
+  const res = await sqlite.execute(
+    `SELECT username, nickname FROM viewer_nicknames WHERE broadcaster_id = ? AND username IN (${uniq.map(() => "?").join(",")})`,
+    [broadcasterId, ...uniq],
+  );
+  for (const r of res.rows as any[]) out.set(String(r.username), String(r.nickname));
+  return out;
+}
+
+export async function setNickname(broadcasterId: string, username: string, nickname: string) {
+  await sqlite.execute("INSERT OR REPLACE INTO viewer_nicknames (broadcaster_id, username, nickname) VALUES (?,?,?)", [
+    broadcasterId,
+    username.toLowerCase(),
+    nickname,
+  ]);
+}
+
+/** True if a nickname existed and was removed. */
+export async function removeNickname(broadcasterId: string, username: string): Promise<boolean> {
+  const before = await sqlite.execute("SELECT 1 FROM viewer_nicknames WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username.toLowerCase()]);
+  if (!before.rows.length) return false;
+  await sqlite.execute("DELETE FROM viewer_nicknames WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username.toLowerCase()]);
+  return true;
+}
+
+export async function listNicknames(broadcasterId: string): Promise<Array<{ username: string; nickname: string }>> {
+  const res = await sqlite.execute("SELECT username, nickname FROM viewer_nicknames WHERE broadcaster_id = ? ORDER BY username", [broadcasterId]);
+  return res.rows.map((r: any) => ({ username: String(r.username), nickname: String(r.nickname) }));
 }
 
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
@@ -109,11 +154,15 @@ export function firstWord(name: string, display?: string): string | null {
 }
 
 function truncated(name: string, len: number): string {
-  return cap(name.slice(0, len)) + "…";
+  return cap(name.slice(0, len));
 }
 
 /** lowercase name -> short label, distinct across `names`. */
-export function shortNameMap(names: string[], displays: Map<string, string> = new Map()): Map<string, string> {
+export function shortNameMap(
+  names: string[],
+  displays: Map<string, string> = new Map(),
+  nicks: Map<string, string> = new Map(),
+): Map<string, string> {
   const hints = new Map(displays);
   for (const raw of names) {
     const n = raw.replace(/^@/, "").trim();
@@ -124,6 +173,7 @@ export function shortNameMap(names: string[], displays: Map<string, string> = ne
   const word = new Set<string>(); // names that got a whole-word label
   // Nicknames win outright; nobody else may end up with the same label.
   const aliases = nameAliases();
+  for (const [login, nick] of nicks) aliases.set(login.toLowerCase(), nick); // !nick wins over env/built-in
   const aliased = new Set<string>();
   for (const n of uniq) {
     const nick = aliases.get(n);
@@ -168,8 +218,13 @@ export function shortNameMap(names: string[], displays: Map<string, string> = ne
 }
 
 /** Replaces bare occurrences of `names` (not "@name") with their short label. */
-export function shortenNames(text: string, names: string[], displays: Map<string, string> = new Map()): string {
-  const map = shortNameMap(names, displays);
+export function shortenNames(
+  text: string,
+  names: string[],
+  displays: Map<string, string> = new Map(),
+  nicks: Map<string, string> = new Map(),
+): string {
+  const map = shortNameMap(names, displays, nicks);
   if (!map.size) return text;
   const alternation = [...map.keys()].map(escapeRe).sort((a, b) => b.length - a.length).join("|");
   const re = new RegExp(`(?<![@A-Za-z0-9_])(${alternation})(?![A-Za-z0-9_])`, "gi");

@@ -6,15 +6,25 @@
 // Both are open to everyone and answer with a D&D-flavored line.
 //
 // WATCH TIME. Twitch has no "watch time" API, so GuildScribe keeps its own
-// clock. Every chat message sent while the stream is live (commands
-// included) moves the sender's clock forward by the time since their previous
-// message — but only if that gap is under the session window (15 minutes by
-// default, WATCHTIME_SESSION_GAP_MINUTES), so a viewer who vanishes for an
-// hour and returns does not get the whole hour. Consequences worth knowing:
+// clock, modelled on StreamElements': time counts while the viewer is *in
+// chat* (lurkers included) and the stream is *live*.
+//   - POLL (watchtime_cron.ts -> pollWatchtime). Each tick reads Twitch's Get
+//     Chatters list with the broadcaster's stored token (scope
+//     moderator:read:chatters) and credits everyone listed for the time since
+//     they were last seen. Val Town crons can't run more often than every 15
+//     minutes, so the join/leave edges are estimated instead of dropped: a
+//     viewer who appears for the first time in a poll gets half the window,
+//     and one who vanishes from the list gets half of the time since they
+//     were last seen. On average that is exact. The poll also reads the
+//     stream's started_at so a first poll never credits time before going
+//     live, and a poll that finds the stream offline closes everyone out.
+//   - MESSAGES (trackWatchtime). Every chat message while live still moves the
+//     sender's clock by the gap since they were last seen, so channels that
+//     haven't granted the chatters scope keep working exactly as before
+//     (gaps over WATCHTIME_SESSION_GAP_MINUTES, default 15, aren't counted).
+//     Both paths advance the same last_seen_at, so nothing is counted twice.
+//   - Bots (isBotAccount) are never counted. Nothing counts while offline.
 //   - Totals start from the day this shipped; there is no history to backfill.
-//   - Silent lurkers are not counted. Counting them would need Twitch's Get
-//     Chatters endpoint polled on a schedule (and one more OAuth scope).
-//   - Nothing is counted while the channel is offline.
 //
 // FOLLOW AGE. Twitch's Get Channel Followers endpoint needs a *user* token
 // with moderator:read:followers for the broadcaster or one of their mods. The
@@ -28,11 +38,16 @@ import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { env, getAppToken, sendChatMessage } from "./twitch.ts";
-import { pick } from "./utils.ts";
+import { recordMonitorEvent } from "./db.ts";
+import { isBotAccount, pick } from "./utils.ts";
 
 export const FOLLOW_SCOPE = "moderator:read:followers";
+export const CHATTERS_SCOPE = "moderator:read:chatters";
 
 const SESSION_GAP_MS = Math.max(1, Math.floor(Number(Deno.env.get("WATCHTIME_SESSION_GAP_MINUTES") ?? "15")) || 15) * 60_000;
+// While the chatters poll is tracking a viewer (in_chat = 1) the gap between
+// two sightings can legitimately be a full cron interval plus jitter.
+const POLL_GAP_MS = Math.max(1, Math.floor(Number(Deno.env.get("WATCHTIME_POLL_GAP_MINUTES") ?? "30")) || 30) * 60_000;
 // Messages closer together than this don't touch the database at all.
 const MIN_TICK_MS = 30_000;
 
@@ -109,11 +124,21 @@ export async function ensureWatchtimeTables() {
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
+  // in_chat: 1 while the chatters poll last saw this viewer in the list.
+  try { await sqlite.execute("ALTER TABLE watchtime_stats ADD COLUMN in_chat INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS watchtime_polls (
+      broadcaster_id TEXT PRIMARY KEY,
+      last_poll_at INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 0
+    )`,
+  );
 }
 
 /** Wipes the channel's watch-time totals — called from !dndbot leave purge. */
 export async function purgeWatchtimeData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM watchtime_stats WHERE broadcaster_id = ?", [broadcasterId]);
+  await sqlite.execute("DELETE FROM watchtime_polls WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
 /** Moves a viewer's clock forward. Call for every message from a real
@@ -131,12 +156,13 @@ export async function trackWatchtime(broadcasterId: string, chatter: string, dis
        VALUES (?,?,?,0,?,?)
        ON CONFLICT(broadcaster_id, username) DO UPDATE SET
          total_ms = total_ms + CASE
-           WHEN excluded.last_seen_at - watchtime_stats.last_seen_at <= ? THEN excluded.last_seen_at - watchtime_stats.last_seen_at
+           WHEN excluded.last_seen_at - watchtime_stats.last_seen_at <= CASE WHEN watchtime_stats.in_chat = 1 THEN ? ELSE ? END
+             THEN excluded.last_seen_at - watchtime_stats.last_seen_at
            ELSE 0 END,
          display_name = excluded.display_name,
          last_seen_at = excluded.last_seen_at
        WHERE excluded.last_seen_at - watchtime_stats.last_seen_at >= ?`,
-      [broadcasterId, user, display, now, now, SESSION_GAP_MS, MIN_TICK_MS],
+      [broadcasterId, user, display, now, now, POLL_GAP_MS, SESSION_GAP_MS, MIN_TICK_MS],
     );
   } catch (e) {
     console.error("trackWatchtime failed", e);
@@ -150,6 +176,141 @@ async function getWatchtime(broadcasterId: string, username: string): Promise<{ 
   );
   if (!res.rows.length) return null;
   return { totalMs: Number(res.rows[0].total_ms), displayName: String(res.rows[0].display_name ?? username) };
+}
+
+// ── Chatters poll (called by watchtime_cron.ts) ──
+
+type StreamInfo = { live: boolean; startedAt: number };
+
+/** Live status + start time straight from Helix (app token, no scope).
+ * null on any failure so the caller can fall back to broadcasters.is_live. */
+async function fetchStream(broadcasterId: string): Promise<StreamInfo | null> {
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(broadcasterId)}`, {
+      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const s = (await res.json())?.data?.[0];
+    if (!s || (s.type && s.type !== "live")) return { live: false, startedAt: 0 };
+    const startedAt = Date.parse(String(s.started_at ?? ""));
+    return { live: true, startedAt: Number.isFinite(startedAt) ? startedAt : 0 };
+  } catch (_e) {
+    return null;
+  }
+}
+
+type Chatter = { login: string; display: string; id: string };
+
+/** Everyone in the channel's chat list. "no_permission" if the broadcaster
+ * hasn't granted moderator:read:chatters yet; throws on other failures. */
+async function fetchChatters(broadcasterId: string): Promise<Chatter[] | "no_permission"> {
+  const token = await getValidAdToken(broadcasterId);
+  if (!token) return "no_permission";
+  const row = await getBroadcasterAdToken(broadcasterId);
+  if (!String(row?.scope ?? "").split(/\s+/).includes(CHATTERS_SCOPE)) return "no_permission";
+
+  const out: Chatter[] = [];
+  let after = "";
+  for (let page = 0; page < 20; page++) {
+    const params = new URLSearchParams({ broadcaster_id: broadcasterId, moderator_id: broadcasterId, first: "1000" });
+    if (after) params.set("after", after);
+    const res = await fetch(`https://api.twitch.tv/helix/chat/chatters?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (res.status === 401 || res.status === 403) return "no_permission";
+    if (!res.ok) throw new Error(`chatters ${res.status}`);
+    const data = await res.json();
+    for (const c of data?.data ?? []) {
+      out.push({ login: String(c.user_login ?? "").toLowerCase(), display: String(c.user_name ?? c.user_login ?? ""), id: String(c.user_id ?? "") });
+    }
+    after = String(data?.pagination?.cursor ?? "");
+    if (!after) break;
+  }
+  return out;
+}
+
+/** Connected, enabled channels that are live, or still hold a poll the last
+ * tick left open (so the first offline tick can close it out). */
+export async function getWatchtimePollChannels(): Promise<Array<{ broadcasterId: string; isLive: boolean }>> {
+  const res = await sqlite.execute(
+    `SELECT b.broadcaster_id AS broadcaster_id, b.is_live AS is_live
+     FROM broadcasters b
+     LEFT JOIN channel_settings cs ON cs.broadcaster_id = b.broadcaster_id
+     LEFT JOIN channel_blocks cb ON cb.broadcaster_id = b.broadcaster_id
+     LEFT JOIN watchtime_polls p ON p.broadcaster_id = b.broadcaster_id
+     WHERE b.connected = 1
+       AND cb.broadcaster_id IS NULL
+       AND (cs.enabled IS NULL OR cs.enabled = 1)
+       AND (b.is_live = 1 OR p.active = 1)`,
+  );
+  return res.rows.map((r: any) => ({ broadcasterId: String(r.broadcaster_id), isLive: Number(r.is_live) === 1 }));
+}
+
+export type PollResult = "polled" | "closed" | "idle" | "no_permission";
+
+/** One chatters-poll tick for a channel. See the header comment for the model. */
+export async function pollWatchtime(broadcasterId: string, isLiveDb: boolean): Promise<PollResult> {
+  const now = Date.now();
+  const pollRes = await sqlite.execute("SELECT last_poll_at, active FROM watchtime_polls WHERE broadcaster_id = ?", [broadcasterId]);
+  const lastPollAt = Number(pollRes.rows[0]?.last_poll_at ?? 0);
+  const active = Number(pollRes.rows[0]?.active ?? 0) === 1;
+
+  const stream = await fetchStream(broadcasterId);
+  const live = stream ? stream.live : isLiveDb;
+
+  if (!live) {
+    if (!active) return "idle";
+    // Stream ended somewhere since the last tick: credit half the window to
+    // everyone still marked present, then close the poll.
+    await sqlite.execute(
+      `UPDATE watchtime_stats
+       SET total_ms = total_ms + MIN(MAX(? - last_seen_at, 0), ?) / 2, in_chat = 0
+       WHERE broadcaster_id = ? AND in_chat = 1`,
+      [now, POLL_GAP_MS, broadcasterId],
+    );
+    await sqlite.execute("INSERT OR REPLACE INTO watchtime_polls (broadcaster_id, last_poll_at, active) VALUES (?,0,0)", [broadcasterId]);
+    return "closed";
+  }
+
+  const chatters = await fetchChatters(broadcasterId);
+  if (chatters === "no_permission") return "no_permission";
+
+  // The window these joiners could have been present for: since the previous
+  // tick or the stream start, whichever is later, capped at one poll gap.
+  const windowStart = Math.max(lastPollAt, stream?.startedAt ?? 0);
+  const windowMs = windowStart > 0 ? Math.min(Math.max(0, now - windowStart), POLL_GAP_MS) : 0;
+  const half = Math.floor(windowMs / 2);
+  const botId = env("TWITCH_BOT_ID");
+
+  const present = chatters.filter((c) => USERNAME_RE.test(c.login) && !isBotAccount(c.login, c.id, botId));
+  const upsert = `INSERT INTO watchtime_stats (broadcaster_id, username, display_name, total_ms, first_seen_at, last_seen_at, in_chat)
+     VALUES (?,?,?,?,?,?,1)
+     ON CONFLICT(broadcaster_id, username) DO UPDATE SET
+       total_ms = total_ms + CASE
+         WHEN watchtime_stats.in_chat = 1 THEN MIN(MAX(excluded.last_seen_at - watchtime_stats.last_seen_at, 0), ?)
+         WHEN watchtime_stats.last_seen_at >= ? THEN MIN(?, MAX(?, excluded.last_seen_at - watchtime_stats.last_seen_at))
+         ELSE ? END,
+       display_name = excluded.display_name,
+       last_seen_at = excluded.last_seen_at,
+       in_chat = 1`;
+  for (let i = 0; i < present.length; i += 25) {
+    await Promise.all(
+      present.slice(i, i + 25).map((c) =>
+        sqlite.execute(upsert, [broadcasterId, c.login, c.display, half, now, now, POLL_GAP_MS, windowStart, windowMs, half, half])
+      ),
+    );
+  }
+
+  // Anyone still marked present but missing from the list left since the last
+  // tick (their last_seen_at wasn't bumped to `now`): credit half the gap.
+  await sqlite.execute(
+    `UPDATE watchtime_stats
+     SET total_ms = total_ms + MIN(MAX(? - last_seen_at, 0), ?) / 2, in_chat = 0
+     WHERE broadcaster_id = ? AND in_chat = 1 AND last_seen_at < ?`,
+    [now, POLL_GAP_MS, broadcasterId, now],
+  );
+  await sqlite.execute("INSERT OR REPLACE INTO watchtime_polls (broadcaster_id, last_poll_at, active) VALUES (?,?,1)", [broadcasterId, now]);
+  return "polled";
 }
 
 // ── Formatting ──
@@ -261,7 +422,7 @@ export async function handleWatchtimeCommand(
       if (!stats) {
         await sendChatMessage(
           isSelf
-            ? `@${display} the scribes haven't logged any watch time for you yet — chat while the stream is live and the hourglass starts turning.`
+            ? `@${display} the scribes haven't logged any watch time for you yet — hang around while the stream is live and the hourglass starts turning.`
             : `@${display} the scribes haven't logged any watch time for ${who} yet.`,
           broadcasterId,
         );
