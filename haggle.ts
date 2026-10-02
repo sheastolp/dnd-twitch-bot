@@ -18,6 +18,8 @@
 // wares themselves stay pure flavor — no inventory or character state.
 // With gold switched off for the channel, haggling is free banter like before.
 //
+// !stall (below) shows the current item and the asker's remaining attempts.
+//
 // One haggle attempt per viewer per listing — see markListingHaggled in
 // db.ts — so a discount can't be farmed by spamming the same item.
 //
@@ -166,6 +168,43 @@ export async function generateHaggleReply(
   }
 }
 
+/** How many haggle attempts each viewer gets per listing (see markListingHaggled in db.ts). */
+const HAGGLES_PER_LISTING = 1;
+
+/** Handles !stall — shows the item currently on the peddler's stall and how
+ * many haggle attempts the asking viewer has left on it. Read-only: it never
+ * claims an attempt or touches coin. Returns true if the message matched. */
+export async function handleStallCommand(
+  chatMessage: string,
+  chatter: string,
+  display: string,
+  broadcasterId: string,
+): Promise<boolean> {
+  if (!/^!stall\s*$/i.test(chatMessage.trim())) return false;
+
+  if (!(await isMerchantEnabled(broadcasterId))) {
+    await sendChatMessages(`@${display} there's no market stall open in this channel right now.`, broadcasterId);
+    return true;
+  }
+
+  const listing = await getMerchantListing(broadcasterId);
+  if (!listing) {
+    await sendChatMessages(`@${display} nobody's hawking wares here right now — wait for the next stall to open.`, broadcasterId);
+    return true;
+  }
+
+  const used = listing.haggledBy.includes(chatter) ? 1 : 0;
+  const left = Math.max(0, HAGGLES_PER_LISTING - used);
+  const attempts = left > 0
+    ? `you have ${left} haggle attempt${left === 1 ? "" : "s"} left on this one — try !haggle <your pitch>.`
+    : "you've used up your haggle attempts on this one — wait for the next stall to open.";
+  await sendChatMessages(
+    `🛒 ${listing.merchantName} is hawking ${listing.itemDesc} — ${listing.priceText}. @${display} ${attempts}`,
+    broadcasterId,
+  );
+  return true;
+}
+
 /** Handles !haggle <message>. Returns true if the message matched. */
 export async function handleHaggleCommand(
   chatMessage: string,
@@ -173,6 +212,9 @@ export async function handleHaggleCommand(
   display: string,
   broadcasterId: string,
 ): Promise<boolean> {
+  // !stall lives here too (same listing + attempt data); delegating from this
+  // already-wired handler keeps main.ts from growing.
+  if (await handleStallCommand(chatMessage, chatter, display, broadcasterId)) return true;
   if (!/^!haggle(?:\s|$)/i.test(chatMessage)) return false;
 
   if (!(await isMerchantEnabled(broadcasterId))) {

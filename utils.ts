@@ -909,6 +909,8 @@ export function logRowText(r: any) {
 //     here too (see haggle.ts / isMerchantEnabled in db.ts). It also spends
 //     and charges coin for agreed prices when coin is on (points_db.ts),
 //     which has no effect on this exclusion.
+//   - !stall — read-only view of the current listing and the asker's haggle
+//     attempts left; gated by the same !market toggle as !haggle (haggle.ts).
 //   - !chronicle on/off/status — passive quote-back, own dashboard toggle.
 //   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
 //     per-channel toggle; broadcaster-only so it isn't a dashboard group.
