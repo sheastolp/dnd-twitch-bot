@@ -46,6 +46,23 @@ export function mentionNames(text: string, extra: string[] = []): string[] {
 
 export const SHORT_NAME_LETTERS = 5;
 
+// Hand-picked nicknames for battle logs, keyed by lowercase login. Use these
+// for regulars whose all-lowercase name can't be split into words (so they'd
+// otherwise be chopped to "Feliv…"). More can be added without a deploy via the
+// NAME_ALIASES env var, formatted "login=Nick,login2=Nick2".
+const BUILTIN_NAME_ALIASES: Record<string, string> = {
+  felivore: "Fel",
+};
+
+function nameAliases(): Map<string, string> {
+  const out = new Map(Object.entries(BUILTIN_NAME_ALIASES));
+  for (const pair of (Deno.env.get("NAME_ALIASES") ?? "").split(",")) {
+    const [login, nick] = pair.split("=").map((x) => x?.trim());
+    if (login && nick) out.set(login.toLowerCase(), nick);
+  }
+  return out;
+}
+
 export async function ensureViewerNameTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS viewer_names (
@@ -105,8 +122,21 @@ export function shortNameMap(names: string[], displays: Map<string, string> = ne
   const uniq = [...new Set(names.map((n) => n.replace(/^@/, "").trim().toLowerCase()).filter(Boolean))];
   const label = new Map<string, string>();
   const word = new Set<string>(); // names that got a whole-word label
+  // Nicknames win outright; nobody else may end up with the same label.
+  const aliases = nameAliases();
+  const aliased = new Set<string>();
   for (const n of uniq) {
+    const nick = aliases.get(n);
+    if (nick) {
+      label.set(n, nick);
+      aliased.add(n);
+    }
+  }
+  const nickLabels = new Set([...aliased].map((n) => label.get(n)!.toLowerCase()));
+  for (const n of uniq) {
+    if (aliased.has(n)) continue;
     const w = firstWord(n, hints.get(n));
+    if (w && nickLabels.has(w.toLowerCase())) continue; // clashes with a nickname -> truncate instead
     if (w) {
       label.set(n, w);
       word.add(n);
@@ -118,8 +148,8 @@ export function shortNameMap(names: string[], displays: Map<string, string> = ne
   for (const group of seen.values()) if (group.length > 1) for (const n of group) word.delete(n);
   // Truncation for everyone without a (unique) word, lengthened until distinct.
   const lens = new Map<string, number>();
-  for (const n of uniq) if (!word.has(n)) lens.set(n, SHORT_NAME_LETTERS);
-  const taken = new Set([...word].map((n) => label.get(n)!.toLowerCase()));
+  for (const n of uniq) if (!word.has(n) && !aliased.has(n)) lens.set(n, SHORT_NAME_LETTERS);
+  const taken = new Set([...word, ...aliased].map((n) => label.get(n)!.toLowerCase()));
   for (let guard = 0; guard < 40; guard++) {
     const groups = new Map<string, string[]>();
     for (const [n, len] of lens) {
