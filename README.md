@@ -46,6 +46,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |
 | **autoban.ts** | `!autoban on/off/status` — permanently bans non-mod chatters who say "ai viewers" (fake-viewer spam) and announces it; mod/broadcaster toggle (chat or dashboard "Bot & feature switches"), off by default; bans use the broadcaster's stored token (`moderator:manage:banned_users`) |
 | **loot.ts** | Coin dropped by slain monsters (solo fights and party hunts), scaled by CR and split among surviving hunters; called from `combat.ts` next to each XP award |
+| **redemptions.ts** / **redemptions_db.ts** | Channel-point rewards that touch the game: `!boon` links a reward (by title) to a **robbery shield** or a **"can't use <feature>" lockout**; the EventSub `channel.channel_points_custom_reward_redemption.add` handler applies it, `rob.ts` honors the shield, and `main.ts` blocks hexed commands before any handler runs. Needs `channel:read:redemptions` (reconnect once) |
 | **rob.ts** | `!rob @user` — robbery duel: both saved characters fight via the shared `resolvePlayerDuel` in `combat.ts`; the loser pays the winner 1–9% of their coin. Cooldowns live in `points_db.ts` (`rob_cooldowns`) |
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
@@ -128,7 +129,7 @@ Chat: `!guide` or `!link` posts that same URL.
 6. Open the Val URL → **Raise the Guild Banner** → authorize.
 7. In channel chat: `/mod YourBotName`
 
-The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads moderator:manage:banned_users` — `channel:read:subscriptions` powers the sub/resub thank-you (see below), `channel:read:ads` powers `!adcheck`'s real Twitch ad-schedule lookup (falls back to the manually-logged `!adslogged` timestamp without it), and `moderator:manage:banned_users` lets `!autoban` ban "ai viewers" spammers (without it, auto-ban stays inert and tells the broadcaster to reconnect). **Channels that connected before these scopes were added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous and real ad-schedule checks to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
+The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users` — `channel:read:redemptions` powers channel-point shield/hex rewards (see *Channel-point rewards* under Gold), `channel:read:subscriptions` powers the sub/resub thank-you (see below), `channel:read:ads` powers `!adcheck`'s real Twitch ad-schedule lookup (falls back to the manually-logged `!adslogged` timestamp without it), and `moderator:manage:banned_users` lets `!autoban` ban "ai viewers" spammers (without it, auto-ban stays inert and tells the broadcaster to reconnect). **Channels that connected before these scopes were added need to reconnect** (the home page and guide both have a "reconnect" link — both point at `/connect`, same as the initial connect button) for new-sub/resub thank-yous and real ad-schedule checks to start working; the rest of the bot is unaffected either way. `/connect` → `/callback` is idempotent: reconnecting an already-connected channel cleans up its old EventSub subscriptions first, so it's safe to run any time GuildScribe gains a feature that needs a new permission, without duplicating subscriptions or losing existing character/party data.
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
@@ -278,6 +279,25 @@ Only one giveaway exists per channel at a time; starting a new one replaces the 
 - Only coin moves. Characters aren't hurt and earn no XP.
 - Cooldowns stop abuse: a robber waits `ROB_COOLDOWN_SECONDS` (default 5 min) between attempts, and a target is left alone for `ROB_PROTECT_SECONDS` (default 10 min) after being targeted, win or lose.
 - `!rob` is silent while coin is off (`!gold off`). It also belongs to the dashboard's **Arena & company** command group, so a steward can switch robbing off there while leaving the rest of the coin system on.
+
+#### Channel-point rewards (`!boon`)
+A streamer can make Twitch channel-point rewards act on the game. Create the reward in Twitch as usual, then link it by its **exact title** (case ignored):
+
+| Command | What it does |
+|---|---|
+| `!boon add shield <minutes> <reward title>` | Redeeming it gives the **redeemer** a robbery shield: nobody can `!rob` them for that long *(mod)* |
+| `!boon add lockout <minutes> <reward title>` | Redeeming it **hexes another viewer**: they can't use a chosen feature for that long *(mod)*. Make the reward **require viewer input**; the redeemer types `<user> <feature>`, e.g. `bob rob` |
+| `!boon remove <reward title>` | Unlink a reward *(mod)* |
+| `!boon clear @user` | Lift every active shield/hex on someone *(mod — for mistakes or abuse)* |
+| `!boon list` | Which rewards are linked and what they do |
+| `!boon status [@user]` | Active shields/hexes on you or someone else |
+
+Lockable features: `rob`, `haggle`, `duel` (all `!dndduel` plus `!party hunt`), `autohunt` (starting one; `status`/`stop` still work), `dice` (`!roll`/`!r`/`!d20`), `gold` (`!gold`, `!goldboard`, `!giveaway`). Several spellings are accepted (`robbery`, `duels`, `coins`, …).
+
+- **One-time setup:** the broadcaster must [reconnect](/connect) so GuildScribe is granted `channel:read:redemptions` and can subscribe to redemptions. Nothing else about the channel changes.
+- Buying the same effect while it's active **adds** to the remaining time, capped at 2 hours per effect.
+- The broadcaster, the bot and yourself can't be hexed. A malformed lockout (no target/feature) is reported in chat. GuildScribe can't refund redemptions of rewards it didn't create (a Twitch rule), so a mod refunds those from the rewards queue.
+- Effects are stored per channel and vanish by themselves; `!dndbot leave` clears active effects, `leave purge` also removes the reward links. Named `!boon` rather than `!redeem` because StreamElements already uses `!redeem`.
 
 **Upgrading from the first gold version:** balances and giveaway prices written back when 1 chat message earned "1 gold" are converted once, automatically, on the next request (×100, so 1 old gold becomes 1 gp). A fresh install has nothing to convert.
 

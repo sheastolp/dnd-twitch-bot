@@ -22,11 +22,14 @@
 //     a target is left alone for ROB_PROTECT_SECONDS after being targeted
 //     (default 600), win or lose, so nobody gets dogpiled.
 //   - Characters are not hurt and gain no XP — only coin changes hands.
+//   - A target wearing a channel-point robbery shield (redemptions.ts) can't
+//     be robbed until it expires; the robber's cooldown isn't spent.
 
 import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { formatCoins } from "./coins.ts";
+import { robShieldRemainingMs } from "./redemptions.ts";
 import {
   getBalance,
   isPointsEnabled,
@@ -123,6 +126,13 @@ export async function handleRobCommand(
   const theirShield = ROB_PROTECT_MS > 0 ? await victimProtectedMs(broadcasterId, target, ROB_PROTECT_MS) : 0;
   if (theirShield > 0) {
     await sendChatMessage(`@${display} ${targetPurse.displayName} was just targeted and is watching their purse — try again in ${waitText(theirShield)}.`, broadcasterId);
+    return true;
+  }
+
+  // A channel-point robbery shield (redemptions.ts) beats everything below.
+  const wardMs = await robShieldRemainingMs(broadcasterId, target);
+  if (wardMs > 0) {
+    await sendChatMessage(`@${display} ${targetPurse.displayName} is under a robbery shield for another ${waitText(wardMs)} — no luck.`, broadcasterId);
     return true;
   }
 

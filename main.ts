@@ -70,6 +70,8 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
+import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent, subscribeToRedemptions } from "./redemptions.ts";
+import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
@@ -215,6 +217,7 @@ function ensureSchema(): Promise<void> {
         ensureSocialTables(),
         ensurePointsTables(),
         ensureAutohuntTables(),
+        ensureRedemptionTables(),
         ensureHuntCooldownTables(),
         ensureViewerNameTables(),
       ]);
@@ -278,7 +281,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads moderator:manage:banned_users",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -392,6 +395,13 @@ async function handleRequest(req: Request): Promise<Response> {
         await markStreamStatusSubscribed(user.id, await fetchIsChannelLiveNow(user.id));
       } catch (e) {
         await recordMonitorEvent("eventsub_stream_status_subscription_failed", `${user.id}: ${String(e)}`);
+      }
+      // Best-effort: channel-point rewards that shield/hex players (see
+      // redemptions.ts). Needs channel:read:redemptions, requested above.
+      try {
+        await subscribeToRedemptions(user.id, url.origin);
+      } catch (e) {
+        await recordMonitorEvent("eventsub_redemption_subscription_failed", `${user.id}: ${String(e)}`);
       }
       return page(
         "Twitch connected",
@@ -742,6 +752,11 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response("OK");
     }
 
+    if (subscriptionType === "channel.channel_points_custom_reward_redemption.add") {
+      try { await handleRedemptionEvent(body.event); } catch (e) { await recordMonitorEvent("redemption_error", String(e)); }
+      return new Response("OK");
+    }
+
     const chatMessage: string = body.event?.message?.text ?? "";
     const chatter: string = body.event?.chatter_user_login ?? "";
     const display: string = body.event?.chatter_user_name ?? chatter;
@@ -845,9 +860,11 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
         await purgePointsData(broadcasterId);
+        await purgeRedemptionData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);
+        await disconnectRedemptionData(broadcasterId);
         await disconnectAdToken(broadcasterId);
       }
       return new Response("OK");
@@ -892,6 +909,12 @@ async function handleRequest(req: Request): Promise<Response> {
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
       const group = groupForCommand(commandWord.replace(/^!/, ""));
       if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
+      // Channel-point "can't use <feature>" hexes (see redemptions.ts).
+      const hexNotice = await checkFeatureLock(chatMessage, chatter, broadcasterId);
+      if (hexNotice) {
+        await sendChatMessage(`@${display} ${hexNotice}`, broadcasterId);
+        return new Response("OK");
+      }
     } else if (Number(connection.is_live) === 1) {
       // Copper for chatting (see points.ts): plain messages only, live only,
       // and a silent no-op unless the channel turned gold on (!gold on).
@@ -917,6 +940,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");

@@ -411,6 +411,19 @@ export async function createSubEventSubscriptions(broadcasterId: string, callbac
 // EventSub data), so this should reliably succeed for every connected
 // channel. Still created as its own best-effort call in main.ts so a hiccup
 // here never blocks the core chat connection.
+// Channel-point reward redemptions — powers redemptions.ts (robbery shield /
+// "can't use <feature>" rewards). Needs the broadcaster to have granted
+// channel:read:redemptions, so channels connected before this existed must
+// reconnect once. Best-effort at the call site, like the subscribe events.
+export async function createRedemptionEventSubscription(broadcasterId: string, callbackUrl: string) {
+  return createEventSubSubscription(
+    "channel.channel_points_custom_reward_redemption.add",
+    "1",
+    { broadcaster_user_id: broadcasterId },
+    callbackUrl,
+  );
+}
+
 export async function createRaidEventSubscription(broadcasterId: string, callbackUrl: string) {
   return createEventSubSubscription(
     "channel.raid",
