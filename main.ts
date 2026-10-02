@@ -70,6 +70,7 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, maybeChronicleQuote, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
+import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent, subscribeToRedemptions } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
@@ -218,6 +219,7 @@ function ensureSchema(): Promise<void> {
         ensureAutoBanTables(),
         ensureSocialTables(),
         ensurePointsTables(),
+        ensureSwearJarTables(),
         ensureAutohuntTables(),
         ensureRedemptionTables(),
         ensureHuntCooldownTables(),
@@ -863,6 +865,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
         await purgePointsData(broadcasterId);
+        await purgeSwearJarData(broadcasterId);
         await purgeRedemptionData(broadcasterId);
         await purgeWatchtimeData(broadcasterId);
       } else {
@@ -905,7 +908,8 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
-      if (!isModerator && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
+      // !jar (swear jar) is deliberately exempt: no cooldown on its trigger.
+      if (!isModerator && !/^!jar(?:\s|$)/i.test(chatMessage) && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
       const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
       await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
       await recordViewerName(broadcasterId, chatter, display); // for battle-log short names
@@ -928,6 +932,15 @@ async function handleRequest(req: Request): Promise<Response> {
       await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
     }
 
+    // Swear jar (see swearjar.ts): plain chat only. Takes 2 cp of gold per
+    // swear word and announces it; never consumes the message, so the rest of
+    // the chat handling (triggers, goodnight, etc.) still runs. Failures here
+    // must never break normal chat handling.
+    if (!chatMessage.startsWith("!")) {
+      try { await maybeChargeSwearJar(chatMessage, chatter, display, broadcasterId); }
+      catch (e) { await recordMonitorEvent("swearjar_error", String(e)); }
+    }
+
     // Command handlers (return true if handled)
     if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return new Response("OK");
     if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
@@ -946,6 +959,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
     if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
