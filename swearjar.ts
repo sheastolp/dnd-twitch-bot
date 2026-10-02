@@ -7,6 +7,8 @@
 //
 //   !jar                 what's in the jar
 //   !jar +<amount>       add to the jar by hand (anyone)        e.g. !jar +8, !jar +5sp
+//   !jar +<amount> @user fine someone (mod only): moves that much of THEIR
+//                        gold into the jar (whatever they can afford)
 //   !jar -<amount>       take from the jar by hand (mod only)   e.g. !jar -8
 //
 // !jar deliberately has NO cooldown (main.ts exempts it from the per-user
@@ -179,10 +181,42 @@ export async function handleJarCommand(
   }
 
   const adj = args.match(/^([+-])\s*(.+)$/);
-  const amount = adj ? parseCoins(adj[2]) : null;
+  // "+<amount> <target>": the amount may itself contain spaces ("1gp 2sp"), so
+  // try the whole remainder as an amount first, then peel off a trailing name.
+  let amount: number | null = null;
+  let target: string | null = null;
+  if (adj) {
+    amount = parseCoins(adj[2]);
+    if (amount === null && adj[1] === "+") {
+      const t = adj[2].match(/^(.+?)\s+@?([a-z0-9_]{1,25})$/i);
+      if (t) {
+        amount = parseCoins(t[1]);
+        if (amount !== null) target = t[2].toLowerCase();
+      }
+    }
+  }
   if (!adj || amount === null || amount <= 0) {
     await sendChatMessage(
-      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar -8 (mod only). Units work too: 5sp, 1gp.`,
+      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only). Units work too: 5sp, 1gp.`,
+      broadcasterId,
+    );
+    return true;
+  }
+
+  if (target) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can fine someone into the swear jar.`, broadcasterId);
+      return true;
+    }
+    const bal = await getBalance(broadcasterId, target);
+    const pay = Math.min(amount, bal?.balance ?? 0);
+    if (pay <= 0 || !(await trySpend(broadcasterId, target, pay))) {
+      await sendChatMessage(`🫙 @${display} ${bal?.displayName ?? target} has no coin to put in the swear jar.`, broadcasterId);
+      return true;
+    }
+    const total = await adjustJar(broadcasterId, pay);
+    await sendChatMessage(
+      `🫙 @${bal?.displayName ?? target} was fined ${formatCoins(pay)} for the swear jar by @${display}. It now holds ${formatCoins(total)}.`,
       broadcasterId,
     );
     return true;
