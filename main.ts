@@ -78,6 +78,7 @@ import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./me
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
+import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, maybeNpcChatter, recordNpcChatterBotMessage } from "./npcs.ts";
 import {
   handleCustomCommandManagement,
@@ -220,6 +221,7 @@ function ensureSchema(): Promise<void> {
         ensureRedemptionTables(),
         ensureHuntCooldownTables(),
         ensureViewerNameTables(),
+        ensureWatchtimeTables(),
       ]);
     })().catch((e) => {
       schemaReady = null;
@@ -252,7 +254,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
   if (req.method === "GET" && path === "/privacy") {
-    return page("GuildScribe Privacy Policy", `<h1>GuildScribe Privacy Policy</h1><p>GuildScribe receives Twitch usernames/user IDs, channel IDs, command text, character/party/gameplay data, coin (points) balances and giveaway entries for channels that turn those on, and basic connection/subscription state when a channel connects the bot.</p><h2>How it is used</h2><p>Data is used only to operate the Twitch bot, keep characters and parties working, troubleshoot abuse/errors, and provide channel activity logs to that channel's broadcaster/moderators.</p><h2>Retention</h2><p>Activity logs are kept for up to 90 days and are capped at 5,000 rows per channel. Character and party data remains while a channel uses GuildScribe unless the channel requests deletion. OAuth state records expire after 10 minutes. Connection records are removed when a channel disconnects.</p><h2>Deletion</h2><p>The connected broadcaster can use <code>!dndbot leave purge</code> to disconnect and request deletion of that channel's stored characters, parties, coin balances, giveaway entries, logs, and gameplay state. For other deletion requests, contact ${escapeHtml(Deno.env.get("SUPPORT_URL") ?? "the project operator through the support link on the home page")}.</p><p><a href="/">Return to GuildScribe</a></p>`);
+    return page("GuildScribe Privacy Policy", `<h1>GuildScribe Privacy Policy</h1><p>GuildScribe receives Twitch usernames/user IDs, channel IDs, command text, character/party/gameplay data, coin (points) balances and giveaway entries for channels that turn those on, per-viewer watch-time totals (time active in chat while a stream is live), and basic connection/subscription state when a channel connects the bot.</p><h2>How it is used</h2><p>Data is used only to operate the Twitch bot, keep characters and parties working, troubleshoot abuse/errors, and provide channel activity logs to that channel's broadcaster/moderators.</p><h2>Retention</h2><p>Activity logs are kept for up to 90 days and are capped at 5,000 rows per channel. Character and party data remains while a channel uses GuildScribe unless the channel requests deletion. OAuth state records expire after 10 minutes. Connection records are removed when a channel disconnects.</p><h2>Deletion</h2><p>The connected broadcaster can use <code>!dndbot leave purge</code> to disconnect and request deletion of that channel's stored characters, parties, coin balances, giveaway entries, logs, and gameplay state. For other deletion requests, contact ${escapeHtml(Deno.env.get("SUPPORT_URL") ?? "the project operator through the support link on the home page")}.</p><p><a href="/">Return to GuildScribe</a></p>`);
   }
   if (req.method === "GET" && (path === "/terms" || path === "/tos")) {
     return page("GuildScribe Terms of Service", `<h1>GuildScribe Terms of Service</h1><p>GuildScribe is a fan-made Twitch utility for D&amp;D-style character and chat gameplay. Use it lawfully and respectfully, and follow Twitch's rules and the streamer/channel's rules.</p><p>Do not use the bot to harass, spam, abuse, evade moderation, or interfere with other users. Channel owners are responsible for deciding whether the bot is appropriate for their community.</p><p>The service may be changed, limited, suspended, or removed at any time. Gameplay data and generated results are not guaranteed to be preserved.</p><p>Report abuse or request account/channel assistance through the support contact on the home page.</p><p><a href="/">Return to GuildScribe</a></p>`);
@@ -281,7 +283,7 @@ async function handleRequest(req: Request): Promise<Response> {
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${url.origin}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users",
+      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users moderator:read:followers",
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -861,6 +863,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAutoBanData(broadcasterId);
         await purgePointsData(broadcasterId);
         await purgeRedemptionData(broadcasterId);
+        await purgeWatchtimeData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);
@@ -895,6 +898,9 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     if (!(await isChannelEnabled(broadcasterId))) return new Response("OK");
+
+    // Watch-time clock (see watchtime.ts): every message while live, commands included.
+    if (Number(connection.is_live) === 1) await trackWatchtime(broadcasterId, chatter, display);
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
@@ -940,6 +946,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

@@ -48,6 +48,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **loot.ts** | Coin dropped by slain monsters (solo fights and party hunts), scaled by CR and split among surviving hunters; called from `combat.ts` next to each XP award |
 | **redemptions.ts** / **redemptions_db.ts** | Channel-point rewards that touch the game: `!boon` links a reward (by title) to a **robbery shield** or a **"can't use <feature>" lockout**; the EventSub `channel.channel_points_custom_reward_redemption.add` handler applies it, `rob.ts` honors the shield, and `main.ts` blocks hexed commands before any handler runs. Needs `channel:read:redemptions` (reconnect once) |
 | **rob.ts** | `!rob @user` — robbery duel: both saved characters fight via the shared `resolvePlayerDuel` in `combat.ts`; the loser pays the winner 1–9% of their coin. Cooldowns live in `points_db.ts` (`rob_cooldowns`) |
+| **watchtime.ts** | `!watchtime [@user]` — per-channel watch-time clock (advances on chat messages while live) and `!followage [@user]` — follow age via Helix Get Channel Followers using the broadcaster's stored token (`moderator:read:followers`). Own table `watchtime_stats`; purged by `!dndbot leave purge` |
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
@@ -163,6 +164,8 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |
 | `!resetchar @user` | Reset another player's character *(mod)* |
 | `!shmash` / `!shmash @user` | Just-for-fun narrated smash using your character against a target's (or a random comedic target if none given) — no HP/game state touched |
+| `!watchtime` / `!watchtime @user` | How long a viewer has been around: a clock that advances on each chat message sent while the stream is live (gaps over 15 minutes, `WATCHTIME_SESSION_GAP_MINUTES`, aren't counted). Starts from deploy; silent lurkers aren't counted |
+| `!followage` / `!followage @user` | How long a viewer has followed the channel, from Twitch's Get Channel Followers. Needs the `moderator:read:followers` scope — the broadcaster must reconnect once |
 
 ### Fate's dice
 | Command | Description |
