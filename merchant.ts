@@ -15,8 +15,21 @@ const MIN_INTERVAL_MINUTES = Math.max(5, Number(Deno.env.get("MERCHANT_MIN_INTER
 const MAX_INTERVAL_MINUTES = Math.max(MIN_INTERVAL_MINUTES, Number(Deno.env.get("MERCHANT_MAX_INTERVAL_MINUTES") ?? "60"));
 
 /** Chance (0-1) that a roll turns up a rare legendary relic instead of the usual
- * junk. Override with MERCHANT_LEGENDARY_CHANCE; 0 disables relics entirely. */
-const LEGENDARY_CHANCE = Math.min(1, Math.max(0, Number(Deno.env.get("MERCHANT_LEGENDARY_CHANCE") ?? "0.08")));
+ * junk. Override with MERCHANT_LEGENDARY_CHANCE; 0 disables relics entirely.
+ * Values above 1 are read as percentages ("8" = 8%), and the result is hard-capped
+ * at LEGENDARY_CHANCE_MAX so a misconfigured env var can never make relics the
+ * merchant's usual stock. */
+const LEGENDARY_CHANCE_DEFAULT = 0.05;
+const LEGENDARY_CHANCE_MAX = 0.2;
+function resolveLegendaryChance(): number {
+  const raw = Deno.env.get("MERCHANT_LEGENDARY_CHANCE");
+  if (raw === undefined || raw.trim() === "") return LEGENDARY_CHANCE_DEFAULT;
+  let n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return LEGENDARY_CHANCE_DEFAULT;
+  if (n > 1) n = n / 100;
+  return Math.min(LEGENDARY_CHANCE_MAX, n);
+}
+const LEGENDARY_CHANCE = resolveLegendaryChance();
 
 /** A fresh randomized gap (ms) until the merchant's next ad, per channel. */
 export function randomMerchantIntervalMs(): number {
