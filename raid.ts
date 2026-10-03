@@ -290,8 +290,8 @@ export function simulateRaidFight(
       battle.strike({
         actor: h.name, target: boss.name, hit, crit, fumble: roll === 1, roll, total, ac: boss.ac,
         damage: dmg, targetHp: bossHp, targetMax: boss.hpMax, acWhy: MONSTER_AC_WHY,
-        atk: [[ability, s.mod], ["proficiency", h.c.proficiency], ["hunter's edge", 1]],
-        dmgDice: hit ? rolls : undefined, dmgDie: 10, dmgMods: [[ability, s.mod], ["hunter's edge", 1]],
+        atk: [[ability, s.mod], ["prof", h.c.proficiency], ["edge", 1]],
+        dmgDice: hit ? rolls : undefined, dmgDie: 10, dmgMods: [[ability, s.mod], ["edge", 1]],
         hpBefore: bossHpBefore,
       });
     }
@@ -311,7 +311,7 @@ export function simulateRaidFight(
       battle.strike({
         actor: boss.name, target: v.name, hit, crit: roll === 20, fumble: roll === 1, roll, total, ac,
         damage: dmg, targetHp: hp[v.name], targetMax: v.c.hpMax, acWhy: heroAcWhy(11, v.c),
-        atk: [["attack bonus", boss.attack]],
+        atk: [["atk", boss.attack]],
         dmgDice: hit ? rolls : undefined, dmgDie: boss.die, dmgMods: [["bonus", boss.bonus]],
         hpBefore: victimHpBefore,
       });

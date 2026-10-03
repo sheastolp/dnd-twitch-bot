@@ -67,34 +67,30 @@ export function rollDice(count: number, sides: number): number[] {
   return Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides));
 }
 
-const signed = (n: number) => `${n < 0 ? "−" : "+"} ${Math.abs(n)}`;
+const signed = (n: number) => `${n < 0 ? "−" : "+"}${Math.abs(n)}`;
 const modsText = (mods: Mods) => mods.filter(([, v]) => v !== 0).map(([label, v]) => ` ${signed(v)} ${label}`).join("");
 
-/** Every number behind one swing, for the full-reply page. */
+/** Every number behind one swing, for the full-reply page — terse, since a
+ * page shows one of these per swing: "Bob → Goblin: 17 +3 STR +2 prof = 22
+ * vs AC 13 (stat block) → HIT by 9 · 1d10 (3) +3 STR = 6 · Goblin 20→14/20". */
 function fmtStrikeDetailed(s: Strike): string {
   const actor = s.actor === YOU ? "You" : s.actor;
   const target = s.target === YOU ? "you" : s.target;
   const targetCap = s.target === YOU ? "You" : s.target;
   const atk = s.atk ? modsText(s.atk) : (s.total - s.roll ? ` ${signed(s.total - s.roll)}` : "");
   const ac = `AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}`;
-  let out = `${actor} ${s.actor === YOU ? "attack" : "attacks"} ${target}: d20 roll ${s.roll}${atk} = ${s.total} vs ${ac}`;
-  if (s.fumble) return `${out} → natural 1: automatic miss (fumble).`;
-  if (!s.hit) return `${out} → miss (${s.ac - s.total} short of the AC).`;
-  if (s.crit) {
-    out += ` → natural 20: CRITICAL HIT${s.total < s.ac ? " (a natural 20 always hits)" : ""}${(s.dmgDice?.length ?? 0) > 1 ? ", damage dice doubled" : ""}.`;
-  } else {
-    out += s.total === s.ac ? " → hit (meets the AC exactly)." : ` → hit (beats the AC by ${s.total - s.ac}).`;
-  }
+  let out = `${actor} → ${target}: ${s.roll}${atk} = ${s.total} vs ${ac}`;
+  if (s.fumble) return `${out} → nat 1, FUMBLE`;
+  if (!s.hit) return `${out} → MISS by ${s.ac - s.total}`;
+  out += s.crit ? " → nat 20, CRIT" : s.total === s.ac ? " → HIT (exact)" : ` → HIT by ${s.total - s.ac}`;
   if (s.dmgDice?.length) {
     const raw = s.dmgDice.reduce((a, b) => a + b, 0) + (s.dmgMods ?? []).reduce((a, [, v]) => a + v, 0);
-    out += ` Damage: ${s.dmgDice.length}d${s.dmgDie} (${s.dmgDice.join(" + ")})${modsText(s.dmgMods ?? [])} = ${s.damage}${raw < s.damage ? " (minimum 1)" : ""}.`;
+    out += ` · ${s.dmgDice.length}d${s.dmgDie} (${s.dmgDice.join("+")})${modsText(s.dmgMods ?? [])} = ${s.damage}${raw < s.damage ? " (min 1)" : ""}`;
   } else {
-    out += ` Damage: ${s.damage}.`;
+    out += ` · ${s.damage} dmg`;
   }
-  out += s.hpBefore !== undefined
-    ? ` ${targetCap} HP ${s.hpBefore} → ${s.targetHp}/${s.targetMax}.`
-    : ` ${targetCap} now at ${s.targetHp}/${s.targetMax} HP.`;
-  if (s.targetHp <= 0) out += ` ${targetCap} ${s.target === YOU ? "fall" : "falls"}!`;
+  out += s.hpBefore !== undefined ? ` · ${targetCap} ${s.hpBefore}→${s.targetHp}/${s.targetMax}` : ` · ${targetCap} ${s.targetHp}/${s.targetMax}`;
+  if (s.targetHp <= 0) out += " 💀";
   return out;
 }
 
@@ -122,10 +118,10 @@ export function fighterLine(
   const a = fightingAbility(c);
   const die = opts.die ?? stats.die;
   const edge = opts.edge ?? 0;
-  const edgeText = edge ? ` + ${edge} hunter's edge` : "";
+  const edgeText = edge ? ` +${edge} edge (hunter's edge)` : "";
   return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${acBase + stats.mod + c.proficiency} (${heroAcWhy(acBase, c)}), ` +
-    `attack d20 ${stats.mod < 0 ? "−" : "+"} ${Math.abs(stats.mod)} ${a.name} + ${c.proficiency} proficiency${edgeText}, ` +
-    `damage 1d${die} ${stats.mod < 0 ? "−" : "+"} ${Math.abs(stats.mod)} ${a.name}${edge ? ` + ${edge}` : ""}.`;
+    `attack d20 ${signed(stats.mod)} ${a.name} +${c.proficiency} prof${edgeText}, ` +
+    `damage 1d${die} ${signed(stats.mod)} ${a.name}${edge ? ` +${edge} edge` : ""}.`;
 }
 
 /** acWhy for a hero, naming the ability their AC comes from. */
@@ -285,7 +281,7 @@ export function simulateAttack(
     targetHp: hp[defenderName] ?? 0,
     targetMax: Number((defender as any).hpMax ?? hp[defenderName] ?? 0),
     acWhy: heroAcWhy(10, defender),
-    atk: [[ability, stats.mod], ["proficiency", attacker.proficiency]],
+    atk: [[ability, stats.mod], ["prof", attacker.proficiency]],
     dmgDice: hit ? rolls : undefined,
     dmgDie: stats.die,
     dmgMods: [[ability, stats.mod]],
@@ -317,7 +313,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
   const label = username === YOU ? "You" : username;
   battle.describe(
     `${label}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${c.hpMax} HP, AC ${playerAc} (${heroAcWhy(11, c)}), ` +
-      `attack d20 ${signed(pStats.mod)} ${ability} + ${c.proficiency} proficiency + 1 hunter's edge, damage 1d${dmgDie} ${signed(pStats.mod)} ${ability} + 1.`,
+      `attack d20 ${signed(pStats.mod)} ${ability} +${c.proficiency} prof +1 edge (hunter's edge), damage 1d${dmgDie} ${signed(pStats.mod)} ${ability} +1 edge.`,
   );
   battle.describe(
     `${monster.name}: CR ${monster.cr ?? "?"}, ${monster.hp} HP, AC ${monster.ac} (stat block), attack d20 + ${monster.attack}, damage 1d${monster.die} ${signed(monster.bonus)}.`,
@@ -348,10 +344,10 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
       targetHp: monsterHp,
       targetMax: monster.hp,
       acWhy: MONSTER_AC_WHY,
-      atk: [[ability, pStats.mod], ["proficiency", c.proficiency], ["hunter's edge", 1]],
+      atk: [[ability, pStats.mod], ["prof", c.proficiency], ["edge", 1]],
       dmgDice: hit ? rolls : undefined,
       dmgDie,
-      dmgMods: [[ability, pStats.mod], ["hunter's edge", 1]],
+      dmgMods: [[ability, pStats.mod], ["edge", 1]],
       hpBefore: monsterHpBefore,
     });
     if (monsterHp <= 0) break;
@@ -384,7 +380,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
       targetHp: fateSaved ? 0 : playerHp,
       targetMax: c.hpMax,
       acWhy: heroAcWhy(11, c),
-      atk: [["attack bonus", monster.attack]],
+      atk: [["atk", monster.attack]],
       dmgDice: mHit ? [mDice] : undefined,
       dmgDie: monster.die,
       dmgMods: [["bonus", monster.bonus]],
