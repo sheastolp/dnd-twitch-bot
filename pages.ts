@@ -293,7 +293,8 @@ function renderDashboardIndex(): string {
   return `<nav class="index" aria-label="Dashboard index">
     <div class="index-head"><strong>Index</strong><span class="index-ctl"><button type="button" class="link" data-all="open">Expand all</button> · <button type="button" class="link" data-all="close">Collapse all</button></span></div>
     <ol>
-      <li><a href="#sec-features">Bot &amp; feature switches</a><ul>${groupLinks}</ul></li>
+      <li><a href="#sec-features">Bot &amp; feature switches</a></li>
+      <li><a href="#sec-groups">Command groups</a><ul>${groupLinks}</ul></li>
       <li><a href="#sec-commands">Custom commands</a></li>
       <li><a href="#sec-triggers">Chat triggers</a></li>
       <li><a href="#sec-timed">Timed messages</a></li>
@@ -301,7 +302,7 @@ function renderDashboardIndex(): string {
   </nav>`;
 }
 
-function renderFeaturesSection(d: DashboardData): string {
+function renderFeaturesSection(d: DashboardData): { switches: string; groups: string } {
   const dedicated = [
     featureToggleRow(d, "bot_on", "bot_off", "Entire bot", "Master switch — same as !dndbot on/off in chat", d.botEnabled),
     featureToggleRow(d, "market_on", "market_off", "Open-stall merchant", "Random flavor ads in chat — same as !market on/off", d.marketEnabled),
@@ -331,12 +332,16 @@ function renderFeaturesSection(d: DashboardData): string {
       </details>`;
     })
     .join("")}</div>`;
-  return `<details class="sec" id="sec-features" open><summary><h2>Bot & feature switches</h2></summary><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
-    <div class="tiles">${dedicated}</div>
-    <h3>Command groups</h3>
-    <p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need the gold switch above on.</p>
-    ${groups}
-    </details>`;
+  const flags = [d.botEnabled, d.marketEnabled, d.chronicleEnabled, d.autoBanEnabled, d.pointsEnabled, d.npcEnabled, d.npcChatterEnabled];
+  const flagsOn = flags.filter(Boolean).length;
+  const groupTotal = [...bySection.values()].reduce((n, g) => n + g.rows.length, 0);
+  const groupOn = [...bySection.values()].reduce((n, g) => n + g.on, 0);
+  return { switches: bigSquare("sec-features", "Bot &amp; feature switches", `${plural(flags.length, "switch", "switches")} · ${flagsOn} on`,
+    `<p class="muted">Turning off the entire bot overrides everything else. Changes apply immediately.</p>
+    <div class="tiles mini">${dedicated}</div>`),
+    groups: bigSquare("sec-groups", "Command groups", `${plural(bySection.size, "group")} · ${groupOn}/${groupTotal} on`,
+    `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need the gold switch on.</p>
+    ${groups}`, true) };
 }
 
 /** A small square tile that opens its editor dialog (see the dashboard script). */
@@ -354,10 +359,23 @@ function editorDialog(dialogId: string, heading: string, body: string, extraClas
   </dialog>`;
 }
 
+/** A large collapsible square for one top-level dashboard section (same look as the
+ * command-group squares, one size up). `meta` is the short status shown in its header. */
+function bigSquare(id: string, name: string, meta: string, body: string, wide = false): string {
+  return `<details class="folder big${wide ? " wide" : ""}" id="${id}" open>
+    <summary><h2 class="folder-name">${name}</h2><span class="tile-meta">${meta}</span></summary>
+    ${body}
+  </details>`;
+}
+
+function plural(n: number, one: string, many = one + "s"): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 /** Tiles + their dialogs for one list section; the "new" tile always comes last. */
 function tileSection(tiles: string[], dialogs: string[], emptyText: string): string {
   const note = tiles.length > 1 ? "" : `<p class="muted">${emptyText}</p>`;
-  return `${note}<div class="tiles">${tiles.join("")}</div>${dialogs.join("")}`;
+  return `${note}<div class="tiles mini">${tiles.join("")}</div>${dialogs.join("")}`;
 }
 
 function snippet(text: string, max = 48): string {
@@ -394,8 +412,8 @@ function renderCommandsSection(d: DashboardData): string {
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="5"></label>
       <button type="submit">Add command</button>
     </form>`));
-  return `<details class="sec" id="sec-commands" open><summary><h2>Custom commands</h2></summary><p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
-    ${tileSection(tiles, dialogs, "No custom commands yet.")}</details>`;
+  return bigSquare("sec-commands", "Custom commands", plural(d.commands.length, "command"), `<p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No custom commands yet.")}`);
 }
 
 function renderTriggersSection(d: DashboardData): string {
@@ -427,8 +445,8 @@ function renderTriggersSection(d: DashboardData): string {
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="15"></label>
       <button type="submit">Add trigger</button>
     </form>`));
-  return `<details class="sec" id="sec-triggers" open><summary><h2>Chat triggers</h2></summary><p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed. Click a square to edit it.</p>
-    ${tileSection(tiles, dialogs, "No chat triggers yet.")}</details>`;
+  return bigSquare("sec-triggers", "Chat triggers", plural(d.triggers.length, "trigger"), `<p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No chat triggers yet.")}`);
 }
 
 function renderTimedMessagesSection(d: DashboardData): string {
@@ -461,8 +479,9 @@ function renderTimedMessagesSection(d: DashboardData): string {
       <label>Every (min) <input type="number" name="interval_minutes" min="${d.minIntervalMinutes}" max="${d.maxIntervalMinutes}" value="30" required></label>
       <button type="submit">Add timed message</button>
     </form>`));
-  return `<details class="sec" id="sec-timed" open><summary><h2>Timed messages</h2></summary><p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
-    ${tileSection(tiles, dialogs, "No timed messages yet.")}</details>`;
+  const active = d.timedMessages.filter((m: any) => Number(m.enabled) === 1).length;
+  return bigSquare("sec-timed", "Timed messages", `${plural(d.timedMessages.length, "message")} · ${active} active`, `<p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No timed messages yet.")}`);
 }
 
 // Shown at GET /dashboard when the dashboard_key is valid but there's no
@@ -488,6 +507,7 @@ export function renderDashboardLoginGate(d: { broadcasterName: string; loginUrl:
 }
 
 export function renderDashboardPage(d: DashboardData): string {
+  const features = renderFeaturesSection(d);
   const banner = d.error
     ? `<p class="banner error">${escapeHtml(d.error)}</p>`
     : d.notice
@@ -496,15 +516,13 @@ export function renderDashboardPage(d: DashboardData): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title>
   <style>
     :root{color-scheme:dark}
-    body{font-family:Georgia,serif;max-width:820px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}
+    body{font-family:Georgia,serif;max-width:1180px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}
     h1{color:#e6a56e;margin-bottom:2px}
     h2{color:#e6a56e;margin:0}
     h3{color:#d6c6b5;margin:14px 0 8px}
     a{color:#e6a56e}
     .muted{color:#aa9b8d;font-size:.88rem}
     code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}
-    details.sec{margin:28px 0}
-    details.sec>summary{border-bottom:1px solid #2a231c;padding-bottom:6px;margin-bottom:12px}
     summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none}
     summary::-webkit-details-marker{display:none}
     summary::before{content:"▸";color:#aa9b8d;font-size:.9rem;width:1em;transition:transform .15s}
@@ -546,8 +564,16 @@ export function renderDashboardPage(d: DashboardData): string {
     .tile-new .tile-title{color:#e6a56e;font-weight:400}
     .tile-paused{opacity:.6}
     .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;margin:12px 0}
-    details.folder{background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
+    details.folder{box-sizing:border-box;background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
     details.folder[open]{aspect-ratio:1}
+    .board{display:flex;flex-direction:column;gap:18px;margin:22px 0}
+    .board-col{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:18px;align-items:start;min-width:0}
+    .board-col.wide{display:block}
+    details.folder.big{padding:16px 18px;background:#17130f;border-color:#7a5238}
+    @media(min-width:1180px){.board{flex-direction:row;align-items:flex-start}.board-col{flex:1;display:flex;flex-direction:column;align-items:stretch;container-type:inline-size}.board-col.wide{flex:2;display:block}.board-col>details.folder.big[open]{aspect-ratio:auto;min-height:100cqw}}
+    details.folder.big.wide[open]{aspect-ratio:auto}
+    details.folder.big>summary{border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
+    h2.folder-name{font-size:1.3rem;color:#e6a56e;margin:0}
     details.folder>summary{justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
     details.folder>summary::before{order:-1}
     .folder-name{flex:1;font-weight:700;color:#f0c39e;font-size:1.02rem}
@@ -570,12 +596,17 @@ export function renderDashboardPage(d: DashboardData): string {
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
   ${banner}
   ${renderDashboardIndex()}
-  ${renderFeaturesSection(d)}
-  ${renderCommandsSection(d)}
-  ${renderTriggersSection(d)}
-  ${renderTimedMessagesSection(d)}
+  <div class="board">
+    <div class="board-col">
+      ${features.switches}
+      ${renderCommandsSection(d)}
+      ${renderTriggersSection(d)}
+      ${renderTimedMessagesSection(d)}
+    </div>
+    <div class="board-col wide">${features.groups}</div>
+  </div>
   <script>(function(){
-    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec,details.folder"));
+    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.folder"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
     function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
     // Open every collapsed section / folder window containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
