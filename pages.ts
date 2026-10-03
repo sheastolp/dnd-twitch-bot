@@ -282,6 +282,29 @@ function groupToggleRow(d: DashboardData, key: string, label: string, enabled: b
   </div>`;
 }
 
+/** Stable anchor id for a command-group heading (used by the dashboard index). */
+function sectionSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "group";
+}
+
+/** Top-of-page index: jump links to each dashboard section plus the command-group
+ * sub-sections, and expand/collapse-all controls. */
+function renderDashboardIndex(): string {
+  const groupNames = [...new Set(Object.values(COMMAND_GROUPS).map((g) => g.section))];
+  const groupLinks = groupNames
+    .map((n) => `<li><a href="#grp-${sectionSlug(n)}">${escapeHtml(n)}</a></li>`)
+    .join("");
+  return `<nav class="index" aria-label="Dashboard index">
+    <div class="index-head"><strong>Index</strong><span class="index-ctl"><button type="button" class="link" data-all="open">Expand all</button> · <button type="button" class="link" data-all="close">Collapse all</button></span></div>
+    <ol>
+      <li><a href="#sec-features">Bot &amp; feature switches</a><ul>${groupLinks}</ul></li>
+      <li><a href="#sec-commands">Custom commands</a></li>
+      <li><a href="#sec-triggers">Chat triggers</a></li>
+      <li><a href="#sec-timed">Timed messages</a></li>
+    </ol>
+  </nav>`;
+}
+
 function renderFeaturesSection(d: DashboardData): string {
   const dedicated = [
     featureToggleRow(d, "bot_on", "bot_off", "Entire bot", "Master switch — same as !dndbot on/off in chat", d.botEnabled),
@@ -300,14 +323,14 @@ function renderFeaturesSection(d: DashboardData): string {
     bySection.set(def.section, rows);
   }
   const groups = [...bySection]
-    .map(([section, rows]) => `<h4>${escapeHtml(section)}</h4><div class="toggles">${rows.join("")}</div>`)
+    .map(([section, rows]) => `<details class="grp" id="grp-${sectionSlug(section)}" open><summary><h4>${escapeHtml(section)}</h4><span class="count">${rows.length}</span></summary><div class="toggles">${rows.join("")}</div></details>`)
     .join("");
-  return `<section><h2>Bot & feature switches</h2><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
+  return `<details class="sec" id="sec-features" open><summary><h2>Bot & feature switches</h2></summary><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
     <div class="toggles">${dedicated}</div>
     <h3>Command groups</h3>
     <p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need the gold switch above on.</p>
     ${groups}
-    </section>`;
+    </details>`;
 }
 
 function renderCommandsSection(d: DashboardData): string {
@@ -328,7 +351,7 @@ function renderCommandsSection(d: DashboardData): string {
       </form>`;
     })
     .join("");
-  return `<section><h2>Custom commands</h2><p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>.</p>
+  return `<details class="sec" id="sec-commands" open><summary><h2>Custom commands</h2></summary><p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>.</p>
     <div class="rows">${rows || `<p class="muted">No custom commands yet.</p>`}</div>
     <form method="post" action="/dashboard/commands" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
@@ -338,7 +361,7 @@ function renderCommandsSection(d: DashboardData): string {
       <textarea name="response" maxlength="400" rows="2" placeholder="Welcome to the guild hall, {user}!" required></textarea>
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="5"></label>
       <button type="submit">Add command</button>
-    </form></section>`;
+    </form></details>`;
 }
 
 function renderTriggersSection(d: DashboardData): string {
@@ -359,7 +382,7 @@ function renderTriggersSection(d: DashboardData): string {
       </form>`;
     })
     .join("");
-  return `<section><h2>Chat triggers</h2><p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed.</p>
+  return `<details class="sec" id="sec-triggers" open><summary><h2>Chat triggers</h2></summary><p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed.</p>
     <div class="rows">${rows || `<p class="muted">No chat triggers yet.</p>`}</div>
     <form method="post" action="/dashboard/triggers" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
@@ -369,7 +392,7 @@ function renderTriggersSection(d: DashboardData): string {
       <textarea name="response" maxlength="400" rows="2" placeholder="May the dice favor you, {user}!" required></textarea>
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="15"></label>
       <button type="submit">Add trigger</button>
-    </form></section>`;
+    </form></details>`;
 }
 
 function renderTimedMessagesSection(d: DashboardData): string {
@@ -391,7 +414,7 @@ function renderTimedMessagesSection(d: DashboardData): string {
       </form>`;
     })
     .join("");
-  return `<section><h2>Timed messages</h2><p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>.</p>
+  return `<details class="sec" id="sec-timed" open><summary><h2>Timed messages</h2></summary><p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>.</p>
     <div class="rows">${rows || `<p class="muted">No timed messages yet.</p>`}</div>
     <form method="post" action="/dashboard/timedmessages" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
@@ -400,7 +423,7 @@ function renderTimedMessagesSection(d: DashboardData): string {
       <textarea name="message" maxlength="400" rows="2" placeholder="Don't forget to follow the guild! {random:⚔️|🛡️|📜}" required></textarea>
       <label>Every (min) <input type="number" name="interval_minutes" min="${d.minIntervalMinutes}" max="${d.maxIntervalMinutes}" value="30" required></label>
       <button type="submit">Add timed message</button>
-    </form></section>`;
+    </form></details>`;
 }
 
 // Shown at GET /dashboard when the dashboard_key is valid but there's no
@@ -436,12 +459,28 @@ export function renderDashboardPage(d: DashboardData): string {
     :root{color-scheme:dark}
     body{font-family:Georgia,serif;max-width:820px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}
     h1{color:#e6a56e;margin-bottom:2px}
-    h2{color:#e6a56e;border-bottom:1px solid #2a231c;padding-bottom:6px}
+    h2{color:#e6a56e;margin:0}
     h3{color:#d6c6b5;margin:14px 0 8px}
     a{color:#e6a56e}
     .muted{color:#aa9b8d;font-size:.88rem}
     code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}
-    section{margin:28px 0}
+    details.sec{margin:28px 0}
+    details.sec>summary{border-bottom:1px solid #2a231c;padding-bottom:6px;margin-bottom:12px}
+    summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none}
+    summary::-webkit-details-marker{display:none}
+    summary::before{content:"▸";color:#aa9b8d;font-size:.9rem;width:1em;transition:transform .15s}
+    details[open]>summary::before{transform:rotate(90deg)}
+    summary:hover h2,summary:hover h4{text-decoration:underline;text-decoration-color:#684632}
+    summary:focus-visible{outline:2px solid #e6a56e;outline-offset:4px;border-radius:4px}
+    details.grp{margin:10px 0}
+    details.grp>summary h4{margin:0;color:#d6c6b5}
+    details.grp .count{font-size:.75rem;color:#aa9b8d;background:#1c1712;border:1px solid #2a231c;border-radius:999px;padding:1px 8px}
+    details{scroll-margin-top:16px}
+    .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
+    .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+    .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7}
+    .index ul{margin:0 0 4px;padding-left:0;list-style:none;display:flex;flex-wrap:wrap;gap:2px 14px;font-size:.85rem}
+    button.link{background:none;border:0;padding:0;margin:0;color:#e6a56e;font:inherit;font-size:.85rem;cursor:pointer;text-decoration:underline}
     .rows{display:flex;flex-direction:column;gap:10px;margin:14px 0}
     .row-form,.add-form{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 14px}
     .add-form{border-style:dashed}
@@ -473,9 +512,24 @@ export function renderDashboardPage(d: DashboardData): string {
   <h1>🛡️ ${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
   ${banner}
+  ${renderDashboardIndex()}
   ${renderFeaturesSection(d)}
   ${renderCommandsSection(d)}
   ${renderTriggersSection(d)}
   ${renderTimedMessagesSection(d)}
+  <script>(function(){
+    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec,details.grp"));
+    function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
+    function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
+    // Open every collapsed section containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
+    function reveal(el){for(var n=el;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true}}
+    function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el){reveal(el);el.scrollIntoView()}}
+    load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=false});
+    goHash();
+    all.forEach(function(d){d.addEventListener("toggle",save)});
+    window.addEventListener("hashchange",goHash);
+    document.querySelectorAll(".index a[href^='#']").forEach(function(a){a.addEventListener("click",function(){var el=document.getElementById(a.getAttribute("href").slice(1));if(el)reveal(el)})});
+    document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
+  })();</script>
   </body></html>`;
 }
