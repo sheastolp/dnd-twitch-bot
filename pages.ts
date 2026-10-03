@@ -532,7 +532,8 @@ export function renderDashboardPage(d: DashboardData): string {
     details{scroll-margin-top:16px}
     .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
     .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
-    .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7;columns:3;column-gap:32px}
+    .index ol{margin:8px 0 0;padding-left:0;list-style:none;line-height:1.7;columns:3;column-gap:32px}
+    .index li::before{content:"📜";margin-right:6px;font-size:.9em}
     .index ol>li{break-inside:avoid}
     .index ol>li:has(ul){break-inside:auto}
     .index ul{margin:0 0 4px;padding-left:14px;list-style:none;font-size:.85rem}
