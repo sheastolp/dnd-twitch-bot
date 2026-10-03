@@ -201,13 +201,21 @@ function isChatterworthy(message: string): boolean {
  * from the channel's roster reply to it unprompted. No-op (and no DB writes
  * beyond the activity counter) unless both !npc and !npc chatter are on for
  * this channel. Returns true if an NPC actually chimed in. */
+/** NPCs and NPC chatter both switched on — the two flags are independent
+ * reads, so fetch them together. */
+export async function isNpcChatterActive(broadcasterId: string): Promise<boolean> {
+  const [npcOn, chatterOn] = await Promise.all([isNpcEnabled(broadcasterId), isNpcChatterEnabled(broadcasterId)]);
+  return npcOn && chatterOn;
+}
+
 export async function maybeNpcChatter(
   chatMessage: string,
   display: string,
   broadcasterId: string,
+  // Already-fetched isNpcChatterActive (see maybeChronicleQuote).
+  active?: boolean,
 ): Promise<boolean> {
-  if (!(await isNpcEnabled(broadcasterId))) return false;
-  if (!(await isNpcChatterEnabled(broadcasterId))) return false;
+  if (!(active ?? (await isNpcChatterActive(broadcasterId)))) return false;
 
   const messageCount = await bumpNpcChatterMessageCount(broadcasterId);
   if (messageCount < CHATTER_MIN_MESSAGES) return false;
@@ -234,8 +242,7 @@ export async function maybeNpcChatter(
  * enabled, so it's safe to call unconditionally for every bot message the
  * bot ever sees — mirrors recordChronicleBotMessage. */
 export async function recordNpcChatterBotMessage(broadcasterId: string): Promise<void> {
-  if (!(await isNpcEnabled(broadcasterId))) return;
-  if (!(await isNpcChatterEnabled(broadcasterId))) return;
+  if (!(await isNpcChatterActive(broadcasterId))) return;
   await bumpNpcChatterMessageCount(broadcasterId);
 }
 

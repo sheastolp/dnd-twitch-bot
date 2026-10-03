@@ -1,7 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Val Town / Deno HTTP handler
 
-import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed } from "./db.ts";
+import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
@@ -25,7 +25,7 @@ import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownD
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
-import { disconnectPointsData, ensurePointsTables, purgePointsData } from "./points_db.ts";
+import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
@@ -75,35 +75,67 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
 // EXISTS, ALTER TABLE probes, migrations). It only needs to run once per
 // isolate, not on every request — so memoize the promise. If it fails, clear
 // the memo so the next request retries instead of caching the failure.
+//
+// Even once per isolate is a lot: a cold isolate would make its first chat
+// reply wait on all ~90. So the full setup also records a fingerprint of
+// the setup code itself in schema_meta, and a later cold isolate whose code
+// matches skips straight past it with a single read. Editing any function
+// below changes the fingerprint, so the next request reruns the setup.
+const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
+  ensureAdTables,
+  ensureAutoBanTables,
+  ensureSocialTables,
+  ensurePointsTables,
+  ensureSwearJarTables,
+  ensureWhisperTables,
+  ensureReplyPageTables,
+  ensureAutohuntTables,
+  ensureRedemptionTables,
+  ensureHuntCooldownTables,
+  ensureRaidTables,
+  ensureViewerNameTables,
+  ensureWatchtimeTables,
+  ensureBestiaryTables,
+];
+
+async function schemaFingerprint(): Promise<string> {
+  const source = [ensureTables, ...SCHEMA_HELPERS, migrateToCopper, ...SCHEMA_FUNCTIONS].map((f) => f.toString()).join("\n");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 let schemaReady: Promise<void> | null = null;
 function ensureSchema(): Promise<void> {
   if (!schemaReady) {
     schemaReady = (async () => {
+      const fingerprint = await schemaFingerprint();
+      try {
+        const res = await sqlite.execute("SELECT fingerprint FROM schema_meta WHERE id = 1");
+        if (String(res.rows[0]?.fingerprint ?? "") === fingerprint) return;
+      } catch (_) { /* no schema_meta yet: run the full setup */ }
       // db.ts first (other files' tables don't depend on it, but its
       // migrations are the slow/ordered part); the rest are independent.
       await ensureTables();
-      await Promise.all([
-        ensureAdTables(),
-        ensureAutoBanTables(),
-        ensureSocialTables(),
-        ensurePointsTables(),
-        ensureSwearJarTables(),
-        ensureWhisperTables(),
-        ensureReplyPageTables(),
-        ensureAutohuntTables(),
-        ensureRedemptionTables(),
-        ensureHuntCooldownTables(),
-        ensureRaidTables(),
-        ensureViewerNameTables(),
-        ensureWatchtimeTables(),
-        ensureBestiaryTables(),
-      ]);
+      await Promise.all(SCHEMA_FUNCTIONS.map((ensure) => ensure()));
+      await sqlite.execute(
+        "CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL, updated_at INTEGER)",
+      );
+      await sqlite.execute("INSERT OR REPLACE INTO schema_meta (id, fingerprint, updated_at) VALUES (1, ?, ?)", [fingerprint, Date.now()]);
     })().catch((e) => {
       schemaReady = null;
       throw e;
     });
   }
   return schemaReady;
+}
+
+/** A request failed on a missing table/column: the schema is behind the
+ * code somehow (e.g. a table dropped by hand). Forget the fingerprint so the
+ * next request runs the full setup instead of trusting it. */
+async function invalidateSchemaOnMissingTable(e: unknown) {
+  if (!/no such (?:table|column)/i.test(String(e))) return;
+  schemaReady = null;
+  await sqlite.execute("DELETE FROM schema_meta").catch(() => {});
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -229,8 +261,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // never get processed as commands, quoted by the chronicle, or replied
       // to by random NPC chatter, but they still count as chat activity
       // toward each feature's own minimum-messages gate.
-      await recordChronicleBotMessage(broadcasterId);
-      await recordNpcChatterBotMessage(broadcasterId);
+      await Promise.all([recordChronicleBotMessage(broadcasterId), recordNpcChatterBotMessage(broadcasterId)]);
       return new Response("OK");
     }
 
@@ -489,6 +520,7 @@ export default async function (req: Request): Promise<Response> {
   try {
     return await runRequestScope(() => handleRequest(req));
   } catch (e) {
+    await invalidateSchemaOnMissingTable(e);
     try { await recordMonitorEvent("unhandled_error", String(e)); } catch (_) {}
     console.error("GuildScribe request failed", e);
     return new Response("Internal server error", { status: 500 });

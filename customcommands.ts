@@ -727,10 +727,12 @@ export async function handleTriggerMatch(
   chatMessage: string,
   display: string,
   broadcasterId: string,
+  // Already-fetched listCustomTriggers (see chat_builtin.ts), if any.
+  prefetched?: Awaited<ReturnType<typeof listCustomTriggers>>,
 ): Promise<boolean> {
   const text = chatMessage.trim();
   if (!text) return false;
-  const triggers = await listCustomTriggers(broadcasterId);
+  const triggers = prefetched ?? await listCustomTriggers(broadcasterId);
   if (!triggers.length) return false;
   const lower = text.toLowerCase();
   const now = Date.now();

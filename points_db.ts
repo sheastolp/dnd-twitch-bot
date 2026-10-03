@@ -76,7 +76,7 @@ export async function ensurePointsTables() {
  * 100 cp = 1 gp), preserving everyone's value. A fresh install runs this on
  * empty tables, which is a no-op, and records the marker so it never runs
  * again. */
-async function migrateToCopper() {
+export async function migrateToCopper() {
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS points_migrations (name TEXT PRIMARY KEY, ran_at INTEGER)`);
   const done = await sqlite.execute("SELECT 1 FROM points_migrations WHERE name = 'coins_v1'");
   if (done.rows.length) return;

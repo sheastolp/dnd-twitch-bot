@@ -93,8 +93,11 @@ export async function maybeChronicleQuote(
   chatMessage: string,
   display: string,
   broadcasterId: string,
+  // Already-fetched isChronicleEnabled, so the caller can read it alongside
+  // its other per-message lookups instead of in front of this one.
+  enabled?: boolean,
 ): Promise<boolean> {
-  if (!(await isChronicleEnabled(broadcasterId))) return false;
+  if (!(enabled ?? (await isChronicleEnabled(broadcasterId)))) return false;
 
   const messageCount = await bumpChronicleMessageCount(broadcasterId);
   if (messageCount < MIN_MESSAGES_BETWEEN_QUOTES) return false;

@@ -104,15 +104,13 @@ export async function checkChronicleCooldown(broadcasterId: string, cooldownMs: 
  * enough activity for a quote to eventually fire (bots just never get
  * selected as the one quoted). Returns the updated count. */
 export async function bumpChronicleMessageCount(broadcasterId: string): Promise<number> {
-  await sqlite.execute(
-    "INSERT OR IGNORE INTO chronicle_activity (broadcaster_id, message_count) VALUES (?, 0)",
+  // One round-trip: create-or-increment and read the new count back.
+  const res = await sqlite.execute(
+    `INSERT INTO chronicle_activity (broadcaster_id, message_count) VALUES (?, 1)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET message_count = message_count + 1
+     RETURNING message_count`,
     [broadcasterId],
   );
-  await sqlite.execute(
-    "UPDATE chronicle_activity SET message_count = message_count + 1 WHERE broadcaster_id = ?",
-    [broadcasterId],
-  );
-  const res = await sqlite.execute("SELECT message_count FROM chronicle_activity WHERE broadcaster_id = ?", [broadcasterId]);
   return Number(res.rows[0]?.message_count ?? 0);
 }
 
@@ -166,15 +164,13 @@ export async function checkNpcChatterCooldown(broadcasterId: string, cooldownMs:
  * chimed in unprompted in this channel — mirrors bumpChronicleMessageCount,
  * including bot accounts in the count (see recordNpcChatterBotMessage). */
 export async function bumpNpcChatterMessageCount(broadcasterId: string): Promise<number> {
-  await sqlite.execute(
-    "INSERT OR IGNORE INTO npc_chatter_activity (broadcaster_id, message_count) VALUES (?, 0)",
+  // One round-trip: create-or-increment and read the new count back.
+  const res = await sqlite.execute(
+    `INSERT INTO npc_chatter_activity (broadcaster_id, message_count) VALUES (?, 1)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET message_count = message_count + 1
+     RETURNING message_count`,
     [broadcasterId],
   );
-  await sqlite.execute(
-    "UPDATE npc_chatter_activity SET message_count = message_count + 1 WHERE broadcaster_id = ?",
-    [broadcasterId],
-  );
-  const res = await sqlite.execute("SELECT message_count FROM npc_chatter_activity WHERE broadcaster_id = ?", [broadcasterId]);
   return Number(res.rows[0]?.message_count ?? 0);
 }
 

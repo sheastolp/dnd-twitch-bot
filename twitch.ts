@@ -5,7 +5,7 @@ import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
-import { recordMonitorEvent } from "./db.ts";
+import { recordMonitorEvent, sqlite } from "./db.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -76,6 +76,11 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   const guard = [...names, ...initiatorNames()];
+  // The token lookup (cached; at worst one query or one Twitch call) runs
+  // alongside the nickname lookup instead of after it. Failures surface in
+  // the try below, like any other send failure.
+  const token = getAppToken();
+  token.catch(() => {});
   const nicks = await getChannelNicknames(broadcasterId);
   const message = limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
@@ -96,7 +101,7 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
         }),
       });
 
-    let res = await send(await getAppToken());
+    let res = await send(await token);
     if (res.status === 401) {
       // Cached token was rejected (expired/revoked) — drop it and get a fresh one, once.
       invalidateAppToken();
@@ -271,9 +276,15 @@ export async function banChatUser(
 
 // App access tokens (client_credentials) are valid for ~hours, not one request —
 // cache and reuse instead of re-fetching one from Twitch on every chat send.
+// The token is also kept in SQLite (app_tokens), so a fresh isolate reads it
+// in one query instead of a round-trip to Twitch's OAuth server.
 let cachedAppToken: { token: string; expiresAt: number } | null = null;
+// A token Twitch just rejected — never handed out again from app_tokens,
+// even if another isolate stored it there.
+let rejectedAppToken: string | null = null;
 
 export function invalidateAppToken() {
+  rejectedAppToken = cachedAppToken?.token ?? rejectedAppToken;
   cachedAppToken = null;
 }
 
@@ -281,6 +292,14 @@ export async function getAppToken() {
   if (cachedAppToken && Date.now() < cachedAppToken.expiresAt) {
     return cachedAppToken.token;
   }
+  try {
+    const res = await sqlite.execute("SELECT token, expires_at FROM app_tokens WHERE id = 1");
+    const row = res.rows[0];
+    if (row && Date.now() < Number(row.expires_at) && String(row.token) !== rejectedAppToken) {
+      cachedAppToken = { token: String(row.token), expiresAt: Number(row.expires_at) };
+      return cachedAppToken.token;
+    }
+  } catch (_) { /* table not ready: fetch from Twitch below */ }
   const body = new URLSearchParams({
     client_id: env("TWITCH_CLIENT_ID"),
     client_secret: env("TWITCH_CLIENT_SECRET"),
@@ -300,6 +319,10 @@ export async function getAppToken() {
     token: data.access_token as string,
     expiresAt: Date.now() + Math.max(0, expiresInMs - 60_000),
   };
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO app_tokens (id, token, expires_at) VALUES (1, ?, ?)",
+    [cachedAppToken.token, cachedAppToken.expiresAt],
+  ).catch(() => {});
   return cachedAppToken.token;
 }
 

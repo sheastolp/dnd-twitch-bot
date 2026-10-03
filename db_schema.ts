@@ -142,6 +142,9 @@ export async function ensureTables() {
     )`,
   );
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, expires_at INTEGER)`);
+  // Shared Twitch app access token (see getAppToken in twitch.ts), so a
+  // fresh isolate reuses it instead of minting a new one before replying.
+  await sqlite.execute(`CREATE TABLE IF NOT EXISTS app_tokens (id INTEGER PRIMARY KEY CHECK (id = 1), token TEXT NOT NULL, expires_at INTEGER NOT NULL)`);
   // Separate OAuth state table for the dashboard's viewer-side "log in with
   // Twitch" moderator check (see dashboard.ts) — kept apart from the
   // broadcaster-connect oauth_states above since the payload differs
@@ -421,3 +424,7 @@ export async function ensureTables() {
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_parties_channel ON parties(broadcaster_id)`);
   await sqlite.execute(`CREATE INDEX IF NOT EXISTS idx_activity_logs_username_channel ON activity_logs(broadcaster_id,username)`);
 }
+
+/** ensureTables' helpers, for main.ts's schema fingerprint (their source
+ * changing means the schema setup has to run again). */
+export const SCHEMA_HELPERS = [tableColumns, migrateCharacterTables, migrateCreationSessions, migrateMapTables];

@@ -2,10 +2,10 @@
 // feature module. Split out of main.ts to keep files well under Val Town's
 // per-file size ceiling.
 
-import { getCharacter, saveCharacter, adjustHp, backupCharacter, loadBackup, resetCharacter, getConnections, getRecentLogs, checkGoodnightCooldown, saveCreationSession, isCommandGroupEnabled } from "./db.ts";
-import { recordDiceRollEvent, getDiceLeaderboard, getDiceStatsForUser } from "./social_db.ts";
+import { getCharacter, saveCharacter, adjustHp, backupCharacter, loadBackup, resetCharacter, getConnections, getRecentLogs, checkGoodnightCooldown, saveCreationSession, isCommandGroupEnabled, listCustomTriggers } from "./db.ts";
+import { recordDiceRollEvent, getDiceLeaderboard, getDiceStatsForUser, isChronicleEnabled } from "./social_db.ts";
 import { maybeChronicleQuote } from "./chronicle.ts";
-import { maybeNpcChatter } from "./npcs.ts";
+import { isNpcChatterActive, maybeNpcChatter } from "./npcs.ts";
 import { handleCustomCommandInvocation, handleTriggerMatch } from "./customcommands.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
@@ -462,13 +462,21 @@ export async function handleBuiltinChatCommand(ctx: {
     // of the "triggers" dashboard group); only roll the chronicle's random
     // quote-back (then NPC chatter) if no trigger already replied, so a
     // single message never draws two separate unprompted replies.
-    const triggerFired = (await isCommandGroupEnabled(broadcasterId, "triggers"))
-      ? await handleTriggerMatch(chatMessage, display, broadcasterId)
+    // Every lookup the decision needs is an independent read — fetch them
+    // in one parallel batch rather than one after another.
+    const [triggersOn, triggers, chronicleOn, npcChatterOn] = await Promise.all([
+      isCommandGroupEnabled(broadcasterId, "triggers"),
+      listCustomTriggers(broadcasterId),
+      isChronicleEnabled(broadcasterId),
+      isNpcChatterActive(broadcasterId),
+    ]);
+    const triggerFired = triggersOn
+      ? await handleTriggerMatch(chatMessage, display, broadcasterId, triggers)
       : false;
     if (!triggerFired) {
-      const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId);
+      const chronicleFired = await maybeChronicleQuote(chatMessage, display, broadcasterId, chronicleOn);
       if (!chronicleFired) {
-        await maybeNpcChatter(chatMessage, display, broadcasterId);
+        await maybeNpcChatter(chatMessage, display, broadcasterId, npcChatterOn);
       }
     }
   }
