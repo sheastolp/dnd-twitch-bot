@@ -13,6 +13,7 @@ import { ensureTables, recordMonitorEvent } from "./db.ts";
 import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
 import { settleAutohunt } from "./autohunt.ts";
 import { sendChatMessages } from "./twitch.ts";
+import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid.ts";
 
 export default async function () {
   await ensureTables();
@@ -35,6 +36,17 @@ export default async function () {
       }
     } catch (e) {
       await recordMonitorEvent("autohunt_settle_error", `${session.broadcaster_id}#${session.username}: ${String(e)}`);
+    }
+  }
+
+  // Fallback for raid musters (raid.ts): normally the next chat message
+  // launches one whose time is up; this catches a muster in a quiet chat.
+  await ensureRaidTables();
+  for (const broadcasterId of await getExpiredRaidMusters(now)) {
+    try {
+      await maybeLaunchRaid(broadcasterId, { now });
+    } catch (e) {
+      await recordMonitorEvent("raid_launch_error", `${broadcasterId}: ${String(e)}`);
     }
   }
 
