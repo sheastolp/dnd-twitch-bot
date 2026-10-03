@@ -177,7 +177,7 @@ Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`
 Every adventurer keeps exactly one active character and one saved backup per channel. `!createchar`, `!newchar`, and `!bg3` all warn before overwriting an existing active character — reply `!answer yes` to confirm the overwrite or `!answer no` to keep what you have.
 | `!cancel` | Cancel wizard / `!bg3` creation |
 | `!char` / `!char @user` | Sheet summary (level, **XP**, stats, HP) |
-| `!roster` | Link to the **guild roster** web page — every adventurer, party and party member in the channel (searchable) |
+| `!roster` | Link to the **guild roster** web page — every adventurer, party and party member in the channel (searchable), with each adventurer's gold while the channel has gold on |
 | `!levelup` / `!levelup +/-N` | Adjust level |
 | `!hp` / `!hp +/-N` | Show or change HP |
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |

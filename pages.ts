@@ -5,6 +5,7 @@ import { abilityNames } from "./data.ts";
 import { modifier, formatRaceName, escapeHtml } from "./utils.ts";
 import type { MapRow, MapToken, PartyRosterEntry } from "./db.ts";
 import { MAP_TEMPLATES, TERRAINS, tokenColor } from "./maps.ts";
+import { formatCoins } from "./coins.ts";
 
 export { page } from "./page_shell.ts";
 
@@ -138,7 +139,14 @@ export function renderRosterPage(
   broadcasterId: string,
   baseUrl: string,
   truncated = false,
+  // Coin per lowercase username; omitted when the channel has gold off.
+  gold?: Map<string, number>,
 ) {
+  const goldCell = (username: string) => {
+    if (!gold) return "";
+    const copper = gold.get(username.toLowerCase()) ?? 0;
+    return `<td class="num" data-copper="${copper}">${copper > 0 ? escapeHtml(formatCoins(copper)) : `<span class="muted">—</span>`}</td>`;
+  };
   const charByUser = new Map(characters.map((c) => [c.username.toLowerCase(), c]));
   const partiesByUser = new Map<string, string[]>();
   for (const p of parties) {
@@ -164,7 +172,9 @@ export function renderRosterPage(
               const c = charByUser.get(m.toLowerCase());
               const crown = m.toLowerCase() === owner ? `<span class="crown" title="Party leader">👑</span>` : "";
               const name = c ? `<a href="${charLink(m)}">${escapeHtml(m)}</a>` : escapeHtml(m);
-              const detail = c ? `<span class="muted">${escapeHtml(summary(c))}</span>` : `<span class="muted">no character yet</span>`;
+              const copper = gold?.get(m.toLowerCase()) ?? 0;
+              const purse = copper > 0 ? ` · 🪙 ${formatCoins(copper)}` : "";
+              const detail = c ? `<span class="muted">${escapeHtml(summary(c) + purse)}</span>` : `<span class="muted">no character yet${escapeHtml(purse)}</span>`;
               return `<li>${crown}<span class="who">${name}</span>${detail}</li>`;
             })
             .join("");
@@ -179,12 +189,12 @@ export function renderRosterPage(
         .map((c) => {
           const memberOf = partiesByUser.get(c.username.toLowerCase()) ?? [];
           const search = [c.username, c.race, c.subrace ?? "", c.cls, ...memberOf].join(" ").toLowerCase();
-          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(c.cls)}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td><td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
+          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(c.cls)}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td>${goldCell(c.username)}<td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
         })
         .join("")
     : "";
   const charTable = characters.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Adventurer</th><th class="num">Lvl</th><th>Race</th><th>Class</th><th class="num">HP</th><th>Party</th></tr></thead><tbody>${charRows}</tbody></table></div>`
+    ? `<div class="table-wrap"><table><thead><tr><th>Adventurer</th><th class="num">Lvl</th><th>Race</th><th>Class</th><th class="num">HP</th>${gold ? `<th class="num">Gold</th>` : ""}<th>Party</th></tr></thead><tbody>${charRows}</tbody></table></div>`
     : `<p class="muted">No adventurers yet. In chat: <code>!createchar</code> or <code>!newchar</code></p>`;
 
   const note = truncated ? `<p class="muted">Showing the first ${characters.length} adventurers by level.</p>` : "";

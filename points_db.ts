@@ -129,6 +129,12 @@ export async function awardChatPoints(
   return true;
 }
 
+/** Every balance in a channel, keyed by lowercase username (for the /roster page). */
+export async function listChannelBalances(broadcasterId: string): Promise<Map<string, number>> {
+  const res = await sqlite.execute("SELECT username, balance FROM points_balances WHERE broadcaster_id = ?", [broadcasterId]);
+  return new Map((res.rows as any[]).map((r) => [String(r.username).toLowerCase(), Number(r.balance ?? 0)]));
+}
+
 export async function getBalance(
   broadcasterId: string,
   username: string,
