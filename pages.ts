@@ -532,8 +532,12 @@ export function renderDashboardPage(d: DashboardData): string {
     details{scroll-margin-top:16px}
     .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
     .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
-    .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7}
-    .index ul{margin:0 0 4px;padding-left:0;list-style:none;display:flex;flex-wrap:wrap;gap:2px 14px;font-size:.85rem}
+    .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7;columns:3;column-gap:32px}
+    .index ol>li{break-inside:avoid}
+    .index ol>li:has(ul){break-inside:auto}
+    .index ul{margin:0 0 4px;padding-left:14px;list-style:none;font-size:.85rem}
+    @media(max-width:800px){.index ol{columns:2}}
+    @media(max-width:520px){.index ol{columns:1}}
     button.link{background:none;border:0;padding:0;margin:0;color:#e6a56e;font:inherit;font-size:.85rem;cursor:pointer;text-decoration:underline}
     .row-form,.add-form{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 14px}
     .add-form{border-style:dashed}
