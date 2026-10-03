@@ -4,6 +4,7 @@
 // to keep files well under Val Town's per-file size ceiling. Returns null
 // when no route matched, so main.ts carries on to the EventSub webhook.
 
+import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
@@ -410,7 +411,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     ]);
     const body = renderAdminLogsPage({ status, overview, events, kindFilter, key: keyParam });
     return new Response(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="30"><title>GuildScribe Operator Logs</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:1100px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}h1{color:#e6a56e;margin-bottom:4px}a{color:#e6a56e}</style></head><body>${body}</body></html>`,
+      scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
   }

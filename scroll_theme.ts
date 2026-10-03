@@ -168,3 +168,38 @@ dialog.editor::backdrop{background:#140d08cc}
 dialog.editor .row-form,dialog.editor .add-form{background:none;border:0;padding:0}
 .pill.on{background:var(--ok-bg);color:var(--ok);border-color:#9fb27e}
 .pill.off{background:var(--bad-bg);color:var(--bad);border-color:#c98f78}`;
+
+/** A whole themed HTML document: SCROLL_CSS plus the page's own `css`, the body
+ * laid on the scroll. `head` adds extra <head> tags (e.g. a refresh meta);
+ * `width` sets the sheet's max width in px. `title` must already be escaped. */
+export function scrollDoc(title: string, body: string, opts: { css?: string; head?: string; width?: number } = {}): string {
+  const w = opts.width ? `.scroll{--scroll-w:${opts.width}px}` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}${opts.head ?? ""}<title>${title}</title><style>${SCROLL_CSS}${w}${opts.css ?? ""}</style></head><body>${scrollOpen()}${body}${scrollClose}</body></html>`;
+}
+
+/** Ledger-style tables, search boxes, stat tiles and member lists shared by the
+ * roster, bestiary, maps and operator pages. */
+export const LEDGER_CSS = `[hidden]{display:none!important}
+.lede{margin-top:0}.small{font-size:.86rem}
+.search{width:100%;margin:14px 0 4px;padding:11px 14px}
+select{padding:10px}
+.controls{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 8px}.controls .search{flex:1 1 260px;width:auto;margin:0}
+.table-wrap{overflow-x:auto;border:1px solid var(--edge);border-radius:6px;background:#fbf4e2;box-shadow:0 3px 10px #6b44182b}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #e0cb9c;vertical-align:top;color:var(--ink-2)}
+th{font:700 .72rem var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--seal-dk);background:#ecdcb6;border-bottom:2px solid var(--rule);white-space:nowrap}
+tbody tr:nth-child(even){background:#f6ecd4}tbody tr:hover{background:#efe0bc}tbody tr:last-child td{border-bottom:0}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}
+.stat{background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-radius:6px;padding:10px 18px;color:var(--ink-3);font-size:.92rem}
+.stat b{display:block;font:700 1.5rem var(--display);color:var(--seal-dk)}
+.badge{display:inline-block;border:1px solid var(--edge);border-radius:999px;padding:0 9px;font-size:.8rem;color:var(--ink-3);background:#efe0bc}
+.badge.learned{border-color:#9fb27e;color:var(--ok);background:var(--ok-bg)}
+.members,.list{list-style:none;padding:0;margin:10px 0 0}
+.members li,.list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+.members li:last-child,.list li:last-child{border-bottom:0}
+.who{font-weight:600}
+.hpbar{height:12px;background:#e3cfa3;border:1px solid var(--edge);border-radius:6px;overflow:hidden;margin:10px 0 4px}
+.hpbar span{display:block;height:100%;background:linear-gradient(180deg,#b2402a,var(--seal-dk))}
+.slain .hpbar span{background:#8a7a66}`;

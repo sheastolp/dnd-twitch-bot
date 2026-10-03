@@ -7,17 +7,31 @@ import type { MapRow, MapToken, PartyRosterEntry } from "./db.ts";
 import { MAP_TEMPLATES, TERRAINS, tokenColor } from "./maps.ts";
 import { formatCoins } from "./coins.ts";
 import type { RaidRosterStatus } from "./raid.ts";
+import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 export { page } from "./page_shell.ts";
 
 export function renderCharacterPage(c: Character) {
-  const statLine = abilityNames
-    .map(
-      (a) =>
-        `<li><strong>${a}</strong> ${c.scores[a]} (${modifier(c.scores[a]) >= 0 ? "+" : ""}${modifier(c.scores[a])})</li>`,
-    )
+  const abilities = abilityNames
+    .map((a) => {
+      const m = modifier(c.scores[a]);
+      return `<div class="ability"><span class="ab-name">${a}</span><span class="ab-mod">${m >= 0 ? "+" : ""}${m}</span><span class="ab-score">${c.scores[a]}</span></div>`;
+    })
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(c.username)}'s Character</title><style>body{font-family:sans-serif;max-width:600px;margin:40px auto;background:#1a1a1a;color:#eee;padding:20px;border-radius:8px}h1{color:#ffd700}ul{list-style:none;padding:0}li{padding:4px 0;border-bottom:1px solid #333}</style></head><body><h1>${escapeHtml(c.username)}</h1><p>Level ${c.level} ${escapeHtml(formatRaceName(c.race, c.subrace))} ${escapeHtml(c.cls)}</p><p>HP: ${c.hpCurrent}/${c.hpMax} &nbsp;|&nbsp; Speed: ${c.speed} ft &nbsp;|&nbsp; Proficiency: +${c.proficiency}</p><ul>${statLine}</ul><p><strong>Traits:</strong> ${c.traits.map(escapeHtml).join(", ")}</p>${c.items?.length ? `<p><strong>Gear:</strong> ${c.items.map(escapeHtml).join(", ")}</p>` : ""}</body></html>`;
+  const name = escapeHtml(c.username);
+  return scrollDoc(
+    `${name}'s Character`,
+    `<span class="pill">Adventurer's sheet</span><h1>${name}</h1><p class="intro">Level ${c.level} ${escapeHtml(formatRaceName(c.race, c.subrace))} ${escapeHtml(c.cls)}</p>
+<div class="stats"><div class="stat"><b>${c.hpCurrent}/${c.hpMax}</b>Hit points</div><div class="stat"><b>${c.speed} ft</b>Speed</div><div class="stat"><b>+${c.proficiency}</b>Proficiency</div></div>
+<h2>Ability scores</h2><div class="abilities">${abilities}</div>
+<h2>Traits</h2><p>${c.traits.length ? c.traits.map(escapeHtml).join(" · ") : `<span class="muted">None recorded.</span>`}</p>
+${c.items?.length ? `<h2>Gear</h2><p>${c.items.map(escapeHtml).join(" · ")}</p>` : ""}
+<p class="colophon muted">Kept by GuildScribe · <a href="/guide">Guild Codex</a></p>`,
+    {
+      width: 680,
+      css: `${LEDGER_CSS}.intro{font-style:italic;font-size:1.15rem;margin-top:0}.abilities{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}@media(max-width:560px){.abilities{grid-template-columns:repeat(3,1fr);row-gap:20px}}.ability{display:flex;flex-direction:column;align-items:center;background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-radius:8px;padding:10px 6px 0;box-shadow:0 3px 8px #6b441826}.ab-name{font:700 .72rem var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}.ab-mod{font:700 1.7rem var(--display);color:var(--seal-dk);line-height:1.3}.ab-score{margin:4px 0 -12px;min-width:38px;text-align:center;background:var(--parch);border:1px solid var(--edge);border-radius:999px;font-weight:600;font-size:.9rem;color:var(--ink)}.abilities{margin-bottom:22px}`,
+    },
+  );
 }
 
 // Not currently wired to any route — the activity log is only exposed via
@@ -32,7 +46,7 @@ export function renderLogsPage(rows: any[]) {
         `<tr><td>${escapeHtml(new Date(Number(r.created_at)).toLocaleString())}</td><td>${escapeHtml(r.username || "unknown")}</td><td>${escapeHtml(r.broadcaster_id || "")}</td><td><code>${escapeHtml(r.action || "")}</code></td><td>${escapeHtml(r.detail || "")}</td></tr>`,
     )
     .join("");
-  return `<h1>GuildScribe Activity Logs</h1><p>Recent bot activity with timestamps, Twitch usernames, channels, and command details.</p><p><a href="/guide">Back to guide</a> · <a href="/">Bot home</a></p><style>body{max-width:1100px!important}table{width:100%;border-collapse:collapse;background:#211b16}th,td{padding:10px;border:1px solid #684632;text-align:left;vertical-align:top}th{color:#e6a56e}td{color:#d6c6b5;font-size:.9rem}code{color:#f0c39e}@media(max-width:700px){table{font-size:.78rem}th,td{padding:6px}}</style><div style="overflow:auto"><table><thead><tr><th>Timestamp</th><th>Username</th><th>Channel ID</th><th>Action</th><th>Details</th></tr></thead><tbody>${lines || `<tr><td colspan="5">No activity recorded yet.</td></tr>`}</tbody></table></div>`;
+  return `<h1>GuildScribe Activity Logs</h1><p>Recent bot activity with timestamps, Twitch usernames, channels, and command details.</p><p><a href="/guide">Back to guide</a> · <a href="/">Bot home</a></p><style>${LEDGER_CSS}</style><div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>Username</th><th>Channel ID</th><th>Action</th><th>Details</th></tr></thead><tbody>${lines || `<tr><td colspan="5">No activity recorded yet.</td></tr>`}</tbody></table></div>`;
 }
 
 // Operator-only page body for GET /admin/logs (main.ts wraps this in its own
@@ -72,11 +86,11 @@ export function renderAdminLogsPage(d: AdminLogsData): string {
 
   return `<h1>GuildScribe Operator Logs</h1>
   <p><a href="/guide">Guild Codex</a> · <a href="/">Bot home</a></p>
-  <style>body{max-width:1100px!important}table{width:100%;border-collapse:collapse;background:#211b16;margin:10px 0 24px}th,td{padding:10px;border:1px solid #684632;text-align:left;vertical-align:top}th{color:#e6a56e}td{color:#d6c6b5;font-size:.9rem}code{color:#f0c39e}form.filter{margin:10px 0}input[type=text]{background:#0e0d0c;color:#f4eadb;border:1px solid #453626;border-radius:6px;padding:6px 10px}button{background:#9147ff;color:#fff;border:0;border-radius:6px;padding:6px 14px}@media(max-width:700px){table{font-size:.78rem}th,td{padding:6px}}</style>
+  <style>.table-wrap{margin:10px 0 24px}form.filter{margin:10px 0;display:flex;flex-wrap:wrap;gap:10px;align-items:center}form.filter label{display:flex;gap:8px;align-items:center}td{font-size:.92rem}</style>
   <h2>Merchant cron</h2>
   <p>${statusLine}</p>
   <h2>Per-channel merchant overview</h2>
-  <div style="overflow:auto"><table><thead><tr><th>Channel</th><th>Market</th><th>Next post due</th></tr></thead><tbody>${overviewRows || `<tr><td colspan="3">No connected channels.</td></tr>`}</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>Channel</th><th>Market</th><th>Next post due</th></tr></thead><tbody>${overviewRows || `<tr><td colspan="3">No connected channels.</td></tr>`}</tbody></table></div>
   <h2>Recent events</h2>
   <form class="filter" method="get" action="/admin/logs">
     <input type="hidden" name="key" value="${escapeHtml(d.key)}">
@@ -84,7 +98,7 @@ export function renderAdminLogsPage(d: AdminLogsData): string {
     <button type="submit">Filter</button>
     ${d.kindFilter ? `<a href="/admin/logs?key=${encodeURIComponent(d.key)}">Clear</a>` : ""}
   </form>
-  <div style="overflow:auto"><table><thead><tr><th>Timestamp</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${eventRows || `<tr><td colspan="3">No events recorded yet.</td></tr>`}</tbody></table></div>`;
+  <div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>Kind</th><th>Detail</th></tr></thead><tbody>${eventRows || `<tr><td colspan="3">No events recorded yet.</td></tr>`}</tbody></table></div>`;
 }
 
 export { renderGuidePage } from "./guide.ts";
@@ -111,23 +125,27 @@ export function renderMapPage(map: MapRow, cells: Record<string, string>, tokens
     .map(([k, v]) => `<span class="legend-item"><span class="swatch" style="background:${v.color}"></span>${escapeHtml(v.label)}${v.blocksMovement ? " 🚫" : ""}</span>`)
     .join("");
   const roster = tokens.length
-    ? `<ul class="roster">${tokens
+    ? `<ul class="list">${tokens
         .map((t) => `<li><span class="dot" style="background:${tokenColor(t.username)}"></span>${escapeHtml(t.display_name || t.username)} — (${t.x},${t.y})</li>`)
         .join("")}</ul>`
     : `<p class="muted">No characters placed yet. In chat: <code>!map addchar ${escapeHtml(map.map_name)}</code></p>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="15"><title>${escapeHtml(map.map_name)} — GuildScribe Map</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:900px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}h1{color:#e6a56e;margin-bottom:4px}a{color:#e6a56e}.muted{color:#aa9b8d;font-size:.9rem}.map-wrap{overflow:auto;border:1px solid #684632;border-radius:10px;padding:14px;background:#0e0d0c;margin:18px 0}.map-grid{display:grid;grid-template-columns:repeat(${map.width},${cellPx}px);grid-auto-rows:${cellPx}px;gap:2px;width:fit-content}.cell{position:relative;border-radius:3px;box-shadow:inset 0 0 0 1px #0006}.token{position:absolute;inset:3px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 .62rem ui-monospace,monospace;color:#15120f;box-shadow:0 0 0 2px #15120f}.legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin:14px 0}.legend-item{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:#d6c6b5}.swatch{width:14px;height:14px;border-radius:3px;display:inline-block;box-shadow:inset 0 0 0 1px #0006}.roster{list-style:none;padding:0}.roster li{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #2a231c}.dot{width:12px;height:12px;border-radius:50%;display:inline-block}code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}</style></head><body><p class="muted"><a href="${baseUrl}/maps?channel=${map.broadcaster_id}">← All maps</a></p><h1>🗺️ ${escapeHtml(map.map_name)}</h1><p class="muted">${map.width}×${map.height} — updated ${escapeHtml(new Date(map.updated_at).toLocaleString())}. This page auto-refreshes every 15s.</p><div class="map-wrap"><div class="map-grid">${gridCells}</div></div><div class="legend">${legend}</div><h2 style="color:#e6a56e">Characters on this map</h2>${roster}<p class="muted">Edit from Twitch chat: <code>!map paint ${escapeHtml(map.map_name)} x y terrain</code> · <code>!map addchar ${escapeHtml(map.map_name)}</code> · <code>!map move ${escapeHtml(map.map_name)} x y</code> · <code>!map removechar ${escapeHtml(map.map_name)}</code> · full list: <code>!dndbothelp maps</code></p></body></html>`;
+  return scrollDoc(`${escapeHtml(map.map_name)} — GuildScribe Map`, `<p class="muted"><a href="${baseUrl}/maps?channel=${map.broadcaster_id}">← All maps</a></p><h1>${escapeHtml(map.map_name)}</h1><p class="muted">${map.width}×${map.height} — updated ${escapeHtml(new Date(map.updated_at).toLocaleString())}. This page auto-refreshes every 15s.</p><div class="map-wrap"><div class="map-grid">${gridCells}</div></div><div class="legend">${legend}</div><h2>Characters on this map</h2>${roster}<p class="muted">Edit from Twitch chat: <code>!map paint ${escapeHtml(map.map_name)} x y terrain</code> · <code>!map addchar ${escapeHtml(map.map_name)}</code> · <code>!map move ${escapeHtml(map.map_name)} x y</code> · <code>!map removechar ${escapeHtml(map.map_name)}</code> · full list: <code>!dndbothelp maps</code></p>`, {
+    width: 960,
+    head: `<meta http-equiv="refresh" content="15">`,
+    css: `${LEDGER_CSS}.map-wrap{overflow:auto;width:fit-content;max-width:100%;border:1px solid var(--edge);border-radius:6px;padding:14px;background:#2b1d12;margin:18px 0;box-shadow:inset 0 0 20px #0008,0 3px 10px #6b44182b}.map-grid{display:grid;grid-template-columns:repeat(${map.width},${cellPx}px);grid-auto-rows:${cellPx}px;gap:2px;width:fit-content}.cell{position:relative;border-radius:3px;box-shadow:inset 0 0 0 1px #0006}.token{position:absolute;inset:3px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 .62rem var(--mono);color:#15120f;box-shadow:0 0 0 2px #15120f}.legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin:14px 0}.legend-item{display:inline-flex;align-items:center;gap:6px;font-size:.9rem;color:var(--ink-2)}.swatch{width:14px;height:14px;border-radius:3px;display:inline-block;box-shadow:inset 0 0 0 1px #0006}.list li{align-items:center}.dot{width:12px;height:12px;border-radius:50%;display:inline-block;box-shadow:0 0 0 1px #0005}`,
+  });
 }
 
 export function renderMapListPage(maps: MapRow[], broadcasterId: string, baseUrl: string) {
   const items = maps.length
-    ? `<ul class="roster">${maps
+    ? `<ul class="list">${maps
         .map(
           (m) =>
             `<li><a href="${baseUrl}/map?channel=${broadcasterId}&map=${encodeURIComponent(m.map_name)}">${escapeHtml(m.map_name)}</a> <span class="muted">(${m.width}×${m.height})</span></li>`,
         )
         .join("")}</ul>`
     : `<p class="muted">No maps yet. In chat, a moderator can start one with <code>!map create &lt;name&gt; [WxH]</code>.</p>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Maps — GuildScribe</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:700px;margin:40px auto;background:#15120f;color:#f4eadb;padding:20px}h1{color:#e6a56e}a{color:#e6a56e;text-decoration:underline}.muted{color:#aa9b8d;font-size:.9rem}.roster{list-style:none;padding:0}.roster li{padding:8px 0;border-bottom:1px solid #2a231c}code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}</style></head><body><h1>🗺️ Maps in this channel</h1>${items}<p class="muted">See <code>!dndbothelp maps</code> in chat for the full command list.</p></body></html>`;
+  return scrollDoc("Maps — GuildScribe", `<span class="pill">Battle maps</span><h1>Maps in this channel</h1>${items}<p class="muted">See <code>!dndbothelp maps</code> in chat for the full command list.</p>`, { width: 720, css: LEDGER_CSS });
 }
 
 // ── Roster: every character + every party (see GET /roster in main.ts and
@@ -205,7 +223,7 @@ export function renderRosterPage(
     const top = raid.contributors.length
       ? `<p class="muted">Top damage: ${raid.contributors.map((c) => `${escapeHtml(c.name)} ${c.damage}`).join(", ")}</p>`
       : "";
-    return `<h2>🐉 Raid quest</h2><section class="card raid${raid.slain ? " slain" : ""}"><h3>${escapeHtml(raid.monster)}${raid.slain ? " — 🏆 slain" : ""}</h3>` +
+    return `<h2>Raid quest</h2><section class="card raid${raid.slain ? " slain" : ""}"><h3>${escapeHtml(raid.monster)}${raid.slain ? " — 🏆 slain" : ""}</h3>` +
       `<p class="muted">CR ${escapeHtml(raid.cr)} · AC ${raid.ac} · ${raid.raids} raid${raid.raids === 1 ? "" : "s"} so far</p>` +
       `<div class="hpbar" role="img" aria-label="Boss HP ${raid.hp} of ${raid.hpMax}"><span style="width:${pct}%"></span></div>` +
       `<p><strong>HP ${raid.hp}/${raid.hpMax}</strong> (${pct}%)</p><p>${escapeHtml(raid.state)}</p>${top}</section>`;
@@ -214,7 +232,7 @@ export function renderRosterPage(
   const note = truncated ? `<p class="muted">Showing the first ${characters.length} adventurers by level.</p>` : "";
   const name = escapeHtml(channelName);
 
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${name} — Guild Roster</title><style>:root{color-scheme:dark}[hidden]{display:none!important}body{font-family:Georgia,serif;max-width:1000px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px;line-height:1.5}h1{color:#e6a56e;margin-bottom:4px}h2{color:#e6a56e;border-bottom:1px solid #684632;padding-bottom:8px;margin-top:34px}h3{color:#f0c39e;margin:0 0 2px}a{color:#e6a56e}.muted{color:#aa9b8d;font-size:.9rem}.search{width:100%;box-sizing:border-box;background:#0e0d0c;color:#f4eadb;border:1px solid #684632;border-radius:8px;padding:12px 14px;font:inherit;margin:14px 0 4px}.search:focus{outline:2px solid #e6a56e}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}.card{background:#211b16;border:1px solid #684632;border-radius:10px;padding:16px 18px;box-shadow:0 10px 24px #0005}.members{list-style:none;padding:0;margin:10px 0 0}.members li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:6px 0;border-bottom:1px solid #2a231c}.members li:last-child{border-bottom:0}.who{font-weight:700}.crown{margin-right:-4px}.table-wrap{overflow-x:auto;border:1px solid #684632;border-radius:10px;background:#0e0d0c}table{width:100%;border-collapse:collapse;min-width:560px}th,td{text-align:left;padding:9px 12px;border-bottom:1px solid #2a231c}th{color:#e6a56e;font-size:.82rem;text-transform:uppercase;letter-spacing:.06em;background:#1b1612}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:#1b1612}.num{text-align:right;font-variant-numeric:tabular-nums}code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}.hpbar{height:12px;background:#0e0d0c;border:1px solid #684632;border-radius:6px;overflow:hidden;margin:10px 0 4px}.hpbar span{display:block;height:100%;background:#b8432f}.raid.slain .hpbar span{background:#555}@media(max-width:600px){body{margin:16px auto;padding:14px}}</style></head><body><h1>📜 ${name} — Guild Roster</h1><p class="muted">${characters.length} adventurer${characters.length === 1 ? "" : "s"} · ${parties.length} part${parties.length === 1 ? "y" : "ies"}. Click a name to open their character sheet.</p><input id="q" class="search" type="search" placeholder="Search adventurers, races, classes, parties…" autocomplete="off" aria-label="Search the roster"><p id="nomatch" class="muted" hidden>No adventurers or parties match that search.</p>${raidSection}<h2>🛡️ Parties</h2><div class="grid">${partyCards}</div><h2>⚔️ Adventurers</h2>${note}${charTable}<p class="muted" style="margin-top:28px">Join in from Twitch chat: <code>!createchar</code> · <code>!party create &lt;name&gt;</code> · <code>!party join &lt;name&gt;</code> · full list: <a href="${baseUrl}/guide">Guild Codex</a></p><script>(function(){var q=document.getElementById("q"),none=document.getElementById("nomatch"),items=document.querySelectorAll("[data-search]");if(!q)return;q.addEventListener("input",function(){var t=q.value.trim().toLowerCase(),shown=0;items.forEach(function(el){var hit=!t||el.getAttribute("data-search").indexOf(t)!==-1;el.hidden=!hit;if(hit)shown++});none.hidden=!t||shown>0})})();</script></body></html>`;
+  return scrollDoc(`${name} — Guild Roster`, `<span class="pill">Guild roster</span><h1>${name}</h1><p class="muted">${characters.length} adventurer${characters.length === 1 ? "" : "s"} · ${parties.length} part${parties.length === 1 ? "y" : "ies"}. Click a name to open their character sheet.</p><input id="q" class="search" type="search" placeholder="Search adventurers, races, classes, parties…" autocomplete="off" aria-label="Search the roster"><p id="nomatch" class="muted" hidden>No adventurers or parties match that search.</p>${raidSection}<h2>Parties</h2><div class="grid">${partyCards}</div><h2>Adventurers</h2>${note}${charTable}<p class="muted colophon">Join in from Twitch chat: <code>!createchar</code> · <code>!party create &lt;name&gt;</code> · <code>!party join &lt;name&gt;</code> · full list: <a href="${baseUrl}/guide">Guild Codex</a></p><script>(function(){var q=document.getElementById("q"),none=document.getElementById("nomatch"),items=document.querySelectorAll("[data-search]");if(!q)return;q.addEventListener("input",function(){var t=q.value.trim().toLowerCase(),shown=0;items.forEach(function(el){var hit=!t||el.getAttribute("data-search").indexOf(t)!==-1;el.hidden=!hit;if(hit)shown++});none.hidden=!t||shown>0})})();</script>`, { width: 1040, css: `${LEDGER_CSS}table{min-width:560px}.card h3{margin-bottom:2px}.crown{margin-right:-4px}` });
 }
 
 // The web dashboard page lives in dashboard_page.ts (size ceiling).

@@ -12,6 +12,7 @@
 // share one channel page. Content older than REPLY_PAGE_TTL_MS is cleared
 // and the page says so, but the link itself is kept for the next reply.
 
+import { scrollDoc } from "./scroll_theme.ts";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 
@@ -109,17 +110,17 @@ export async function handleReplyPageRoute(req: Request, path: string): Promise<
   const row: any = res.rows[0];
   const html = (status: number, title: string, body: string) =>
     new Response(
-      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)} — GuildScribe</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:760px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px;line-height:1.55}h1{color:#e6a56e;font-size:1.4rem}.summary{background:#211b16;border:1px solid #684632;border-radius:10px;padding:14px 16px}.log{list-style:none;padding:0;margin:20px 0}.log li{padding:7px 0;border-bottom:1px solid #2a231c}.log li:last-child{border-bottom:0}.muted{color:#aa9b8d;font-size:.9rem}a{color:#e6a56e}@media(max-width:600px){body{margin:16px auto;padding:14px}}</style></head><body>${body}</body></html>`,
+      scrollDoc(`${esc(title)} — GuildScribe`, body, { width: 780, css: `.summary{background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-left:4px solid var(--seal);border-radius:5px;padding:14px 16px;color:var(--ink)}.log{list-style:none;padding:0;margin:20px 0}.log li{padding:8px 0;border-bottom:1px dotted var(--rule);color:var(--ink-2)}.log li:last-child{border-bottom:0}h1{font-size:1.6rem}` }),
       { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
-  if (!row) return html(404, "Not found", `<h1>📜 No such scroll</h1><p class="muted">This link doesn't exist.</p>`);
+  if (!row) return html(404, "Not found", `<h1>No such scroll</h1><p class="muted">This link doesn't exist.</p>`);
   const who = row.owner_key === CHANNEL_OWNER ? "the channel" : esc(String(row.owner_name || row.owner_key));
   const fresh = row.detail && Number(row.updated_at) >= Date.now() - REPLY_PAGE_TTL_MS;
   if (!fresh) {
     return html(
       200,
       "Latest full reply",
-      `<h1>📜 Latest full reply for ${who}</h1><p class="muted">Nothing from the last 24 hours. This link stays the same — the next long reply will show up here.</p>`,
+      `<span class="pill">Full reply</span><h1>Latest full reply for ${who}</h1><p class="muted">Nothing from the last 24 hours. This link stays the same — the next long reply will show up here.</p>`,
     );
   }
   const when = new Date(Number(row.updated_at)).toISOString().replace("T", " ").slice(0, 16) + " UTC";
@@ -127,6 +128,6 @@ export async function handleReplyPageRoute(req: Request, path: string): Promise<
   return html(
     200,
     "Latest full reply",
-    `<h1>📜 Latest full reply for ${who}</h1><p class="summary">${esc(String(row.summary))}</p><ul class="log">${lines}</ul><p class="muted">Posted ${when} · this link always shows the latest one · replies are kept for 24 hours.</p>`,
+    `<span class="pill">Full reply</span><h1>Latest full reply for ${who}</h1><p class="summary">${esc(String(row.summary))}</p><ul class="log">${lines}</ul><p class="muted">Posted ${when} · this link always shows the latest one · replies are kept for 24 hours.</p>`,
   );
 }

@@ -5,6 +5,7 @@
 // through textContent, never innerHTML.
 
 import { escapeHtml } from "./utils.ts";
+import { scrollDoc } from "./scroll_theme.ts";
 
 /** Every overlay panel: what it shows and a sensible OBS browser-source size. */
 export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; width: number; height: number }> = {
@@ -184,24 +185,23 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
     const previewH = Math.min(p.height, 360);
     return `<section class="ov"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p><div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="height:${previewH}px"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
   }).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OBS Overlays · ${escapeHtml(channelName)}</title><style>
-:root{color-scheme:dark}body{margin:0 auto;max-width:1100px;padding:28px 16px;background:#15120f;color:#f4eadb;font-family:Georgia,serif;line-height:1.5}
-h1{margin:0 0 4px;font-size:2.4rem}h2{margin:0;color:#e6a56e;font-size:1.2rem}p{color:#d6c6b5;margin:6px 0 10px}a{color:#e6a56e}code{font-family:ui-monospace,monospace}
-.note{background:#211b16;border:1px solid #684632;border-left:4px solid #b97545;border-radius:8px;padding:12px 16px;margin:18px 0}
-.note ol{margin:6px 0 0;padding-left:1.3em}.note li{margin:3px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
-.ov{background:#211b16;border:1px solid #684632;border-radius:10px;padding:16px;min-width:0}
-.head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem ui-monospace,monospace;color:#aa9b8d;white-space:nowrap}
-.url{display:flex;gap:8px;align-items:stretch}.url code{flex:1;min-width:0;background:#0e0d0c;border-left:3px solid #b97545;padding:8px 10px;font-size:.8rem;overflow-wrap:anywhere;color:#f0c39e}
-button{background:#b97545;color:#15120f;border:1px solid #e6a56e;border-radius:6px;padding:0 14px;font:700 .85rem ui-monospace,monospace;cursor:pointer}button:hover{background:#e6a56e}
-.preview{margin-top:10px;border-radius:8px;overflow:hidden;border:1px solid #684632;background:repeating-conic-gradient(#2a2420 0 25%,#1d1915 0 50%) 0 0/24px 24px}
-.preview iframe{width:100%;height:100%;border:0;background:transparent;color-scheme:normal}
-</style></head><body>
-<h1>OBS overlays</h1><p>${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
+  return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
+<span class="pill">Stream overlays</span><h1>OBS overlays</h1><p class="intro">${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
 <div class="note"><strong>Adding one to OBS</strong><ol><li>In OBS, add a <strong>Browser</strong> source to your scene.</li><li>Paste an overlay URL below and set the width/height shown next to it.</li><li>Leave the background transparent (OBS's default custom CSS is fine). Panels refresh on their own every few seconds.</li></ol>
 <p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;align=right</code> or <code>center</code>, <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning). Panels for features you've switched off on your dashboard stay hidden.</p></div>
 <div class="grid">${cards}</div>
-<p style="margin-top:24px"><a href="${escapeHtml(baseUrl)}/roster?channel=${encodeURIComponent(channelId)}">Guild roster</a> · <a href="${escapeHtml(baseUrl)}/guide">Guild Codex</a></p>
+<p class="colophon"><a href="${escapeHtml(baseUrl)}/roster?channel=${encodeURIComponent(channelId)}">Guild roster</a> · <a href="${escapeHtml(baseUrl)}/guide">Guild Codex</a></p>
 <script>document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied!";}catch(_){b.textContent="Select & copy";}setTimeout(()=>{b.textContent="Copy"},1500);});</script>
-</body></html>`;
+`, {
+    width: 1140,
+    css: `.intro{font-style:italic;font-size:1.15rem;margin-top:0}.note ol{margin:6px 0 0;padding-left:1.3em}.note li{margin:3px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
+.ov{background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-radius:6px;padding:16px 18px;min-width:0;box-shadow:0 3px 10px #6b44182b}
+.ov h2{margin:0;padding:0;border:0;font-size:1.1rem}.ov h2::before{content:none}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
+.url{display:flex;gap:8px;align-items:stretch}.url code{flex:1;min-width:0;background:#2b1d12;color:#f3dfb4;border:0;border-left:3px solid var(--seal);border-radius:3px;padding:8px 10px;font-size:.8rem}
+.url button{padding:0 14px}
+.preview{margin-top:10px;border-radius:5px;overflow:hidden;border:1px solid var(--edge);background:repeating-conic-gradient(#2a2420 0 25%,#1d1915 0 50%) 0 0/24px 24px}
+.preview iframe{width:100%;height:100%;border:0;background:transparent;color-scheme:normal}`,
+  });
 }

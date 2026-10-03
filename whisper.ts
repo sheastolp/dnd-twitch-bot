@@ -19,6 +19,7 @@
 // Twitch refuses a whisper, e.g. the viewer blocks whispers from strangers),
 // only the chat summary and link are sent.
 
+import { scrollDoc } from "./scroll_theme.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 
@@ -297,7 +298,7 @@ export async function handleBotConnectRoute(req: Request, url: URL, path: string
   if (req.method !== "GET") return null;
   const redirectUri = `${url.origin}/connect-bot/callback`;
   const html = (title: string, body: string, status = 200) =>
-    new Response(`<!doctype html><meta charset="utf-8"><title>${title}</title><p>${body}</p>`, {
+    new Response(scrollDoc(title, `<span class="pill">GuildScribe · Bot account</span><h1>${title}</h1><p>${body}</p>`, { width: 600 }), {
       status,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });

@@ -13,6 +13,7 @@
 // that's switched off never shows up on stream. `!overlays` (mod) posts the
 // setup link in chat.
 
+import { scrollDoc } from "./scroll_theme.ts";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getBroadcaster, getBroadcasterByLogin, getCommandGroupToggles, getDuel, getMonsterDuel, getPartyDuel, getPartyMonsterDuel, isMerchantEnabled, getMerchantListing, listChannelCharacters } from "./db.ts";
 import { isPointsEnabled, getTopBalances } from "./points_db.ts";
@@ -317,7 +318,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   if (!channel) {
     return html(
-      `<!doctype html><meta charset="utf-8"><title>Overlay unavailable</title><body style="font-family:Georgia,serif;background:#15120f;color:#f4eadb;padding:32px"><h1>Overlay unavailable</h1><p>Add <code>?channel=&lt;your Twitch login&gt;</code> to the URL. The channel must be connected to GuildScribe.</p></body>`,
+      scrollDoc("Overlay unavailable", `<h1>Overlay unavailable</h1><p>Add <code>?channel=&lt;your Twitch login&gt;</code> to the URL. The channel must be connected to GuildScribe.</p>`, { width: 600 }),
       404,
     );
   }
