@@ -258,8 +258,9 @@ async function handleRequest(req: Request): Promise<Response> {
       await maybeAutoBan(chatMessage, display, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
     ) return new Response("OK");
 
-    // Stay quiet in chat while the channel is offline — but let the
-    // broadcaster/mods keep using every command normally so they can test
+    // Stay quiet in chat while the channel is offline — but let mod+ (the
+    // broadcaster, lead moderators and moderators; see hasModeratorBadge in
+    // utils.ts) keep using every command normally so they can test
     // GuildScribe without going live. Ambient/scheduled sends that don't come
     // from a specific chat message (sub/raid thank-yous above, merchant ads
     // and timed messages in their own cron files) are gated the same way,

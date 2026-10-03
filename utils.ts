@@ -49,9 +49,15 @@ export function isBotAccount(username: string, userId: string, botUserId: string
   );
 }
 
+/** Chat badges that count as "mod or higher" everywhere the bot checks
+ * isModerator — including the offline-quiet gate in main.ts, so all of these
+ * can use every command while the stream is offline. Twitch's Lead Moderator
+ * role has its own badge (not "moderator"), so it must be listed explicitly. */
+const MOD_PLUS_BADGES = new Set(["broadcaster", "lead_moderator", "moderator"]);
+
 export function hasModeratorBadge(event: any) {
   const badges = [...(event?.badges ?? []), ...(event?.source_badges ?? [])];
-  return badges.some((badge: any) => badge.set_id === "moderator" || badge.set_id === "broadcaster");
+  return badges.some((badge: any) => MOD_PLUS_BADGES.has(String(badge?.set_id ?? "")));
 }
 
 export type CheckKind =
