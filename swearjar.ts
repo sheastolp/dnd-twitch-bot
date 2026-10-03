@@ -5,7 +5,7 @@
 // currency as the gold system (see coins.ts): every amount here is an integer
 // number of COPPER, shown as "1 gp 2 sp 3 cp".
 //
-//   !jar                 what's in the jar
+//   !jar                 what's in the jar, and when it was last given away
 //   !jar +<amount>       add to the jar by hand (anyone)        e.g. !jar +8, !jar +5sp
 //   !jar +<amount> @user fine someone (mod only): moves that much of THEIR
 //                        gold into the jar (whatever they can afford)
@@ -488,7 +488,13 @@ export async function handleJarCommand(
 
   if (!args) {
     const total = await getJarTotal(broadcasterId);
-    await sendChatMessage(`🫙 @${display} The swear jar holds ${formatCoins(total)}.`, broadcasterId);
+    const res = await sqlite.execute("SELECT last_at, winner, amount FROM swear_jar_giveaways WHERE broadcaster_id = ?", [broadcasterId]);
+    const last: any = res.rows[0];
+    const lastAt = Number(last?.last_at ?? 0);
+    const lastNote = lastAt > 0
+      ? ` Last giveaway was ${formatWait(Date.now() - lastAt)} ago${last?.winner ? ` — @${last.winner} won ${formatCoins(Number(last.amount ?? 0))}` : ""}.`
+      : " It has never been given away.";
+    await sendChatMessage(`🫙 @${display} The swear jar holds ${formatCoins(total)}.${lastNote}`, broadcasterId);
     return true;
   }
 

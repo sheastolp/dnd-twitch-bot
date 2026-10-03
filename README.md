@@ -285,7 +285,7 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!gold top [N]` / `!goldboard [N]` | Richest adventurers (default 5, max 10) |
 | `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
 | `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
-| `!jar` | **Swear jar:** shows the total. Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
+| `!jar` | **Swear jar:** shows the total, plus when the jar was last given away (who won and how much). Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
 | `!jar +<amount>` | Add coin to the jar by hand, e.g. `!jar +8`, `!jar +5sp` |
 | `!jar +<amount> @user` | Fine a viewer: moves that much of *their* gold (whatever they can afford) into the jar *(mod)* |
 | `!jar -<amount>` | Take coin out of the jar *(mod)* |
