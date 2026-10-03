@@ -5,9 +5,10 @@
 // when no route matched, so main.ts carries on to the EventSub webhook.
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
-import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed } from "./db.ts";
+import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
+import { getRaidRosterStatus } from "./raid.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
 import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo } from "./dashboard.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
@@ -256,17 +257,20 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const broadcaster = await getBroadcaster(channelId);
     if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Roster unavailable for this channel.", { status: 404 });
     const ROSTER_LIMIT = 1000;
-    const [fetched, parties, goldOn] = await Promise.all([
+    const [fetched, parties, goldOn, raidOn] = await Promise.all([
       listChannelCharacters(channelId, ROSTER_LIMIT + 1),
       listChannelParties(channelId),
       isPointsEnabled(channelId),
+      isCommandGroupEnabled(channelId, "raid"),
     ]);
+    // Raid card only while the channel has the raid quest switched on.
+    const raid = raidOn ? await getRaidRosterStatus(channelId) : null;
     // Gold column only while the channel has gold on (!gold on/off).
     const gold = goldOn ? await listChannelBalances(channelId) : undefined;
     const truncated = fetched.length > ROSTER_LIMIT;
     const characters = truncated ? fetched.slice(0, ROSTER_LIMIT) : fetched;
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
-    return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated, gold), {
+    return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated, gold, raid), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

@@ -404,6 +404,41 @@ async function payRaidRewards(broadcasterId: string, cr: string, contributors: R
   return `XP to every raider who struck it: ${xpNotes.join(", ") || "none"}.${loot}`;
 }
 
+/** What the /roster page shows about the raid quest; null when there's no
+ * quest this stream (none posted yet, or it expired with the stream). */
+export type RaidRosterStatus = {
+  monster: string; cr: string; ac: number; hp: number; hpMax: number; raids: number;
+  slain: boolean;
+  state: string; // muster / cooldown / ready, as plain text
+  contributors: Array<{ name: string; damage: number }>;
+};
+
+export async function getRaidRosterStatus(broadcasterId: string): Promise<RaidRosterStatus | null> {
+  const q = await getRaidQuest(broadcasterId);
+  if (!q || (q.status !== "active" && q.status !== "slain")) return null;
+  const slain = q.status === "slain";
+  let state = "Slain — a new raid quest goes up next stream.";
+  if (!slain) {
+    const members = parseJson<Member[]>(q.muster_members, []);
+    const wait = await raidWaitMs(q);
+    state = q.muster_ends_at
+      ? `Muster open (${musterText(members)}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
+      : wait > 0
+      ? `Raiders are recovering — the next raid can muster in ${waitText(wait)}.`
+      : "Ready — type !raid in chat to sound the war horn.";
+  }
+  const contributors = Object.entries(parseJson<Record<string, number>>(q.contributors, {}))
+    .filter(([, d]) => Number(d) > 0)
+    .map(([name, d]) => ({ name, damage: Number(d) }))
+    .sort((a, b) => b.damage - a.damage)
+    .slice(0, 10);
+  return {
+    monster: q.monster_name, cr: String(q.monster_cr), ac: q.monster_ac,
+    hp: Math.max(0, q.monster_hp), hpMax: q.monster_hp_max, raids: q.raids,
+    slain, state, contributors,
+  };
+}
+
 function musterText(members: Member[]): string {
   return `${members.length}/${RAID_PARTY_MAX}: ${members.map((m) => m.d).join(", ")}`;
 }
