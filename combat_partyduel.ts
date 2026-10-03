@@ -5,7 +5,7 @@
 import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel } from "./data.ts";
 import { combatStats, firstAlive } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
-import { acWhy, BattleLog, MONSTER_AC_WHY, simulateAttack } from "./battle.ts";
+import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
 import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -362,6 +362,11 @@ export async function handlePartyDuelCommand(
       let monsterHp = monster.hp;
       const hp = { ...memberHp };
       const battle = new BattleLog();
+      for (const n of livingMembers) battle.describe(fighterLine(n, chars[n], hp[n], 10));
+      battle.describe(
+        `${monster.name}: CR ${monster.cr}, ${monster.hp} HP (scaled ×${sizeScale.toFixed(2)} for a party of ${livingMembers.length}), AC ${monster.ac} (stat block), ` +
+          `attack d20 + ${monster.attack}, damage 1d${monster.die} + ${monster.bonus}; strikes one random standing member after each round of party attacks.`,
+      );
       let swings = 0;
       const maxSwings = 100;
       while (
@@ -373,15 +378,15 @@ export async function handlePartyDuelCommand(
         for (const n of livingMembers) {
           if (hp[n] <= 0 || monsterHp <= 0) continue;
           const stats = combatStats(chars[n]);
+          const ability = fightingAbility(chars[n]).name;
           const roll = 1 + Math.floor(Math.random() * 20);
           const total = roll + stats.mod + chars[n].proficiency;
           const critical = roll === 20;
           const hit = critical || (roll !== 1 && total >= monster.ac);
-          const dice = critical
-            ? 1 + Math.floor(Math.random() * 8) + 1 +
-              Math.floor(Math.random() * 8)
-            : 1 + Math.floor(Math.random() * 8);
+          const rolls = rollDice(critical ? 2 : 1, 8);
+          const dice = rolls.reduce((x, y) => x + y, 0);
           const damage = hit ? Math.max(1, dice + stats.mod) : 0;
+          const monsterHpBefore = monsterHp;
           if (hit) monsterHp = Math.max(0, monsterHp - damage);
           battle.strike({
             actor: n,
@@ -396,6 +401,11 @@ export async function handlePartyDuelCommand(
             targetHp: monsterHp,
             targetMax: monster.hp,
             acWhy: MONSTER_AC_WHY,
+            atk: [[ability, stats.mod], ["proficiency", chars[n].proficiency]],
+            dmgDice: hit ? rolls : undefined,
+            dmgDie: 8,
+            dmgMods: [[ability, stats.mod]],
+            hpBefore: monsterHpBefore,
           });
         }
         if (monsterHp <= 0) break;
@@ -409,6 +419,7 @@ export async function handlePartyDuelCommand(
         const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
         const mDice = 1 + Math.floor(Math.random() * monster.die);
         const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
+        const victimHpBefore = hp[victim];
         if (mHit) hp[victim] = Math.max(0, hp[victim] - mDamage);
         battle.strike({
           actor: monster.name,
@@ -422,7 +433,12 @@ export async function handlePartyDuelCommand(
           damage: mDamage,
           targetHp: hp[victim],
           targetMax: Number(chars[victim].hpMax ?? memberHp[victim] ?? 0),
-          acWhy: acWhy(10, vStats.mod, chars[victim].proficiency),
+          acWhy: heroAcWhy(10, chars[victim]),
+          atk: [["attack bonus", monster.attack]],
+          dmgDice: mHit ? [mDice] : undefined,
+          dmgDie: monster.die,
+          dmgMods: [["bonus", monster.bonus]],
+          hpBefore: victimHpBefore,
         });
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
@@ -460,7 +476,7 @@ export async function handlePartyDuelCommand(
         msg,
         broadcasterId,
         {
-          detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
+          detail: msg.replace(shownLog, battle.renderDetailed()),
           names: livingMembers,
           summary: fightSummary({
             fighter: `party ${partyName}`,
@@ -610,6 +626,8 @@ export async function handlePartyDuelCommand(
     // Auto-resolve party duel. One round = each side's front-line fighter
     // (first member still standing) swings once, challenger first.
     const battle = new BattleLog();
+    for (const n of attackers) battle.describe(`[${challenge.challenger_party}] ${fighterLine(n, aChars[n], aHp[n], 10)}`);
+    for (const n of defenders) battle.describe(`[${challenge.defender_party}] ${fighterLine(n, dChars[n], dHp[n], 10)}`);
     let rounds = 0;
     const maxRounds = 40; // 80 swings, same cap as before
     while (
@@ -662,7 +680,7 @@ export async function handlePartyDuelCommand(
       msg,
       broadcasterId,
       {
-        detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
+        detail: msg.replace(shownLog, battle.renderDetailed()),
         names: [...attackers, ...defenders],
         summary: fightSummary({
           fighter: `party ${challenge.challenger_party}`,

@@ -246,7 +246,7 @@ export async function handleMonsterDuelCommand(
       msg,
       broadcasterId,
       {
-        detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
+        detail: msg.replace(shownLog, battle.renderDetailed()),
         names: [username],
         summary: fightSummary({ fighter: display, enemy: monster.name, outcome: won ? `${display} wins!` : `${monster.name} wins.`, loot }),
       },

@@ -29,7 +29,7 @@
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
-import { acWhy, BattleLog, MONSTER_AC_WHY } from "./battle.ts";
+import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { monsterLootCopper, splitLoot } from "./loot.ts";
 import { adjustBalance, isPointsEnabled } from "./points_db.ts";
@@ -261,6 +261,11 @@ export function simulateRaidFight(
   const battle = new BattleLog();
   const bossAttacks = 1 + Math.floor(heroes.length / 2);
   const d = (sides: number) => 1 + Math.floor(Math.random() * sides);
+  for (const h of heroes) battle.describe(fighterLine(h.name, h.c, h.c.hpMax, 11, { die: 10, edge: 1 }));
+  battle.describe(
+    `${boss.name}: ${bossHpStart}/${boss.hpMax} HP going in, AC ${boss.ac} (stat block), attack d20 + ${boss.attack}, damage 1d${boss.die} + ${boss.bonus}; ` +
+      `strikes back ${bossAttacks} time${bossAttacks === 1 ? "" : "s"} a round (1 + a legendary action for every 2nd raider).`,
+  );
   let slayer: string | null = null;
 
   for (let round = 0; round < maxRounds && bossHp > 0 && heroes.some((h) => hp[h.name] > 0); round++) {
@@ -268,11 +273,14 @@ export function simulateRaidFight(
     for (const h of heroes) {
       if (hp[h.name] <= 0 || bossHp <= 0) continue;
       const s = combatStats(h.c);
+      const ability = fightingAbility(h.c).name;
       const roll = d(20);
       const total = roll + s.mod + h.c.proficiency + 1; // same +1 to-hit as solo monster fights
       const crit = roll === 20;
       const hit = crit || (roll !== 1 && total >= boss.ac);
-      const dmg = hit ? Math.max(1, (crit ? d(10) + d(10) : d(10)) + s.mod + 1) : 0;
+      const rolls = rollDice(crit ? 2 : 1, 10);
+      const dmg = hit ? Math.max(1, rolls.reduce((x, y) => x + y, 0) + s.mod + 1) : 0;
+      const bossHpBefore = bossHp;
       if (hit) {
         const dealt = Math.min(bossHp, dmg);
         bossHp -= dealt;
@@ -282,6 +290,9 @@ export function simulateRaidFight(
       battle.strike({
         actor: h.name, target: boss.name, hit, crit, fumble: roll === 1, roll, total, ac: boss.ac,
         damage: dmg, targetHp: bossHp, targetMax: boss.hpMax, acWhy: MONSTER_AC_WHY,
+        atk: [[ability, s.mod], ["proficiency", h.c.proficiency], ["hunter's edge", 1]],
+        dmgDice: hit ? rolls : undefined, dmgDie: 10, dmgMods: [[ability, s.mod], ["hunter's edge", 1]],
+        hpBefore: bossHpBefore,
       });
     }
     for (let a = 0; a < bossAttacks && bossHp > 0; a++) {
@@ -293,11 +304,16 @@ export function simulateRaidFight(
       const roll = d(20);
       const total = roll + boss.attack;
       const hit = roll !== 1 && (roll === 20 || total >= ac);
-      const dmg = hit ? Math.max(1, (roll === 20 ? d(boss.die) + d(boss.die) : d(boss.die)) + boss.bonus) : 0;
+      const rolls = rollDice(roll === 20 ? 2 : 1, boss.die);
+      const dmg = hit ? Math.max(1, rolls.reduce((x, y) => x + y, 0) + boss.bonus) : 0;
+      const victimHpBefore = hp[v.name];
       if (hit) hp[v.name] = Math.max(0, hp[v.name] - dmg);
       battle.strike({
         actor: boss.name, target: v.name, hit, crit: roll === 20, fumble: roll === 1, roll, total, ac,
-        damage: dmg, targetHp: hp[v.name], targetMax: v.c.hpMax, acWhy: acWhy(11, vs.mod, v.c.proficiency),
+        damage: dmg, targetHp: hp[v.name], targetMax: v.c.hpMax, acWhy: heroAcWhy(11, v.c),
+        atk: [["attack bonus", boss.attack]],
+        dmgDice: hit ? rolls : undefined, dmgDie: boss.die, dmgMods: [["bonus", boss.bonus]],
+        hpBefore: victimHpBefore,
       });
     }
   }
@@ -359,7 +375,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     `${fight.rounds} round${fight.rounds === 1 ? "" : "s"}: ${shownLog} — `;
   // The chat summary names the raid party; the detail page gets every round.
   const raiders = `raid #${q.raids + 1} (${names.join(", ")})`;
-  const fullLog = (msg: string) => msg.replace(shownLog, fight.battle.render(Number.MAX_SAFE_INTEGER));
+  const fullLog = (msg: string) => msg.replace(shownLog, fight.battle.renderDetailed());
   const hits = names.filter((n) => fight.damage[n] > 0).map((n) => `${n} ${fight.damage[n]}`).join(", ") || "none";
 
   const left = fresh?.monster_hp ?? fight.bossHp;

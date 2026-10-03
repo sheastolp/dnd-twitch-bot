@@ -4,7 +4,7 @@
 // under Val Town's per-file size ceiling.
 
 import { duelNarration } from "./narration.ts";
-import { BattleLog, simulateAttack } from "./battle.ts";
+import { BattleLog, fighterLine, simulateAttack } from "./battle.ts";
 import { getCharacter, sqlite } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 
@@ -110,6 +110,9 @@ export function resolvePlayerDuel(
   };
   const maxRounds = 20; // 40 swings, same cap as before
   const battle = new BattleLog();
+  battle.describe(fighterLine(aName, aChar, aChar.hpMax, 10));
+  battle.describe(fighterLine(bName, bChar, bChar.hpMax, 10));
+  battle.describe(`${aName} swings first each round; ${bName} answers if still standing.`);
   let rounds = 0;
   while (hp[aName] > 0 && hp[bName] > 0 && rounds < maxRounds) {
     rounds++;
@@ -132,5 +135,5 @@ export function resolvePlayerDuel(
     }/${aChar.hpMax} HP, ${bName} ${hp[bName]}/${bChar.hpMax} HP.`,
   ].join(" ");
   // fullLog: every round, uncut, for the reply's detail page (replypages.ts).
-  return { winner, log, fullLog: log.replace(shown, battle.render(Number.MAX_SAFE_INTEGER)), rounds };
+  return { winner, log, fullLog: log.replace(shown, battle.renderDetailed()), rounds };
 }
