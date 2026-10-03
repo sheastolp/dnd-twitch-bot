@@ -90,7 +90,7 @@ const SWEAR_BASES = [
   // UK / Irish slang
   "bloody", "bugger", "sod", "sodding", "shite", "gobshite", "bollock", "bollox", "wank", "tosser", "tosspot",
   "knobhead", "knobend", "bellend", "arsewipe", "pillock", "plonker", "wazzock", "minger", "minging", "munter",
-  "berk", "feck", "feckin",
+  "berk", "feck", "feckin", "spaff",
 ];
 const SWEAR_PREFIXES = ["mother", "bull", "dumb", "jack", "god", "bat", "ape", "horse", "chicken", "dip"];
 const SWEAR_SUFFIXES = [
