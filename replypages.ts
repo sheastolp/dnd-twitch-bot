@@ -110,7 +110,7 @@ export async function handleReplyPageRoute(req: Request, path: string): Promise<
   const row: any = res.rows[0];
   const html = (status: number, title: string, body: string) =>
     new Response(
-      scrollDoc(`${esc(title)} — GuildScribe`, body, { width: 780, css: `.summary{background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-left:4px solid var(--seal);border-radius:5px;padding:14px 16px;color:var(--ink)}.log{list-style:none;padding:0;margin:20px 0}.log li{padding:8px 0;border-bottom:1px dotted var(--rule);color:var(--ink-2)}.log li:last-child{border-bottom:0}h1{font-size:1.6rem}` }),
+      scrollDoc(`${esc(title)} — GuildScribe`, body, { width: 780, css: `.summary{background:linear-gradient(180deg,#e4dcc2,#dccfaa);border:1px solid var(--edge);border-left:4px solid var(--seal);border-radius:5px;padding:14px 16px;color:var(--ink)}.log{list-style:none;padding:0;margin:20px 0}.log li{padding:8px 0;border-bottom:1px dotted var(--rule);color:var(--ink-2)}.log li:last-child{border-bottom:0}h1{font-size:1.6rem}` }),
       { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
   if (!row) return html(404, "Not found", `<h1>No such scroll</h1><p class="muted">This link doesn't exist.</p>`);

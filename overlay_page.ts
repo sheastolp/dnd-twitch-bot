@@ -196,7 +196,7 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
     width: 1140,
     css: `.intro{font-style:italic;font-size:1.15rem;margin-top:0}.note ol{margin:6px 0 0;padding-left:1.3em}.note li{margin:3px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
-.ov{background:linear-gradient(180deg,#f8efd9,#efe1bf);border:1px solid var(--edge);border-radius:6px;padding:16px 18px;min-width:0;box-shadow:0 3px 10px #6b44182b}
+.ov{background:linear-gradient(180deg,#e4dcc2,#dccfaa);border:1px solid var(--edge);border-radius:6px;padding:16px 18px;min-width:0;box-shadow:0 3px 10px #6b44182b}
 .ov h2{margin:0;padding:0;border:0;font-size:1.1rem}.ov h2::before{content:none}
 .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
 .url{display:flex;gap:8px;align-items:stretch}.url code{flex:1;min-width:0;background:#2b1d12;color:#f3dfb4;border:0;border-left:3px solid var(--seal);border-radius:3px;padding:8px 10px;font-size:.8rem}
