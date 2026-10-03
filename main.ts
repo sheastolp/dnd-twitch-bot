@@ -42,6 +42,7 @@ import { page } from "./pages.ts";
 import { handleBg3Command } from "./bg3.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
+import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -96,6 +97,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureViewerNameTables,
   ensureWatchtimeTables,
   ensureBestiaryTables,
+  ensureChecklistTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -233,6 +235,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (liveBroadcasterId) {
         await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
         await onRaidStreamStatus(liveBroadcasterId, subscriptionType === "stream.online", body.event?.started_at);
+        // Start-of-stream checklist for the streamer (checklist.ts).
+        if (subscriptionType === "stream.online" && !(await isChannelBlocked(liveBroadcasterId))) {
+          await onChecklistStreamOnline(liveBroadcasterId);
+        }
       }
       return new Response("OK");
     }
@@ -359,6 +365,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeRedemptionData(broadcasterId);
         await purgeWatchtimeData(broadcasterId);
         await purgeBestiaryData(broadcasterId);
+        await purgeChecklistData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);
@@ -465,6 +472,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleCustomCommandManagement(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+    if (await handleChecklistCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");

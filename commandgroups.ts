@@ -28,6 +28,8 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 //   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
 //     per-channel toggle; broadcaster-only so it isn't a dashboard group.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
+//   - !checklist ... — the streamer's start-of-stream checklist
+//     (checklist.ts), mod/broadcaster only with its own on/off.
 //   - The gold system as a whole (isPointsEnabled in points_db.ts, on by
 //     default) is its own switch; !gold on/off/status and the mod balance
 //     tools (!gold add/remove/set) are never grouped so they stay reachable.
