@@ -1,6 +1,6 @@
-// @-tag limiter. Within one response, a name keeps its "@" for its first
-// MAX_TAGS appearances; any further "@name" has the "@" removed so it reads as
-// the plain name. Applied across the WHOLE response before it is split into
+// @-tag limiter. Within one response, every name keeps its "@" for its
+// first MAX_TAGS appearances; any further "@name" has the "@" removed so it
+// reads as the plain name. Applied across the WHOLE response before it is split into
 // chat parts, so the count isn't reset by part breaks. Bare (un-@'d) names are
 // never touched.
 
@@ -9,6 +9,18 @@ import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 export const MAX_TAGS = 2;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Every "@name" in `text` keeps its "@" for its first `max` appearances;
+ * later ones lose the "@" (no extra ping). Pass the same `seen` map to carry
+ * the count across several chat messages of one response. */
+export function limitAllMentions(text: string, max = MAX_TAGS, seen = new Map<string, number>()): string {
+  return text.replace(/(^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,25})(?![A-Za-z0-9_])/g, (m, pre: string, name: string) => {
+    const key = name.toLowerCase();
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    return n <= max ? m : pre + name;
+  });
+}
 
 export function limitNameMentions(text: string, names: string[], max = MAX_TAGS): string {
   const uniq = [...new Set(names.map((n) => n.replace(/^@/, "").trim()).filter(Boolean))];

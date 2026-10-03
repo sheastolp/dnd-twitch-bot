@@ -1,6 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
-import { limitNameMentions, lookupNicknames, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
+import { limitAllMentions, lookupNicknames, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
@@ -65,7 +65,9 @@ function preferLinkInFirstPart(parts: string[]): string[] {
 }
 
 export async function sendChatMessage(text: string, broadcasterId: string) {
-  const message = text.slice(0, 500);
+  // A one-message response gets the same 2-tags-per-name cap (mentions.ts);
+  // parts of a longer one were already capped across the whole response.
+  const message = limitAllMentions(text.slice(0, 500));
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);
@@ -129,7 +131,8 @@ export async function sendChatMessages(
     if (lead) displays.set(lead.toLowerCase(), lead);
     text = shortenNames(text, opts.names, displays, nicks);
   }
-  text = limitNameMentions(text, mentionNames(text, opts?.names));
+  // Only the first 2 "@" tags per name in the whole response (mentions.ts).
+  text = limitAllMentions(text);
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
   if (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary)) return;
@@ -196,8 +199,9 @@ export async function sendSpellSections(sections: string[], display: string, bro
     parts[parts.length - 1] =
       parts[parts.length - 1].slice(0, Math.max(0, CHAT_MAX - 12)).trimEnd() + " …(cut)";
   }
+  const tags = new Map<string, number>(); // 2-tags-per-name cap across all parts
   for (let i = 0; i < parts.length; i++) {
-    await sendChatMessage(parts[i], broadcasterId);
+    await sendChatMessage(limitAllMentions(parts[i], undefined, tags), broadcasterId);
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
 }
