@@ -74,6 +74,7 @@ import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwear
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent, subscribeToRedemptions } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
+import { createRaidQuest, ensureRaidTables, expireRaidQuest, handleRaidCommand, maybeLaunchRaid, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
@@ -224,6 +225,7 @@ function ensureSchema(): Promise<void> {
         ensureAutohuntTables(),
         ensureRedemptionTables(),
         ensureHuntCooldownTables(),
+        ensureRaidTables(),
         ensureViewerNameTables(),
         ensureWatchtimeTables(),
       ]);
@@ -758,6 +760,26 @@ async function handleRequest(req: Request): Promise<Response> {
       const liveBroadcasterId: string = body.event?.broadcaster_user_id ?? "";
       if (liveBroadcasterId) {
         await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
+        // The stream's one raid quest (see raid.ts): posted when the stream
+        // starts, retired when it ends. Failures never break the live flag.
+        try {
+          if (subscriptionType === "stream.offline") {
+            await expireRaidQuest(liveBroadcasterId);
+          } else {
+            const liveConnection = await getBroadcaster(liveBroadcasterId);
+            if (
+              liveConnection && Number(liveConnection.connected) === 1 &&
+              !(await isChannelBlocked(liveBroadcasterId)) &&
+              (await isChannelEnabled(liveBroadcasterId)) &&
+              (await isCommandGroupEnabled(liveBroadcasterId, "raid"))
+            ) {
+              const announcement = await createRaidQuest(liveBroadcasterId, String(body.event?.started_at ?? ""));
+              if (announcement) await sendChatMessages(announcement, liveBroadcasterId);
+            }
+          }
+        } catch (e) {
+          await recordMonitorEvent("raid_quest_error", `${liveBroadcasterId}: ${String(e)}`);
+        }
       }
       return new Response("OK");
     }
@@ -864,6 +886,7 @@ async function handleRequest(req: Request): Promise<Response> {
       await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
       await purgeAutohuntData(broadcasterId); // hunts stop with the bot, purge or not
       await purgeHuntCooldownData(broadcasterId, purge);
+      await purgeRaidData(broadcasterId, purge);
       await purgeViewerNames(broadcasterId);
       if (purge) {
         await purgeChannelData(broadcasterId);
@@ -907,6 +930,9 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     if (!(await isChannelEnabled(broadcasterId))) return new Response("OK");
+
+    // A raid muster whose time is up launches on the next chat message (see raid.ts).
+    try { await maybeLaunchRaid(broadcasterId); } catch (e) { await recordMonitorEvent("raid_launch_error", String(e)); }
 
     // Watch-time clock (see watchtime.ts): every message while live, commands included.
     if (Number(connection.is_live) === 1) await trackWatchtime(broadcasterId, chatter, display);
@@ -971,6 +997,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)

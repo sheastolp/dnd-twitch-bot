@@ -976,6 +976,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   partyhunts: { section: "Arena, wilds & the company", label: "Party hunts (!dndduel party hunt)", commands: [], parent: "combat" },
   autohunt: { section: "Arena, wilds & the company", label: "Autohunt (!autohunt)", commands: ["autohunt", "autohuntstatus", "autohuntstop"], parent: "combat" },
   huntcooldown: { section: "Arena, wilds & the company", label: "Hunting cooldown (!huntcooldown)", commands: ["huntcooldown", "huntcd"], parent: "combat" },
+  raid: { section: "Arena, wilds & the company", label: "Raid quest (!raid)", commands: ["raid"], parent: "combat" },
   // Chronicle, oracle & NPCs (chronicle and NPCs have their own switches)
   oracle: { section: "Chronicle, oracle & NPCs", label: "Oracle (!oracle)", commands: ["oracle"], parent: "dice" },
   ads: { section: "Chronicle, oracle & NPCs", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
