@@ -39,6 +39,9 @@ function withLink(kind: string, data: any, text: string): string {
   return `🔗 ${link} | ${text}`;
 }
 
+/** Per-request cap on the 5e API, so a slow API can't hang a chat reply. */
+const LOOKUP_TIMEOUT_MS = 6000;
+
 async function fetchFromResource(resource: string, lookupQuery: string): Promise<any | null> {
   const normalized = lookupQuery
     .toLowerCase()
@@ -48,10 +51,10 @@ async function fetchFromResource(resource: string, lookupQuery: string): Promise
   const slug = normalized.replace(/ /g, "-");
   const base = `https://www.dnd5eapi.co/api/2014/${resource}`;
   for (const candidate of [slug, normalized.replace(/ /g, "-")]) {
-    const direct = await fetch(`${base}/${encodeURIComponent(candidate)}`);
+    const direct = await fetch(`${base}/${encodeURIComponent(candidate)}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
     if (direct.ok) return await direct.json();
   }
-  const res = await fetch(base);
+  const res = await fetch(base, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
   if (!res.ok) return null;
   const list = (await res.json()).results ?? [];
   const comparable = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -60,7 +63,7 @@ async function fetchFromResource(resource: string, lookupQuery: string): Promise
     list.find((x: any) => comparable(x.name) === wanted) ??
     list.find((x: any) => comparable(x.name).includes(wanted) || wanted.includes(comparable(x.name)));
   if (!found) return null;
-  const detail = await fetch(`https://www.dnd5eapi.co${found.url}`);
+  const detail = await fetch(`https://www.dnd5eapi.co${found.url}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
   return detail.ok ? await detail.json() : null;
 }
 
@@ -160,6 +163,12 @@ export function formatSpellSections(data: any, bonus: number | null = null) {
     `Components: ${components}${material} | Damage: ${damage} | Save: ${dc} | Area: ${area}`,
     `Classes: ${classes} | Higher levels: ${higher}`,
   ];
+}
+
+/** Monster lookup without its action text: name, type, AC, HP, CR, link. */
+export function formatMonsterBrief(data: any): string {
+  const ac = Array.isArray(data?.armor_class) ? data.armor_class[0]?.value ?? "?" : data?.armor_class ?? "?";
+  return `🔗 ${lookupLink("monster", data)} | ${data?.name ?? "?"}: ${data?.size ?? "?"} ${data?.type ?? "creature"} | AC ${ac} | HP ${data?.hit_points ?? "?"} | CR ${data?.challenge_rating ?? "?"} (XP ${data?.xp ?? "?"})`;
 }
 
 export function formatLookup(kind: string, data: any, bonus: number | null = null) {

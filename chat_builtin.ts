@@ -8,7 +8,7 @@ import { maybeChronicleQuote } from "./chronicle.ts";
 import { maybeNpcChatter } from "./npcs.ts";
 import { handleCustomCommandInvocation, handleTriggerMatch } from "./customcommands.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
-import { lookup5e, formatSpellSections, formatLookup } from "./lookups.ts";
+import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckKind, modifier, logRowText } from "./utils.ts";
@@ -105,21 +105,37 @@ export async function handleBuiltinChatCommand(ctx: {
       };
       await sendChatMessage(`@${display} ${usage[kind] ?? `Usage: !${kind} <query>`}`, broadcasterId);
     } else {
-      const data = await lookup5e(kind, query);
-      if (data && kind === "spell") {
+      // An API outage/timeout must still answer in chat, not go silent.
+      let apiDown = false;
+      const data = await lookup5e(kind, query).catch((e) => {
+        console.error("5e lookup failed", e);
+        apiDown = true;
+        return null;
+      });
+      if (apiDown) {
+        await sendChatMessage(`@${display} the archives (dnd5eapi.co) aren't answering right now — try !${kind} ${query} again in a moment.`, broadcasterId);
+      } else if (data && kind === "spell") {
         await sendSpellSections(formatSpellSections(data, bonus), display, broadcasterId);
       } else {
         const isRule = kind === "rule" || kind === "rules";
         const isMonster = kind === "monster";
         // A monster this channel can't hunt yet is learned into its bestiary.
         const learnedNote = data && isMonster ? await maybeLearnFromLookup(broadcasterId, data, chatter) : "";
-        await sendChatMessages(
+        const sent = await sendChatMessages(
           data
-            ? `@${display} ${formatLookup(kind, data, bonus)}${learnedNote}`
+            ? `@${display} ${formatLookup(kind, data, bonus)}`
             : `@${display} couldn't find that ${kind}. Try e.g. !spell fireball, !item longsword, or !rule advantage`,
           broadcasterId,
-          isRule ? { maxParts: 3 } : isMonster ? { maxParts: learnedNote ? 3 : 2 } : undefined,
+          isRule ? { maxParts: 3 } : isMonster ? { maxParts: 2 } : undefined,
         );
+        // Monster action text ("swallowed", "grappled"…) can trip a channel's
+        // AutoMod, which drops the whole reply silently; fall back to the bare
+        // stat line, which still answers the lookup.
+        if (!sent && data && isMonster) {
+          await sendChatMessage(`@${display} ${formatMonsterBrief(data)}`, broadcasterId);
+        }
+        // Its own message, so it never pushes the lookup into a long reply.
+        if (learnedNote) await sendChatMessage(`@${display}${learnedNote}`, broadcasterId);
       }
     }
   } else if (/^!bg3lookup(?:\s+.*)?$/i.test(chatMessage)) {

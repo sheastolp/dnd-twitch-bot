@@ -5,6 +5,7 @@ import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
+import { recordMonitorEvent } from "./db.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -110,7 +111,20 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
       await sleep(1100);
       return false;
     }
-    return res.ok;
+    if (!res.ok) return false;
+    // Twitch answers 200 even when it refuses to post the message (AutoMod,
+    // channel settings, duplicate…): data[0].is_sent is false with a
+    // drop_reason. Treat that as a failure and log why, so it shows up on
+    // /admin/logs instead of the bot just going quiet.
+    const body = await res.json().catch(() => null);
+    const result = body?.data?.[0];
+    if (result && result.is_sent === false) {
+      const why = `${result.drop_reason?.code ?? "unknown"}: ${result.drop_reason?.message ?? ""}`;
+      console.error(`Twitch dropped chat message (${why})`);
+      await recordMonitorEvent("chat_message_dropped", `${broadcasterId} ${why} | ${message.slice(0, 200)}`).catch(() => {});
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("sendChatMessage failed", err);
     return false;
@@ -125,7 +139,7 @@ export async function sendChatMessages(
   // output for the reply's /r/<id> page when it differs from `text` (fights
   // pass their uncut battle log).
   opts?: { maxParts?: number; names?: string[]; summary?: string; detail?: string },
-) {
+): Promise<boolean> {
   const original = text;
   const maxParts = opts?.maxParts ?? MAX_PARTS;
   // Battle logs shorten bare names; every name appears in full at most twice
@@ -145,22 +159,28 @@ export async function sendChatMessages(
   text = limitNameAppearances(text, guard, { displays, nicks });
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
-  if (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary, opts?.names)) return;
+  const summarized = await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary, opts?.names);
+  if (summarized !== null) return summarized;
+  // True only when every part was posted (callers may send a fallback).
+  let allSent = true;
   for (let i = 0; i < parts.length; i++) {
-    const ok = await sendChatMessage(parts[i], broadcasterId);
+    let ok = await sendChatMessage(parts[i], broadcasterId);
     if (!ok && i < parts.length - 1) {
       await sleep(700);
-      await sendChatMessage(parts[i], broadcasterId);
+      ok = await sendChatMessage(parts[i], broadcasterId);
     }
+    if (!ok) allSent = false;
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
+  return allSent;
 }
 
 /** Anything that would take LONG_REPLY_PARTS+ chat messages becomes one chat
  * message: a short summary ending in a link to a page with the full output
  * (replypages.ts). A reply to someone's !command is also whispered to them
- * in full when the bot has whisper access (whisper.ts). Returns false — send
- * in chat as usual — only when the detail page can't be saved. */
+ * in full when the bot has whisper access (whisper.ts). Returns null — send
+ * in chat as usual — when it doesn't apply or the detail page can't be
+ * saved; otherwise whether Twitch actually posted the summary. */
 async function summarizeLongReply(
   text: string,
   detail: string,
@@ -168,8 +188,8 @@ async function summarizeLongReply(
   broadcasterId: string,
   summary?: string,
   names: string[] = [],
-): Promise<boolean> {
-  if (chatParts < LONG_REPLY_PARTS) return false;
+): Promise<boolean | null> {
+  if (chatParts < LONG_REPLY_PARTS) return null;
   const found = getReplyInitiator();
   const initiator = found?.broadcasterId === broadcasterId ? found : undefined;
   let line = summary
@@ -187,14 +207,14 @@ async function summarizeLongReply(
     link = await saveReplyPage(broadcasterId, owner, line, detail);
   } catch (err) {
     console.error("saveReplyPage failed", err);
-    return false;
+    return null;
   }
   const tail = ` 📜 Full ${summary ? "battle log" : "reply"}: ${link}`;
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
-  await sendChatMessage(head + tail, broadcasterId, names);
+  const posted = await sendChatMessage(head + tail, broadcasterId, names);
   // Bonus copy by whisper; silently skipped until /connect-bot is done.
   if (initiator) await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
-  return true;
+  return posted;
 }
 
 export async function sendSpellSections(sections: string[], display: string, broadcasterId: string) {
