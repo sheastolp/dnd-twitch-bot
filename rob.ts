@@ -29,7 +29,7 @@ import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { formatCoins } from "./coins.ts";
-import { fightSummary } from "./whisper.ts";
+import { fightSummary, hpLeft } from "./whisper.ts";
 import { robShieldRemainingMs } from "./redemptions.ts";
 import {
   getBalance,
@@ -177,6 +177,10 @@ export async function handleRobCommand(
       fighter: display,
       enemy: targetPurse.displayName,
       outcome: robberWon ? `${display} gets away with it!` : `${display} is caught — ${targetPurse.displayName} wins.`,
+      hp: hpLeft([
+        [display, result.hp[robber], robberChar.hpMax],
+        [targetPurse.displayName, result.hp[target], targetChar.hpMax],
+      ]),
       loot,
     }),
   });

@@ -6,7 +6,7 @@ import { combatStats } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { getCharacter, getDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
-import { fightSummary } from "./whisper.ts";
+import { fightSummary, hpLeft } from "./whisper.ts";
 import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, resolvePlayerDuel } from "./combat_shared.ts";
 
 export async function handleDuelCommand(
@@ -106,7 +106,15 @@ export async function handleDuelCommand(
       {
         detail: intro + result.fullLog,
         names: [String(challenge.challenger), username],
-        summary: fightSummary({ fighter: String(challenge.challenger), enemy: display, outcome: `${result.winner} wins!` }),
+        summary: fightSummary({
+          fighter: String(challenge.challenger),
+          enemy: display,
+          outcome: `${result.winner} wins!`,
+          hp: hpLeft([
+            [String(challenge.challenger), result.hp[String(challenge.challenger)], Number(challenger?.hpMax ?? 0)],
+            [display, result.hp[username], Number(defender?.hpMax ?? 0)],
+          ]),
+        }),
       },
     );
     return true;

@@ -37,7 +37,7 @@ import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
 import { combatStats } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
-import { fightSummary } from "./whisper.ts";
+import { fightSummary, hpLeft } from "./whisper.ts";
 
 const envNumber = (name: string, fallback: number, min: number, max: number) => {
   const n = Number(Deno.env.get(name) ?? "");
@@ -375,6 +375,8 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     `${fight.rounds} round${fight.rounds === 1 ? "" : "s"}: ${shownLog} — `;
   // The chat summary names the raid party; the detail page gets every round.
   const raiders = `raid #${q.raids + 1} (${names.join(", ")})`;
+  const raidHp = (bossLeft: number) =>
+    hpLeft([...heroes.map((h): [string, number, number] => [h.name, fight.hp[h.name], h.c.hpMax]), [boss.name, bossLeft, boss.hpMax]]);
   const fullLog = (msg: string) => msg.replace(shownLog, fight.battle.renderDetailed());
   const hits = names.filter((n) => fight.damage[n] > 0).map((n) => `${n} ${fight.damage[n]}`).join(", ") || "none";
 
@@ -391,7 +393,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     await sendChatMessages(msg, broadcasterId, {
       names: [...new Set([...names, ...Object.keys(contributors)])],
       detail: fullLog(msg),
-      summary: fightSummary({ fighter: raiders, enemy: boss.name, outcome: `🏆 ${boss.name} is slain!`, loot: rewards.hoard }),
+      summary: fightSummary({ fighter: raiders, enemy: boss.name, outcome: `🏆 ${boss.name} is slain!`, hp: raidHp(0), loot: rewards.hoard }),
     });
     return true;
   }
@@ -407,7 +409,8 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     summary: fightSummary({
       fighter: raiders,
       enemy: boss.name,
-      outcome: `${boss.name} holds with ${left}/${boss.hpMax} HP — the party ${standing ? "falls back" : "is routed"}.`,
+      outcome: `${boss.name} holds — the party ${standing ? "falls back" : "is routed"}.`,
+      hp: raidHp(left),
     }),
   });
   return true;

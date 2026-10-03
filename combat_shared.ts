@@ -103,7 +103,7 @@ export function resolvePlayerDuel(
   bName: string,
   aChar: any,
   bChar: any,
-): { winner: string; log: string; fullLog: string; rounds: number } {
+): { winner: string; log: string; fullLog: string; rounds: number; hp: Record<string, number> } {
   const hp: Record<string, number> = {
     [aName]: aChar.hpMax,
     [bName]: bChar.hpMax,
@@ -135,5 +135,5 @@ export function resolvePlayerDuel(
     }/${aChar.hpMax} HP, ${bName} ${hp[bName]}/${bChar.hpMax} HP.`,
   ].join(" ");
   // fullLog: every round, uncut, for the reply's detail page (replypages.ts).
-  return { winner, log, fullLog: log.replace(shown, battle.renderDetailed()), rounds };
+  return { winner, log, fullLog: log.replace(shown, battle.renderDetailed()), rounds, hp };
 }

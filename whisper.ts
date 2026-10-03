@@ -260,8 +260,13 @@ export function replySummary(display: string | undefined, text: string): string 
 
 /** Chat summary for a long fight: who fought whom, how it ended, and
  * the loot won ("none" when there was none, e.g. PvP or a loss). */
-export function fightSummary(f: { fighter: string; enemy: string; outcome: string; loot?: string }): string {
-  return `⚔️ ${f.fighter} vs ${f.enemy} — ${f.outcome} 🪙 Loot: ${f.loot || "none"}.`;
+export function fightSummary(f: { fighter: string; enemy: string; outcome: string; loot?: string; hp?: string }): string {
+  return `⚔️ ${f.fighter} vs ${f.enemy} — ${f.outcome}${f.hp ? ` ❤️ HP left: ${f.hp}.` : ""} 🪙 Loot: ${f.loot || "none"}.`;
+}
+
+/** "Bob 20/28, Goblin 0/20" for a fight summary's HP-left note. */
+export function hpLeft(entries: Array<[string, number, number]>): string {
+  return entries.map(([name, hp, max]) => `${name} ${Math.max(0, hp)}/${max}`).join(", ");
 }
 
 // ── /connect-bot: grant the bot account's whisper scope once ──

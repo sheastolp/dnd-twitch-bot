@@ -10,7 +10,7 @@ import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterD
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, partyLootNote } from "./loot.ts";
-import { fightSummary } from "./whisper.ts";
+import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, isChallengeExpired, forfeitIfIdlePartyDuel, forfeitIfIdlePartyHunt } from "./combat_shared.ts";
 
@@ -482,6 +482,10 @@ export async function handlePartyDuelCommand(
             fighter: `party ${partyName}`,
             enemy: monster.name,
             outcome: partyWon ? "Victory!" : `Defeat — ${monster.name} wins.`,
+            hp: hpLeft([
+              ...livingMembers.map((n): [string, number, number] => [n, hp[n], Number(chars[n].hpMax ?? memberHp[n] ?? 0)]),
+              [monster.name, monsterHp, monster.hp],
+            ]),
             loot,
           }),
         },
@@ -686,6 +690,10 @@ export async function handlePartyDuelCommand(
           fighter: `party ${challenge.challenger_party}`,
           enemy: `party ${challenge.defender_party}`,
           outcome: `${winnerParty} wins!`,
+          hp: hpLeft([
+            ...attackers.map((n): [string, number, number] => [n, aHp[n], Number(aChars[n]?.hpMax ?? 0)]),
+            ...defenders.map((n): [string, number, number] => [n, dHp[n], Number(dChars[n]?.hpMax ?? 0)]),
+          ]),
         }),
       },
     );

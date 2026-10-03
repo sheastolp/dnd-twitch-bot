@@ -10,7 +10,7 @@ import { getCharacter, getMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
-import { fightSummary } from "./whisper.ts";
+import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, forfeitIfIdleMonsterDuel } from "./combat_shared.ts";
 
@@ -248,7 +248,13 @@ export async function handleMonsterDuelCommand(
       {
         detail: msg.replace(shownLog, battle.renderDetailed()),
         names: [username],
-        summary: fightSummary({ fighter: display, enemy: monster.name, outcome: won ? `${display} wins!` : `${monster.name} wins.`, loot }),
+        summary: fightSummary({
+          fighter: display,
+          enemy: monster.name,
+          outcome: won ? `${display} wins!` : `${monster.name} wins.`,
+          hp: hpLeft([[display, playerHp, c.hpMax], [monster.name, monsterHp, monster.hp]]),
+          loot,
+        }),
       },
     );
     return true;
