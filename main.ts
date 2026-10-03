@@ -12,6 +12,7 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
+import { ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
@@ -84,6 +85,7 @@ function ensureSchema(): Promise<void> {
         ensureSocialTables(),
         ensurePointsTables(),
         ensureSwearJarTables(),
+        ensureWhisperTables(),
         ensureAutohuntTables(),
         ensureRedemptionTables(),
         ensureHuntCooldownTables(),
@@ -274,6 +276,11 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    // A "!command" reply long enough to need 3+ chat messages is whispered
+    // to this chatter instead, with a one-line summary in chat (whisper.ts).
+    // Plain chat (triggers, chronicle, NPC chatter) always replies in chat.
+    if (chatMessage.trim().startsWith("!")) setReplyInitiator({ userId: chatterId, display, broadcasterId });
+
     // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
     const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);
     if (leaveMatch) {
@@ -450,7 +457,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
 export default async function (req: Request): Promise<Response> {
   try {
-    return await handleRequest(req);
+    return await runRequestScope(() => handleRequest(req));
   } catch (e) {
     try { await recordMonitorEvent("unhandled_error", String(e)); } catch (_) {}
     console.error("GuildScribe request failed", e);

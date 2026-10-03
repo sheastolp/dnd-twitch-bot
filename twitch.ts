@@ -3,6 +3,7 @@
 import { limitNameMentions, lookupNicknames, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
+import { getReplyInitiator, MIN_WHISPER_PARTS, sendWhisperParts, WHISPER_MAX, whisperSummary } from "./whisper.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -128,6 +129,8 @@ export async function sendChatMessages(
   text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
+  // Battle logs are a show for the whole channel, so they never go by whisper.
+  if (!opts?.names?.length && (await whisperLongReply(text, parts.length, broadcasterId))) return;
   for (let i = 0; i < parts.length; i++) {
     const ok = await sendChatMessage(parts[i], broadcasterId);
     if (!ok && i < parts.length - 1) {
@@ -138,12 +141,27 @@ export async function sendChatMessages(
   }
 }
 
+/** A command reply that would take MIN_WHISPER_PARTS+ chat messages is
+ * whispered to the chatter who ran the command, with one summary line in
+ * chat (see whisper.ts). Returns false — send in chat as usual — when
+ * there's no requesting chatter or the whisper can't be delivered. */
+async function whisperLongReply(text: string, chatParts: number, broadcasterId: string): Promise<boolean> {
+  if (chatParts < MIN_WHISPER_PARTS) return false;
+  const initiator = getReplyInitiator();
+  if (!initiator || initiator.broadcasterId !== broadcasterId) return false;
+  const whisperParts = splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim());
+  if (!(await sendWhisperParts(initiator.userId, whisperParts))) return false;
+  await sendChatMessage(whisperSummary(initiator.display, text), broadcasterId);
+  return true;
+}
+
 export async function sendSpellSections(sections: string[], display: string, broadcasterId: string) {
   // Flatten sections into a limited stream of chat parts (avoid dropping mid-spell)
   const combined: string[] = [];
   for (const section of sections) {
     combined.push(...prepareParts(`@${display} ${section}`, CHAT_MAX, 3));
   }
+  if (await whisperLongReply(sections.join(" | "), combined.length, broadcasterId)) return;
   const parts = combined.slice(0, MAX_PARTS);
   if (combined.length > MAX_PARTS && parts.length) {
     parts[parts.length - 1] =

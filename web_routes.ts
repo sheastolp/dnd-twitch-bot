@@ -13,6 +13,7 @@ import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, creat
 import { escapeHtml } from "./utils.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
+import { handleBotConnectRoute } from "./whisper.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -64,6 +65,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       "Support the Guild",
       `<h1>Support the Guild</h1><p>If GuildScribe has served your campaign, you can leave a tribute so the scribes may keep the halls open.</p><h2>Ethereum (ETH)</h2><p><code class="address">0x422413678AdFC67d3d9AB545FE4e1ec1D00197fd</code></p><p>Send ETH on the Ethereum network. Verify the address and network in your wallet before confirming.</p><h2>Bitcoin (BTC)</h2><p><code class="address">3JYo1Vwyh6aQENzXoi16rA9mXZuZQVL1rN</code></p><p>Send BTC on the Bitcoin network. Verify the address carefully before confirming.</p><p><a href="/">Return to the Guild Hall</a></p><style>.address{display:block;word-break:break-all;background:#111;border:1px solid #444;padding:12px;border-radius:6px;color:#9fe870}</style>`,
     );
+  }
+
+  // Bot account grants its whisper scope (one-time operator setup; see whisper.ts).
+  if (path.startsWith("/connect-bot")) {
+    const botRoute = await handleBotConnectRoute(req, url, path);
+    if (botRoute) return botRoute;
   }
 
   if (req.method === "GET" && path === "/connect") {
