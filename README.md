@@ -152,7 +152,7 @@ The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
-**Long replies become a one-message summary + link:** when a `!command`'s reply would take **3 or more chat messages**, chat gets a single message instead: a one-paragraph summary ending in a link to a page with the full output (`GET /r/<id>`, stored in `reply_pages` for 7 days — `replypages.ts`, used by `sendChatMessages`/`sendSpellSections` in `twitch.ts`). Ordinary replies are summarized by their opening sentences (up to ~220 characters). Auto-resolved fights (solo hunts, PvP duels, party hunts, party duels, `!rob`) get a fight summary — who fought, the enemy, the outcome and the loot — and their page shows the **uncut** battle log, every round on its own line, e.g. `@Bob ⚔️ Bob vs Goblin — Bob wins! 🪙 Loot: 2 sp 3 cp. 📜 Full battle log: https://…/r/abc123`. If the bot has whisper access (step 8), the full reply is also whispered to whoever ran the command. Raids stay in chat in full because they're for the whole channel, as do replies to plain chat (triggers, chronicle, NPC chatter) and anything with no requesting user (crons, sub/raid thank-yous).
+**Long replies become a one-message summary + link:** anything the bot would say in **more than one chat message** is posted as a single message instead: a one-paragraph summary ending in a link to a page with the full output (`GET /r/<id>`, stored in `reply_pages` for 7 days — `replypages.ts`, used by `sendChatMessages`/`sendSpellSections` in `twitch.ts`). This covers command replies, passive replies and scheduled/cron posts alike. Ordinary replies are summarized by their opening sentences (up to ~220 characters), and a link the reply exists to deliver (e.g. `!guide`, `!dashboard`) is kept in the summary. Auto-resolved fights (solo hunts, PvP duels, party hunts, party duels, raids, `!rob`) get a fight summary — who fought, the enemy, the outcome and the loot — and their page shows the **uncut** battle log, every round on its own line, e.g. `@Bob ⚔️ Bob vs Goblin — Bob wins! 🪙 Loot: 2 sp 3 cp. 📜 Full battle log: https://…/r/abc123`. When the reply answers someone's `!command` and the bot has whisper access (step 8), the full reply is also whispered to them. If the detail page can't be saved, the reply is posted in full as before.
 
 ---
 
@@ -470,7 +470,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /` | Guild hall — info page, links to `/connect` |
 | `GET /connect` | Starts Twitch OAuth — generates state, redirects straight to Twitch's authorize page (no intermediate GuildScribe page) |
 | `GET /callback` | Twitch OAuth return |
-| `GET /r/<id>` | Full output of a long reply, linked from its one-message chat summary; kept 7 days |
+| `GET /r/<id>` | Full output of any reply longer than one chat message, linked from its one-message chat summary; kept 7 days |
 | `GET /connect-bot` · `/connect-bot/callback` | One-time operator step: the bot account grants `user:manage:whispers` so long replies can be whispered; only the `TWITCH_BOT_ID` account is accepted |
 | `GET /guide` · `/commands` | **Guild Codex** |
 | `GET /donate` | Support the Guild |

@@ -1,12 +1,10 @@
 // Long replies: summary in chat, full output by link (and by whisper).
 //
-// When a chat command's reply would take MIN_WHISPER_PARTS (3) or more chat
-// messages, sendChatMessages (twitch.ts) posts one short summary message in
-// chat ending in a link to a page with the full output (replypages.ts), and
-// also whispers the full reply to whoever ran the command when whispers are
-// set up. Battle logs (the `names` option) without a fight summary (raids),
-// and anything sent without a requesting user (crons, sub/raid thank-yous),
-// stay in chat as before.
+// When anything the bot says would take more than one chat message
+// (LONG_REPLY_PARTS), sendChatMessages (twitch.ts) posts one short summary
+// message in chat ending in a link to a page with the full output
+// (replypages.ts). When it answers someone's !command, the full reply is
+// also whispered to them if whispers are set up.
 //
 // Who "ran the command" is tracked per request with AsyncLocalStorage:
 // main.ts wraps every request in runRequestScope() and calls
@@ -24,7 +22,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 
-export const MIN_WHISPER_PARTS = 3;
+// Any reply that would take more than one chat message is summarized.
+export const LONG_REPLY_PARTS = 2;
 // Twitch caps a whisper at 500 characters until the recipient has whispered
 // the sender back (10,000 after that); stay under the stricter limit.
 export const WHISPER_MAX = 500;
@@ -160,15 +159,16 @@ export async function sendWhisperParts(toUserId: string, parts: string[]): Promi
  * to SUMMARY_MAX characters, cut at a sentence end where possible. The
  * caller appends the link to the full reply. */
 const SUMMARY_MAX = 220;
-export function replySummary(display: string, text: string): string {
-  const body = text.replace(new RegExp(`^\\W*@${display.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[\\s,:]*`, "i"), "").replace(/\s*\|\s*/g, " · ").trim();
+export function replySummary(display: string | undefined, text: string): string {
+  if (!display) display = text.match(/^\W*@([A-Za-z0-9_]{1,25})\b/)?.[1] ?? "";
+  const body = (display ? text.replace(new RegExp(`^\\W*@${display.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[\\s,:]*`, "i"), "") : text).replace(/\s*\|\s*/g, " · ").trim();
   let gist = body;
   if (gist.length > SUMMARY_MAX) {
     const cut = gist.slice(0, SUMMARY_MAX);
     const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
     gist = end > 60 ? cut.slice(0, end + 1) : cut.slice(0, SUMMARY_MAX - 1).trimEnd() + "…";
   }
-  return `@${display} ${gist}`;
+  return display ? `@${display} ${gist}` : gist;
 }
 
 /** Chat summary for a long fight: who fought whom, how it ended, and

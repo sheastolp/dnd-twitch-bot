@@ -1,8 +1,9 @@
 // Detail pages for long replies.
 //
-// When a command's reply would take 3+ chat messages, chat gets a one-message
-// summary ending in a link to GET /r/<id>, which shows the full output (the
-// whole battle log for fights — see sendChatMessages in twitch.ts). Pages
+// When anything the bot says would take more than one chat message, chat
+// gets a one-message summary ending in a link to GET /r/<id>, which shows
+// the full output (the whole battle log for fights — see sendChatMessages
+// in twitch.ts). Pages
 // are public but unguessable, and are deleted after REPLY_PAGE_TTL_MS.
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
@@ -29,8 +30,16 @@ function newId(): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_");
 }
 
+// Cron vals (timed messages, autohunt, merchant) don't run main.ts's schema
+// setup, so make sure the table exists before the first save in an isolate.
+let tablesReady = false;
+
 /** Stores a reply's full output and returns the link to its page. */
 export async function saveReplyPage(broadcasterId: string, summary: string, detail: string): Promise<string> {
+  if (!tablesReady) {
+    await ensureReplyPageTables();
+    tablesReady = true;
+  }
   const id = newId();
   const now = Date.now();
   await sqlite.execute("DELETE FROM reply_pages WHERE created_at < ?", [now - REPLY_PAGE_TTL_MS]);

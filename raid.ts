@@ -37,6 +37,7 @@ import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
 import { combatStats } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
+import { fightSummary } from "./whisper.ts";
 
 const envNumber = (name: string, fallback: number, min: number, max: number) => {
   const n = Number(Deno.env.get(name) ?? "");
@@ -353,8 +354,12 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   await sqlite.execute("UPDATE raid_quests SET contributors = ? WHERE broadcaster_id = ?", [JSON.stringify(contributors), broadcasterId]);
 
   const names = heroes.map((h) => h.name);
+  const shownLog = fight.battle.render(650);
   const header = `⚔️ Raid #${q.raids + 1}: ${names.join(", ")} charge ${boss.name} (AC ${boss.ac}, HP ${q.monster_hp}/${boss.hpMax})! ` +
-    `${fight.rounds} round${fight.rounds === 1 ? "" : "s"}: ${fight.battle.render(650)} — `;
+    `${fight.rounds} round${fight.rounds === 1 ? "" : "s"}: ${shownLog} — `;
+  // The chat summary names the raid party; the detail page gets every round.
+  const raiders = `raid #${q.raids + 1} (${names.join(", ")})`;
+  const fullLog = (msg: string) => msg.replace(shownLog, fight.battle.render(Number.MAX_SAFE_INTEGER));
   const hits = names.filter((n) => fight.damage[n] > 0).map((n) => `${n} ${fight.damage[n]}`).join(", ") || "none";
 
   const left = fresh?.monster_hp ?? fight.bossHp;
@@ -364,44 +369,55 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
       [broadcasterId],
     );
     const won = await changed(slain, async () => true);
-    const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : "";
-    await sendChatMessages(
-      `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards}` +
-        ` The raid quest is complete for this stream.`,
-      broadcasterId,
-      { names: [...new Set([...names, ...Object.keys(contributors)])] },
-    );
+    const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : { note: "", hoard: "" };
+    const msg = `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards.note}` +
+      ` The raid quest is complete for this stream.`;
+    await sendChatMessages(msg, broadcasterId, {
+      names: [...new Set([...names, ...Object.keys(contributors)])],
+      detail: fullLog(msg),
+      summary: fightSummary({ fighter: raiders, enemy: boss.name, outcome: `🏆 ${boss.name} is slain!`, loot: rewards.hoard }),
+    });
     return true;
   }
 
   const cd = await getRaidCooldownSeconds(broadcasterId);
   const standing = names.filter((n) => fight.hp[n] > 0).length;
-  await sendChatMessages(
-    `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
-      `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
-      `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.`,
-    broadcasterId,
-    { names },
-  );
+  const msg = `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
+    `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
+    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.`;
+  await sendChatMessages(msg, broadcasterId, {
+    names,
+    detail: fullLog(msg),
+    summary: fightSummary({
+      fighter: raiders,
+      enemy: boss.name,
+      outcome: `${boss.name} holds with ${left}/${boss.hpMax} HP — the party ${standing ? "falls back" : "is routed"}.`,
+    }),
+  });
   return true;
 }
 
-/** XP for the boss to every hero who struck it, plus a split hoard. Returns the chat note. */
-async function payRaidRewards(broadcasterId: string, cr: string, contributors: Record<string, number>): Promise<string> {
+/** XP for the boss to every hero who struck it, plus a split hoard. Returns
+ * the chat note and the bare hoard for the fight summary. */
+async function payRaidRewards(
+  broadcasterId: string,
+  cr: string,
+  contributors: Record<string, number>,
+): Promise<{ note: string; hoard: string }> {
   const heroes = Object.keys(contributors);
-  if (!heroes.length) return "";
+  if (!heroes.length) return { note: "", hoard: "" };
   const xpNotes: string[] = [];
   for (const u of heroes) {
     const xp = await awardMonsterXp(u, cr, broadcasterId);
     if (xp) xpNotes.push(`${u}+${xp.gained}${xp.leveledTo ? `→Lv${xp.leveledTo}` : ""}`);
   }
-  let loot = "";
+  let hoard = "";
   if (RAID_LOOT_MULTIPLIER > 0 && (await isPointsEnabled(broadcasterId))) {
     const shares = splitLoot(monsterLootCopper(cr, Math.random, RAID_LOOT_MULTIPLIER), heroes.length);
     for (let i = 0; i < heroes.length; i++) await adjustBalance(broadcasterId, heroes[i], heroes[i], shares[i]);
-    loot = ` 🪙 Hoard: ${heroes.map((u, i) => `${u}+${formatCoins(shares[i])}`).join(", ")}.`;
+    hoard = heroes.map((u, i) => `${u} +${formatCoins(shares[i])}`).join(", ");
   }
-  return `XP to every raider who struck it: ${xpNotes.join(", ") || "none"}.${loot}`;
+  return { note: `XP to every raider who struck it: ${xpNotes.join(", ") || "none"}.${hoard ? ` 🪙 Hoard: ${hoard}.` : ""}`, hoard };
 }
 
 /** What the /roster page shows about the raid quest; null when there's no

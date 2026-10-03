@@ -3,7 +3,7 @@
 import { limitNameMentions, lookupNicknames, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { getReplyInitiator, MIN_WHISPER_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
+import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 
 export const env = (name: string) => {
@@ -135,12 +135,7 @@ export async function sendChatMessages(
   text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
-  // A battle log is only summarized when its caller gave a fight summary;
-  // others (raids) are a show for the whole channel and stay in full.
-  if (
-    (!opts?.names?.length || opts.summary) &&
-    (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary))
-  ) return;
+  if (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary)) return;
   for (let i = 0; i < parts.length; i++) {
     const ok = await sendChatMessage(parts[i], broadcasterId);
     if (!ok && i < parts.length - 1) {
@@ -151,12 +146,11 @@ export async function sendChatMessages(
   }
 }
 
-/** A command reply that would take MIN_WHISPER_PARTS+ chat messages becomes
- * one chat message: a short summary ending in a link to a page with the full
- * output (replypages.ts). The full reply is also whispered to the chatter
- * who ran the command when the bot has whisper access (whisper.ts). Returns
- * false — send in chat as usual — when there's no requesting chatter or the
- * detail page can't be saved. */
+/** Anything that would take LONG_REPLY_PARTS+ chat messages becomes one chat
+ * message: a short summary ending in a link to a page with the full output
+ * (replypages.ts). A reply to someone's !command is also whispered to them
+ * in full when the bot has whisper access (whisper.ts). Returns false — send
+ * in chat as usual — only when the detail page can't be saved. */
 async function summarizeLongReply(
   text: string,
   detail: string,
@@ -164,10 +158,16 @@ async function summarizeLongReply(
   broadcasterId: string,
   summary?: string,
 ): Promise<boolean> {
-  if (chatParts < MIN_WHISPER_PARTS) return false;
-  const initiator = getReplyInitiator();
-  if (!initiator || initiator.broadcasterId !== broadcasterId) return false;
-  const line = summary ? `@${initiator.display} ${summary}` : replySummary(initiator.display, text);
+  if (chatParts < LONG_REPLY_PARTS) return false;
+  const found = getReplyInitiator();
+  const initiator = found?.broadcasterId === broadcasterId ? found : undefined;
+  let line = summary
+    ? (initiator ? `@${initiator.display} ${summary}` : summary)
+    : replySummary(initiator?.display, text);
+  // Keep a link the reply exists to deliver (!guide, !dashboard, map pages…)
+  // even when the summary is cut before it.
+  const replyLink = text.match(/https?:\/\/[^\s|]+/)?.[0];
+  if (replyLink && !line.includes(replyLink)) line += ` 🔗 ${replyLink}`;
   let link: string;
   try {
     link = await saveReplyPage(broadcasterId, line, detail);
@@ -179,7 +179,7 @@ async function summarizeLongReply(
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
   await sendChatMessage(head + tail, broadcasterId);
   // Bonus copy by whisper; silently skipped until /connect-bot is done.
-  await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
+  if (initiator) await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
   return true;
 }
 
