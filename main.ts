@@ -97,6 +97,7 @@ import {
   handleDashboardTriggersForm,
   handleDashboardTimedMessagesForm,
   handleDashboardFeaturesForm,
+  handleDashboardGo,
 } from "./dashboard.ts";
 import {
   generateCharacter,
@@ -144,7 +145,7 @@ import {
   logRowText,
   isGoodnightMessage,
   goodnightReply,
-  groupForCommand,
+  groupForMessage,
 } from "./utils.ts";
 import { classes } from "./data.ts";
 import { chatHelpText } from "./help.ts";
@@ -476,6 +477,10 @@ async function handleRequest(req: Request): Promise<Response> {
       notice: url.searchParams.get("notice") ?? undefined,
       error: url.searchParams.get("error") ?? undefined,
     });
+  }
+  if (req.method === "GET" && path === "/dashboard/go") {
+    // Guide cards' "Dashboard switch" links (see handleDashboardGo).
+    return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), url.origin);
   }
   if (req.method === "GET" && path === "/dashboard/login") {
     return await handleDashboardLogin(url.searchParams.get("channel"), url.searchParams.get("key"), url.origin);
@@ -918,7 +923,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // isChannelEnabled check just above — features with their own
       // dedicated toggle (market/chronicle/npc) and !dashboard itself are
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
-      const group = groupForCommand(commandWord.replace(/^!/, ""));
+      const group = groupForMessage(chatMessage);
       if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
       // Channel-point "can't use <feature>" hexes (see redemptions.ts).
       const hexNotice = await checkFeatureLock(chatMessage, chatter, broadcasterId);
@@ -929,14 +934,14 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (Number(connection.is_live) === 1) {
       // Copper for chatting (see points.ts): plain messages only, live only,
       // and a silent no-op unless the channel turned gold on (!gold on).
-      await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
+      if (await isCommandGroupEnabled(broadcasterId, "chatgold")) await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
     }
 
     // Swear jar (see swearjar.ts): plain chat only. Takes 2 cp of gold per
     // swear word and announces it; never consumes the message, so the rest of
     // the chat handling (triggers, goodnight, etc.) still runs. Failures here
     // must never break normal chat handling.
-    if (!chatMessage.startsWith("!")) {
+    if (!chatMessage.startsWith("!") && (await isCommandGroupEnabled(broadcasterId, "jar"))) {
       try { await maybeChargeSwearJar(chatMessage, chatter, display, broadcasterId); }
       catch (e) { await recordMonitorEvent("swearjar_error", String(e)); }
     }
@@ -1419,10 +1424,10 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     } else {
       // Plain (non-"!") chat — check passive keyword triggers first (part
-      // of the "custom" dashboard group); only roll the chronicle's random
+      // of the "triggers" dashboard group); only roll the chronicle's random
       // quote-back (then NPC chatter) if no trigger already replied, so a
       // single message never draws two separate unprompted replies.
-      const triggerFired = (await isCommandGroupEnabled(broadcasterId, "custom"))
+      const triggerFired = (await isCommandGroupEnabled(broadcasterId, "triggers"))
         ? await handleTriggerMatch(chatMessage, display, broadcasterId)
         : false;
       if (!triggerFired) {

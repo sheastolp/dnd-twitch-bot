@@ -64,7 +64,7 @@ import {
   parseCooldownSeconds,
 } from "./customcommands.ts";
 import { parseIntervalMinutes, sanitizeTimedMessageText, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES } from "./timedmessages.ts";
-import { renderDashboardPage, renderDashboardLoginGate, type DashboardData } from "./pages.ts";
+import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 
 export async function handleDashboardCommand(
   chatMessage: string,
@@ -176,9 +176,9 @@ function redirectTo(location: string, extraHeaders?: Record<string, string>): Re
   return new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store", ...extraHeaders } });
 }
 
-function dashboardUrl(baseUrl: string, channelId: string, key: string, extra?: Record<string, string>): string {
+function dashboardUrl(baseUrl: string, channelId: string, key: string, extra?: Record<string, string>, anchor?: string): string {
   const params = new URLSearchParams({ channel: channelId, key, ...extra });
-  return `${baseUrl}/dashboard?${params.toString()}`;
+  return `${baseUrl}/dashboard?${params.toString()}${anchor ? `#${anchor}` : ""}`;
 }
 
 function loginUrl(baseUrl: string, channelId: string, key: string): string {
@@ -504,19 +504,19 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
     case "bot_off": {
       const enabled = intent === "bot_on";
       await setChannelEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Bot turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Bot turned ${enabled ? "on" : "off"}.` }, "toggle-bot"));
     }
     case "market_on":
     case "market_off": {
       const enabled = intent === "market_on";
       await setMerchantEnabled(channelId, enabled, enabled ? Date.now() + randomMerchantIntervalMs() : null);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Merchant turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Merchant turned ${enabled ? "on" : "off"}.` }, "toggle-market"));
     }
     case "chronicle_on":
     case "chronicle_off": {
       const enabled = intent === "chronicle_on";
       await setChronicleEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Chronicle turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Chronicle turned ${enabled ? "on" : "off"}.` }, "toggle-chronicle"));
     }
     case "autoban_on":
     case "autoban_off": {
@@ -527,25 +527,25 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
         notice: needsReconnect
           ? "Auto-ban turned on, but ban permission hasn't been granted yet — the broadcaster needs to reconnect via /connect to approve it."
           : `Auto-ban turned ${enabled ? "on" : "off"}.`,
-      }));
+      }, "toggle-autoban"));
     }
     case "points_on":
     case "points_off": {
       const enabled = intent === "points_on";
       await setPointsEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Gold, leaderboard & giveaways turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Gold, leaderboard & giveaways turned ${enabled ? "on" : "off"}.` }, "toggle-points"));
     }
     case "npc_on":
     case "npc_off": {
       const enabled = intent === "npc_on";
       await setNpcEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPCs turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPCs turned ${enabled ? "on" : "off"}.` }, "toggle-npc"));
     }
     case "npcchatter_on":
     case "npcchatter_off": {
       const enabled = intent === "npcchatter_on";
       await setNpcChatterEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPC chatter turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPC chatter turned ${enabled ? "on" : "off"}.` }, "toggle-npcchatter"));
     }
     case "group_on":
     case "group_off": {
@@ -555,9 +555,45 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       }
       const enabled = intent === "group_on";
       await setCommandGroupEnabled(channelId, group, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `${COMMAND_GROUPS[group].label.split(" (")[0]} turned ${enabled ? "on" : "off"}.` }));
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `${COMMAND_GROUPS[group].label.split(" (")[0]} turned ${enabled ? "on" : "off"}.` }, `toggle-${group}`));
     }
     default:
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Unknown action." }));
   }
+}
+
+// ── GET /dashboard/go?toggle=<key> ──
+//
+// Target of the Guild Codex's per-card "Dashboard switch" links. The guide
+// is public and knows nothing about the viewer, so this looks for a valid
+// mod session cookie (set by /dashboard/callback, Path=/dashboard so it is
+// sent here) and bounces to that channel's dashboard at #toggle-<key>. No
+// session means no redirect: it just explains how to open the dashboard.
+export async function handleDashboardGo(toggle: string | null, cookieHeader: string | null, baseUrl: string): Promise<Response> {
+  const key = String(toggle ?? "").toLowerCase();
+  const known = key in COMMAND_GROUPS || DEDICATED_TOGGLES.includes(key);
+  const anchor = known ? `toggle-${key}` : undefined;
+  const channels: string[] = [];
+  for (const part of (cookieHeader ?? "").split(";")) {
+    const m = part.trim().match(/^gs_dash_(\d+)=(.+)$/);
+    if (m && (await verifyDashboardSession(m[2], m[1]))) channels.push(m[1]);
+  }
+  if (channels.length === 1) {
+    const dashKey = await getOrCreateDashboardKey(channels[0]);
+    return redirectTo(dashboardUrl(baseUrl, channels[0], dashKey, undefined, anchor));
+  }
+  if (channels.length > 1) {
+    const links: string[] = [];
+    for (const id of channels) {
+      const b = await getBroadcaster(id);
+      const name = String(b?.display_name || b?.login || id);
+      const dashKey = await getOrCreateDashboardKey(id);
+      links.push(`<li><a href="${dashboardUrl(baseUrl, id, dashKey, undefined, anchor)}">${name.replace(/[&<>"']/g, "")}</a></li>`);
+    }
+    return page("Pick a channel", `<h1>Which channel?</h1><p>You're logged in to more than one channel's dashboard.</p><ul>${links.join("")}</ul>`);
+  }
+  return page(
+    "Open your dashboard",
+    `<h1>Open your dashboard first</h1><p>Dashboard switches belong to a channel, so type <code>!dashboard</code> in your Twitch chat (mods and the broadcaster only), open the link, and log in with Twitch. After that, the guide's switch links jump straight to the right switch for the next 12 hours.</p><p><a href="/guide">Back to the Guild Codex</a></p>`,
+  );
 }

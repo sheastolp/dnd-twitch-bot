@@ -777,18 +777,27 @@ export async function setChannelEnabled(broadcasterId: string, enabled: boolean)
  * group with no row (never touched) to enabled. */
 export async function getCommandGroupToggles(broadcasterId: string): Promise<Record<string, boolean>> {
   const res = await sqlite.execute("SELECT group_name, enabled FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
-  const overrides = new Map(res.rows.map((r: any) => [String(r.group_name), Number(r.enabled) === 1]));
+  const overrides = new Map<string, boolean>(res.rows.map((r: any) => [String(r.group_name), Number(r.enabled) === 1]));
   const out: Record<string, boolean> = {};
-  for (const group of Object.keys(COMMAND_GROUPS)) out[group] = overrides.get(group) ?? true;
+  for (const [group, def] of Object.entries(COMMAND_GROUPS)) {
+    // Never switched since the split? Inherit the older group it came from.
+    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? true;
+  }
   return out;
 }
 
 export async function isCommandGroupEnabled(broadcasterId: string, group: string): Promise<boolean> {
-  const res = await sqlite.execute("SELECT enabled FROM command_toggles WHERE broadcaster_id = ? AND group_name = ?", [
-    broadcasterId,
-    group,
-  ]);
-  return !res.rows.length || Number(res.rows[0].enabled) === 1;
+  // A group split out of an older, coarser one (COMMAND_GROUPS[..].parent)
+  // falls back to that parent's saved state until it is switched itself.
+  const parent = COMMAND_GROUPS[group]?.parent;
+  const names = parent ? [group, parent] : [group];
+  const res = await sqlite.execute(
+    `SELECT group_name, enabled FROM command_toggles WHERE broadcaster_id = ? AND group_name IN (${names.map(() => "?").join(",")})`,
+    [broadcasterId, ...names],
+  );
+  const row = res.rows.find((r: any) => String(r.group_name) === group) ??
+    res.rows.find((r: any) => String(r.group_name) === parent);
+  return !row || Number(row.enabled) === 1;
 }
 
 export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {
