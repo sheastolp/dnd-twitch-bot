@@ -1,6 +1,7 @@
-// @-tag limiter. Within one response, every name keeps its "@" for its
-// first MAX_TAGS appearances; any further "@name" has the "@" removed so it
-// reads as the plain name. Applied across the WHOLE response before it is split into
+// Name limiter. Twitch highlights a chatter's name every time it appears,
+// with or without "@", so within one response each name appears in full at
+// most MAX_TAGS times; later appearances use its short label instead
+// (limitNameAppearances). Applied across the WHOLE response before it is split into
 // chat parts, so the count isn't reset by part breaks. Bare (un-@'d) names are
 // never touched.
 
@@ -9,6 +10,35 @@ import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 export const MAX_TAGS = 2;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A chatter's name may appear at most `max` times in one response — Twitch
+ * highlights it every time, "@" or not. Covers every "@name" in the text
+ * plus `extra` names (fighters, the chatter being answered). Later
+ * appearances become the name's short label ("StonedSheamus" -> "Stoned",
+ * see shortNameMap). Links are left alone. Pass the same `seen` map to
+ * carry the count across several chat messages of one response. */
+export function limitNameAppearances(
+  text: string,
+  extra: string[] = [],
+  opts: { max?: number; displays?: Map<string, string>; nicks?: Map<string, string>; seen?: Map<string, number> } = {},
+): string {
+  const max = opts.max ?? MAX_TAGS;
+  const tagged = [...text.matchAll(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,25})(?![A-Za-z0-9_])/g)].map((m) => m[1]);
+  const all = [...tagged, ...extra].map((n) => n.replace(/^@/, "").trim()).filter((n) => /^[A-Za-z0-9_]{3,25}$/.test(n));
+  const keys = [...new Set(all.map((n) => n.toLowerCase()))];
+  if (!keys.length) return text;
+  const labels = shortNameMap(all, opts.displays, opts.nicks);
+  const alternation = keys.map(escapeRe).sort((a, b) => b.length - a.length).join("|");
+  const re = new RegExp(`(https?:\/\/\S+)|(^|[^A-Za-z0-9_@/=])(@?)(${alternation})(?![A-Za-z0-9_])`, "gi");
+  const seen = opts.seen ?? new Map<string, number>();
+  return text.replace(re, (m, url: string | undefined, pre: string, _at: string, name: string) => {
+    if (url) return m;
+    const key = name.toLowerCase();
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
+    return n <= max ? m : pre + (labels.get(key) ?? name);
+  });
+}
 
 /** Every "@name" in `text` keeps its "@" for its first `max` appearances;
  * later ones lose the "@" (no extra ping). Pass the same `seen` map to carry
@@ -118,6 +148,7 @@ export async function lookupViewerNames(broadcasterId: string, names: string[]):
 export async function purgeViewerNames(broadcasterId: string) {
   await sqlite.execute("DELETE FROM viewer_names WHERE broadcaster_id = ?", [broadcasterId]);
   await sqlite.execute("DELETE FROM viewer_nicknames WHERE broadcaster_id = ?", [broadcasterId]);
+  nickCache.delete(broadcasterId);
 }
 
 /** lowercase login -> mod-set nickname (!nick), for whichever of `names` have one. */
@@ -133,7 +164,39 @@ export async function lookupNicknames(broadcasterId: string, names: string[]): P
   return out;
 }
 
+// Every reply checks nicknames (applyNicknames), so a channel's whole list is
+// cached briefly instead of queried per message. !nick changes in this
+// isolate clear it at once; other isolates pick them up within the TTL.
+const NICK_CACHE_MS = 60_000;
+const nickCache = new Map<string, { at: number; nicks: Map<string, string> }>();
+
+/** lowercase login -> nickname for every !nick in the channel (cached). */
+export async function getChannelNicknames(broadcasterId: string): Promise<Map<string, string>> {
+  const hit = nickCache.get(broadcasterId);
+  if (hit && Date.now() - hit.at < NICK_CACHE_MS) return hit.nicks;
+  let nicks = new Map<string, string>();
+  try {
+    nicks = new Map((await listNicknames(broadcasterId)).map((r) => [r.username.toLowerCase(), r.nickname]));
+  } catch (_) { /* table not ready: no nicknames */ }
+  nickCache.set(broadcasterId, { at: Date.now(), nicks });
+  return nicks;
+}
+
+/** Swaps every plain (un-@'d) appearance of a nicknamed chatter for their
+ * nickname. "@name" tags keep the real name so they still ping; links are
+ * left alone. Only names in `names` or @-tagged in the text are touched. */
+export function applyNicknames(text: string, names: string[], nicks: Map<string, string>): string {
+  if (!nicks.size) return text;
+  const tagged = [...text.matchAll(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,25})(?![A-Za-z0-9_])/g)].map((m) => m[1]);
+  const keys = [...new Set([...tagged, ...names].map((n) => n.replace(/^@/, "").trim().toLowerCase()))].filter((k) => nicks.has(k));
+  if (!keys.length) return text;
+  const alternation = keys.map(escapeRe).sort((a, b) => b.length - a.length).join("|");
+  const re = new RegExp(`(https?:\\/\\/\\S+)|(?<![@A-Za-z0-9_/=])(${alternation})(?![A-Za-z0-9_])`, "gi");
+  return text.replace(re, (m, url: string | undefined, name: string) => (url ? m : nicks.get(name.toLowerCase()) ?? m));
+}
+
 export async function setNickname(broadcasterId: string, username: string, nickname: string) {
+  nickCache.delete(broadcasterId);
   await sqlite.execute("INSERT OR REPLACE INTO viewer_nicknames (broadcaster_id, username, nickname) VALUES (?,?,?)", [
     broadcasterId,
     username.toLowerCase(),
@@ -145,6 +208,7 @@ export async function setNickname(broadcasterId: string, username: string, nickn
 export async function removeNickname(broadcasterId: string, username: string): Promise<boolean> {
   const before = await sqlite.execute("SELECT 1 FROM viewer_nicknames WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username.toLowerCase()]);
   if (!before.rows.length) return false;
+  nickCache.delete(broadcasterId);
   await sqlite.execute("DELETE FROM viewer_nicknames WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username.toLowerCase()]);
   return true;
 }

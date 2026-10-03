@@ -1,6 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
-import { limitAllMentions, lookupNicknames, lookupViewerNames, shortenNames } from "./mentions.ts";
+import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
@@ -64,10 +64,19 @@ function preferLinkInFirstPart(parts: string[]): string[] {
   return [first, ...rest];
 }
 
-export async function sendChatMessage(text: string, broadcasterId: string) {
-  // A one-message response gets the same 2-tags-per-name cap (mentions.ts);
-  // parts of a longer one were already capped across the whole response.
-  const message = limitAllMentions(text.slice(0, 500));
+/** The chatter this request is answering, as names to guard (login and
+ * display name) — see limitNameAppearances. */
+function initiatorNames(): string[] {
+  const i = getReplyInitiator();
+  return i ? [i.display, i.login] : [];
+}
+
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = []) {
+  // A one-message response gets the same nicknames and 2-appearances-per-name
+  // cap (mentions.ts); parts of a longer one were already handled as a whole.
+  const guard = [...names, ...initiatorNames()];
+  const nicks = await getChannelNicknames(broadcasterId);
+  const message = limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);
@@ -119,23 +128,24 @@ export async function sendChatMessages(
 ) {
   const original = text;
   const maxParts = opts?.maxParts ?? MAX_PARTS;
-  // Battle logs shorten bare names; "@name" tags are capped at two. See mentions.ts.
+  // Battle logs shorten bare names; every name appears in full at most twice
+  // per response. See mentions.ts.
+  let displays = new Map<string, string>();
+  const guard = [...(opts?.names ?? []), ...initiatorNames()];
+  // !nick nicknames apply to every reply (cached per channel, mentions.ts).
+  const nicks = await getChannelNicknames(broadcasterId);
   if (opts?.names?.length) {
     // Battle logs: bare names -> one whole word of the display name ("Stoned").
-    // Both lookups at once; a missing table just means no data from it.
-    const [displays, nicks] = await Promise.all([
-      lookupViewerNames(broadcasterId, opts.names).catch(() => new Map<string, string>()), // fall back to the text's own names
-      lookupNicknames(broadcasterId, opts.names).catch(() => new Map<string, string>()), // no !nick overrides
-    ]);
+    displays = await lookupViewerNames(broadcasterId, opts.names).catch(() => new Map<string, string>()); // fall back to the text's own names
     const lead = text.match(/^(?:[^\w@]*)@([A-Za-z0-9_]{1,25})\b/)?.[1];
     if (lead) displays.set(lead.toLowerCase(), lead);
     text = shortenNames(text, opts.names, displays, nicks);
   }
-  // Only the first 2 "@" tags per name in the whole response (mentions.ts).
-  text = limitAllMentions(text);
+  text = applyNicknames(text, guard, nicks);
+  text = limitNameAppearances(text, guard, { displays, nicks });
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
-  if (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary)) return;
+  if (await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary, opts?.names)) return;
   for (let i = 0; i < parts.length; i++) {
     const ok = await sendChatMessage(parts[i], broadcasterId);
     if (!ok && i < parts.length - 1) {
@@ -157,6 +167,7 @@ async function summarizeLongReply(
   chatParts: number,
   broadcasterId: string,
   summary?: string,
+  names: string[] = [],
 ): Promise<boolean> {
   if (chatParts < LONG_REPLY_PARTS) return false;
   const found = getReplyInitiator();
@@ -180,7 +191,7 @@ async function summarizeLongReply(
   }
   const tail = ` 📜 Full ${summary ? "battle log" : "reply"}: ${link}`;
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
-  await sendChatMessage(head + tail, broadcasterId);
+  await sendChatMessage(head + tail, broadcasterId, names);
   // Bonus copy by whisper; silently skipped until /connect-bot is done.
   if (initiator) await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
   return true;
@@ -199,9 +210,10 @@ export async function sendSpellSections(sections: string[], display: string, bro
     parts[parts.length - 1] =
       parts[parts.length - 1].slice(0, Math.max(0, CHAT_MAX - 12)).trimEnd() + " …(cut)";
   }
-  const tags = new Map<string, number>(); // 2-tags-per-name cap across all parts
+  const seen = new Map<string, number>(); // 2-appearances-per-name cap across all parts
+  const guard = [display, ...initiatorNames()];
   for (let i = 0; i < parts.length; i++) {
-    await sendChatMessage(limitAllMentions(parts[i], undefined, tags), broadcasterId);
+    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard);
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
 }
