@@ -32,10 +32,12 @@ import {
   editCustomCommand,
   deleteCustomCommand,
   setCustomCommandCooldown,
+  setCustomCommandEnabled,
   addCustomTrigger,
   editCustomTrigger,
   deleteCustomTrigger,
   setCustomTriggerCooldown,
+  setCustomTriggerEnabled,
   addTimedMessage,
   editTimedMessage,
   setTimedMessageInterval,
@@ -387,6 +389,7 @@ export async function handleDashboardCommandsForm(form: FormData, baseUrl: strin
     const updated = await editCustomCommand(channelId, name, response);
     if (!updated) return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: `!${name} doesn't exist.` }));
     if (cooldownSeconds !== null) await setCustomCommandCooldown(channelId, name, cooldownSeconds * 1000);
+    await setCustomCommandEnabled(channelId, name, String(form.get("enabled") ?? "") === "on");
     return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Updated !${name}.` }));
   }
 
@@ -432,6 +435,7 @@ export async function handleDashboardTriggersForm(form: FormData, baseUrl: strin
     const updated = await editCustomTrigger(channelId, keyword, response);
     if (!updated) return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: `No trigger found for "${keyword}".` }));
     if (cooldownSeconds !== null) await setCustomTriggerCooldown(channelId, keyword, cooldownSeconds * 1000);
+    await setCustomTriggerEnabled(channelId, keyword, String(form.get("enabled") ?? "") === "on");
     return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Updated trigger "${keyword}".` }));
   }
 

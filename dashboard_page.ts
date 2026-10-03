@@ -197,15 +197,17 @@ function renderCommandsSection(d: DashboardData): string {
   d.commands.forEach((c: any, i: number) => {
     const id = `dlg-cmd-${i}`;
     const cooldownSeconds = Math.round(Number(c.cooldown_ms ?? 0) / 1000);
-    tiles.push(editorTile(id, `!${escapeHtml(c.name)}`, `used ${Number(c.uses ?? 0)}×`));
+    const enabled = Number(c.enabled ?? 1) !== 0;
+    tiles.push(editorTile(id, `!${escapeHtml(c.name)}`, `used ${Number(c.uses ?? 0)}× · ${enabled ? "active" : "off"}`, enabled ? "" : "tile-paused"));
     dialogs.push(editorDialog(id, `<code>!${escapeHtml(c.name)}</code>`, `<form method="post" action="/dashboard/commands" class="row-form">
         ${dashHidden(d.broadcasterId, d.channelKey)}
         <input type="hidden" name="intent" value="save">
         <input type="hidden" name="name" value="${escapeHtml(c.name)}">
-        <p class="muted">Used ${Number(c.uses ?? 0)}×</p>
+        <p class="muted">Used ${Number(c.uses ?? 0)}× — ${enabled ? "active" : "off"}</p>
         <label>Response <textarea name="response" maxlength="400" rows="4">${escapeHtml(c.response ?? "")}</textarea></label>
         <div class="row-controls">
           <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="${cooldownSeconds}"></label>
+          <label class="check"><input type="checkbox" name="enabled" ${enabled ? "checked" : ""}> Active</label>
           <button type="submit">Save</button>
           <button type="submit" formaction="/dashboard/commands" name="intent" value="delete" class="danger">Delete</button>
         </div>
@@ -230,15 +232,17 @@ function renderTriggersSection(d: DashboardData): string {
   d.triggers.forEach((t: any, i: number) => {
     const id = `dlg-trg-${i}`;
     const cooldownSeconds = Math.round(Number(t.cooldown_ms ?? 0) / 1000);
-    tiles.push(editorTile(id, `“${escapeHtml(t.keyword)}”`, `used ${Number(t.uses ?? 0)}×`));
+    const enabled = Number(t.enabled ?? 1) !== 0;
+    tiles.push(editorTile(id, `“${escapeHtml(t.keyword)}”`, `used ${Number(t.uses ?? 0)}× · ${enabled ? "active" : "off"}`, enabled ? "" : "tile-paused"));
     dialogs.push(editorDialog(id, `Trigger: “${escapeHtml(t.keyword)}”`, `<form method="post" action="/dashboard/triggers" class="row-form">
         ${dashHidden(d.broadcasterId, d.channelKey)}
         <input type="hidden" name="intent" value="save">
         <input type="hidden" name="keyword" value="${escapeHtml(t.keyword)}">
-        <p class="muted">Used ${Number(t.uses ?? 0)}×</p>
+        <p class="muted">Used ${Number(t.uses ?? 0)}× — ${enabled ? "active" : "off"}</p>
         <label>Response <textarea name="response" maxlength="400" rows="4">${escapeHtml(t.response ?? "")}</textarea></label>
         <div class="row-controls">
           <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="${cooldownSeconds}"></label>
+          <label class="check"><input type="checkbox" name="enabled" ${enabled ? "checked" : ""}> Active</label>
           <button type="submit">Save</button>
           <button type="submit" formaction="/dashboard/triggers" name="intent" value="delete" class="danger">Delete</button>
         </div>
