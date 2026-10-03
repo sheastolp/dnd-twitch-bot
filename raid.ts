@@ -27,7 +27,7 @@
 // Heroes always start a raid at full HP, so a wipe costs nothing but time.
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
-import { getCharacter } from "./db.ts";
+import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { acWhy, BattleLog, MONSTER_AC_WHY } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -187,6 +187,33 @@ export async function expireRaidQuest(broadcasterId: string) {
     "UPDATE raid_quests SET status = 'expired', muster_ends_at = 0, muster_members = '[]' WHERE broadcaster_id = ? AND status = 'active'",
     [broadcasterId],
   );
+}
+
+/**
+ * stream.online / stream.offline hook from main.ts: posts the stream's one raid
+ * quest when it goes live (if the channel is connected, open and has the raid
+ * group on) and retires it when it ends. Never throws.
+ */
+export async function onRaidStreamStatus(broadcasterId: string, online: boolean, startedAt: unknown) {
+  try {
+    if (!online) return await expireRaidQuest(broadcasterId);
+    const conn = await getBroadcaster(broadcasterId);
+    if (!conn || Number(conn.connected) !== 1 || (await isChannelBlocked(broadcasterId))) return;
+    if (!(await isChannelEnabled(broadcasterId)) || !(await isCommandGroupEnabled(broadcasterId, "raid"))) return;
+    const announcement = await createRaidQuest(broadcasterId, String(startedAt ?? ""));
+    if (announcement) await sendChatMessages(announcement, broadcasterId);
+  } catch (e) {
+    await recordMonitorEvent("raid_quest_error", `${broadcasterId}: ${String(e)}`);
+  }
+}
+
+/** maybeLaunchRaid for the per-message hook in main.ts. Never throws. */
+export async function maybeLaunchRaidSafe(broadcasterId: string) {
+  try {
+    await maybeLaunchRaid(broadcasterId);
+  } catch (e) {
+    await recordMonitorEvent("raid_launch_error", `${broadcasterId}: ${String(e)}`);
+  }
 }
 
 /** Channels with a muster whose time is up (for the cron fallback in autohunt_cron.ts). */

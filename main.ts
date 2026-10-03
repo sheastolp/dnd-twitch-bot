@@ -74,7 +74,7 @@ import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwear
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent, subscribeToRedemptions } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
-import { createRaidQuest, ensureRaidTables, expireRaidQuest, handleRaidCommand, maybeLaunchRaid, purgeRaidData } from "./raid.ts";
+import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, onRaidStreamStatus, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
@@ -103,7 +103,7 @@ import {
 import {
   generateCharacter,
   handleCreationCommand,
-  adjustLevel,
+  handleLevelUpCommand,
 } from "./characters.ts";
 import {
   handleDuelCommand,
@@ -760,26 +760,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const liveBroadcasterId: string = body.event?.broadcaster_user_id ?? "";
       if (liveBroadcasterId) {
         await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
-        // The stream's one raid quest (see raid.ts): posted when the stream
-        // starts, retired when it ends. Failures never break the live flag.
-        try {
-          if (subscriptionType === "stream.offline") {
-            await expireRaidQuest(liveBroadcasterId);
-          } else {
-            const liveConnection = await getBroadcaster(liveBroadcasterId);
-            if (
-              liveConnection && Number(liveConnection.connected) === 1 &&
-              !(await isChannelBlocked(liveBroadcasterId)) &&
-              (await isChannelEnabled(liveBroadcasterId)) &&
-              (await isCommandGroupEnabled(liveBroadcasterId, "raid"))
-            ) {
-              const announcement = await createRaidQuest(liveBroadcasterId, String(body.event?.started_at ?? ""));
-              if (announcement) await sendChatMessages(announcement, liveBroadcasterId);
-            }
-          }
-        } catch (e) {
-          await recordMonitorEvent("raid_quest_error", `${liveBroadcasterId}: ${String(e)}`);
-        }
+        await onRaidStreamStatus(liveBroadcasterId, subscriptionType === "stream.online", body.event?.started_at);
       }
       return new Response("OK");
     }
@@ -931,8 +912,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!(await isChannelEnabled(broadcasterId))) return new Response("OK");
 
-    // A raid muster whose time is up launches on the next chat message (see raid.ts).
-    try { await maybeLaunchRaid(broadcasterId); } catch (e) { await recordMonitorEvent("raid_launch_error", String(e)); }
+    await maybeLaunchRaidSafe(broadcasterId); // due raid musters launch on any chat message
 
     // Watch-time clock (see watchtime.ts): every message while live, commands included.
     if (Number(connection.is_live) === 1) await trackWatchtime(broadcasterId, chatter, display);
@@ -1044,53 +1024,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const help = chatHelpText(category, PUBLIC_BASE_URL);
       await sendChatMessages(`@${display} ${help}`, broadcasterId);
     } else if (/^!levelup(?:\s+\S+)*$/i.test(chatMessage)) {
-      // !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only)
-      const args = chatMessage.split(/\s+/).slice(1);
-      let delta = 1;
-      let levelTarget: string | null = null;
-      let validArgs = true;
-      if (args.length > 2) validArgs = false;
-      for (const arg of args) {
-        if (/^[+-]\d+$/.test(arg)) delta = Number.parseInt(arg, 10);
-        else if (/^@?\w+$/.test(arg) && levelTarget === null) levelTarget = arg.replace(/^@/, "").toLowerCase();
-        else validArgs = false;
-      }
-      if (!isModerator) {
-        await sendChatMessage(
-          `@${display} only the broadcaster or a moderator can use !levelup.`,
-          broadcasterId,
-        );
-      } else if (!validArgs) {
-        await sendChatMessage(
-          `@${display} use !levelup, !levelup +2, !levelup @user, or !levelup @user -1`,
-          broadcasterId,
-        );
-      } else {
-        const targetUser = levelTarget || chatter;
-        const forSomeoneElse = targetUser !== chatter;
-        const subject = forSomeoneElse ? `@${targetUser}` : "you";
-        const result = await adjustLevel(targetUser, delta, broadcasterId);
-        if ("error" in result) {
-          const errorText =
-            result.error === "no character"
-              ? forSomeoneElse
-                ? `@${targetUser} doesn't have a character yet — try !createchar @${targetUser}`
-                : "you don't have a character yet — try !createchar"
-              : result.error === "max level"
-                ? `${subject === "you" ? "you're" : `${subject} is`} already level 20`
-                : result.error === "min level"
-                  ? `${subject === "you" ? "you're" : `${subject} is`} already level 1`
-                  : "use !levelup, !levelup +2, !levelup @user, or !levelup @user -1";
-          await sendChatMessage(`@${display} ${errorText}`, broadcasterId);
-        } else {
-          const direction = result.delta > 0 ? "advanced" : "reduced";
-          const hpChange = result.hpGain >= 0 ? `HP +${result.hpGain}` : `HP ${result.hpGain}`;
-          await sendChatMessage(
-            `@${display} ${forSomeoneElse ? `@${targetUser}'s level` : "level"} ${direction} from ${result.oldLevel} to ${result.c.level}; ${hpChange}, HP ${result.c.hpCurrent}/${result.c.hpMax}, Prof +${result.c.proficiency}.${result.asi}`,
-            broadcasterId,
-          );
-        }
-      }
+      await handleLevelUpCommand(chatMessage, chatter, display, broadcasterId, isModerator);
     } else if (/^!(spell|item|class|feat|ability|race|subrace|rule|rules|monster)(?:\s+.*)?$/i.test(chatMessage)) {
       const match = chatMessage.match(
         /^!(spell|item|class|feat|ability|race|subrace|rule|rules|monster)(?:\s+(.+?))?(?:\s+\+(\d+))?$/i,

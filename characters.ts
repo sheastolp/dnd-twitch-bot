@@ -346,3 +346,60 @@ export async function handleCreationCommand(
 
   return false;
 }
+
+/** !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only). Moved out of main.ts for Val Town's file-size limit. */
+export async function handleLevelUpCommand(
+  chatMessage: string,
+  chatter: string,
+  display: string,
+  broadcasterId: string,
+  isModerator: boolean,
+) {
+  // !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only)
+  const args = chatMessage.split(/\s+/).slice(1);
+  let delta = 1;
+  let levelTarget: string | null = null;
+  let validArgs = true;
+  if (args.length > 2) validArgs = false;
+  for (const arg of args) {
+    if (/^[+-]\d+$/.test(arg)) delta = Number.parseInt(arg, 10);
+    else if (/^@?\w+$/.test(arg) && levelTarget === null) levelTarget = arg.replace(/^@/, "").toLowerCase();
+    else validArgs = false;
+  }
+  if (!isModerator) {
+    await sendChatMessage(
+      `@${display} only the broadcaster or a moderator can use !levelup.`,
+      broadcasterId,
+    );
+  } else if (!validArgs) {
+    await sendChatMessage(
+      `@${display} use !levelup, !levelup +2, !levelup @user, or !levelup @user -1`,
+      broadcasterId,
+    );
+  } else {
+    const targetUser = levelTarget || chatter;
+    const forSomeoneElse = targetUser !== chatter;
+    const subject = forSomeoneElse ? `@${targetUser}` : "you";
+    const result = await adjustLevel(targetUser, delta, broadcasterId);
+    if ("error" in result) {
+      const errorText =
+        result.error === "no character"
+          ? forSomeoneElse
+            ? `@${targetUser} doesn't have a character yet — try !createchar @${targetUser}`
+            : "you don't have a character yet — try !createchar"
+          : result.error === "max level"
+            ? `${subject === "you" ? "you're" : `${subject} is`} already level 20`
+            : result.error === "min level"
+              ? `${subject === "you" ? "you're" : `${subject} is`} already level 1`
+              : "use !levelup, !levelup +2, !levelup @user, or !levelup @user -1";
+      await sendChatMessage(`@${display} ${errorText}`, broadcasterId);
+    } else {
+      const direction = result.delta > 0 ? "advanced" : "reduced";
+      const hpChange = result.hpGain >= 0 ? `HP +${result.hpGain}` : `HP ${result.hpGain}`;
+      await sendChatMessage(
+        `@${display} ${forSomeoneElse ? `@${targetUser}'s level` : "level"} ${direction} from ${result.oldLevel} to ${result.c.level}; ${hpChange}, HP ${result.c.hpCurrent}/${result.c.hpMax}, Prof +${result.c.proficiency}.${result.asi}`,
+        broadcasterId,
+      );
+    }
+  }
+}
