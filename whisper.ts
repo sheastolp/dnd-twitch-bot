@@ -31,7 +31,7 @@ const MAX_WHISPER_PARTS = 10;
 const WHISPER_DELAY_MS = 400; // Twitch allows 3 whispers/second
 const BOT_WHISPER_SCOPE = "user:manage:whispers";
 
-export interface ReplyInitiator { userId: string; display: string; broadcasterId: string }
+export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
 const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator }>();
 

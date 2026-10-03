@@ -170,7 +170,10 @@ async function summarizeLongReply(
   if (replyLink && !line.includes(replyLink)) line += ` 🔗 ${replyLink}`;
   let link: string;
   try {
-    link = await saveReplyPage(broadcasterId, line, detail);
+    // One page per viewer: whoever ran the command, else whoever the reply
+    // is addressed to (autohunt reports…), else the channel's shared page.
+    const owner = initiator?.login || text.match(/^\W*@([A-Za-z0-9_]{1,25})\b/)?.[1];
+    link = await saveReplyPage(broadcasterId, owner, line, detail);
   } catch (err) {
     console.error("saveReplyPage failed", err);
     return false;

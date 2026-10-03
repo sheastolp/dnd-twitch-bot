@@ -39,7 +39,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | File | Role |
 |------|------|
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
-| **replypages.ts** | Detail pages for long replies: stores the full output (`reply_pages`, 24-hour expiry) and serves `GET /r/<id>` |
+| **replypages.ts** | Detail pages for long replies: stores each viewer's latest full reply (`reply_links`, one fixed link per viewer per channel, content kept 24 hours) and serves `GET /r/<id>` |
 | **whisper.ts** | Long replies by whisper: per-request "who ran this command" context (AsyncLocalStorage), the bot's own user token for Helix Send Whisper (`bot_user_tokens`), the `/connect-bot` OAuth routes, and the one-line chat summary |
 | **web_routes.ts** | Every web route (health, static pages, OAuth connect/callback, character/map/roster pages, dashboard, `/admin/*`); `main.ts` calls it first and falls through to EventSub when nothing matched |
 | **chat_builtin.ts** | Built-in chat commands without their own module (`!logs`, `!help`, lookups, dice, `!createchar`, `!char`, …), custom-command invocation, and plain-chat replies (goodnight, triggers, chronicle, NPC chatter) |
@@ -152,7 +152,7 @@ The OAuth flow requests `channel:bot channel:read:subscriptions channel:read:ads
 
 Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`.
 
-**Long replies become a one-message summary + link:** anything the bot would say in **more than one chat message** is posted as a single message instead: a one-paragraph summary ending in a link to a page with the full output (`GET /r/<id>`, stored in `reply_pages` for 24 hours — `replypages.ts`, used by `sendChatMessages`/`sendSpellSections` in `twitch.ts`). This covers command replies, passive replies and scheduled/cron posts alike. Ordinary replies are summarized by their opening sentences (up to ~220 characters), and a link the reply exists to deliver (e.g. `!guide`, `!dashboard`) is kept in the summary. Auto-resolved fights (solo hunts, PvP duels, party hunts, party duels, raids, `!rob`) get a fight summary — who fought, the enemy, the outcome and the loot — and their page shows the **uncut** battle log, every round on its own line, e.g. `@Bob ⚔️ Bob vs Goblin — Bob wins! 🪙 Loot: 2 sp 3 cp. 📜 Full battle log: https://…/r/abc123`. When the reply answers someone's `!command` and the bot has whisper access (step 8), the full reply is also whispered to them. If the detail page can't be saved, the reply is posted in full as before.
+**Long replies become a one-message summary + link:** anything the bot would say in **more than one chat message** is posted as a single message instead: a one-paragraph summary ending in a link to a page with the full output (`GET /r/<id>` — `replypages.ts`, used by `sendChatMessages`/`sendSpellSections` in `twitch.ts`). This covers command replies, passive replies and scheduled/cron posts alike. Each viewer has **one link per channel** that always shows their latest full reply — the same link is reused every time and its content is replaced (replies not addressed to anyone, like timed messages, share one channel link); content older than 24 hours is cleared, but the link keeps working for the next reply. Ordinary replies are summarized by their opening sentences (up to ~220 characters), and a link the reply exists to deliver (e.g. `!guide`, `!dashboard`) is kept in the summary. Auto-resolved fights (solo hunts, PvP duels, party hunts, party duels, raids, `!rob`) get a fight summary — who fought, the enemy, the outcome and the loot — and their page shows the **uncut** battle log, every round on its own line, e.g. `@Bob ⚔️ Bob vs Goblin — Bob wins! 🪙 Loot: 2 sp 3 cp. 📜 Full battle log: https://…/r/abc123`. When the reply answers someone's `!command` and the bot has whisper access (step 8), the full reply is also whispered to them. If the detail page can't be saved, the reply is posted in full as before.
 
 ---
 
@@ -470,7 +470,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /` | Guild hall — info page, links to `/connect` |
 | `GET /connect` | Starts Twitch OAuth — generates state, redirects straight to Twitch's authorize page (no intermediate GuildScribe page) |
 | `GET /callback` | Twitch OAuth return |
-| `GET /r/<id>` | Full output of any reply longer than one chat message, linked from its one-message chat summary; kept 24 hours |
+| `GET /r/<id>` | A viewer's latest full reply (anything longer than one chat message), linked from its one-message chat summary; one fixed link per viewer per channel, content kept 24 hours |
 | `GET /connect-bot` · `/connect-bot/callback` | One-time operator step: the bot account grants `user:manage:whispers` so long replies can be whispered; only the `TWITCH_BOT_ID` account is accepted |
 | `GET /guide` · `/commands` | **Guild Codex** |
 | `GET /donate` | Support the Guild |

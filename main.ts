@@ -13,7 +13,7 @@ import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.t
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
-import { ensureReplyPageTables } from "./replypages.ts";
+import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
@@ -281,7 +281,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // A "!command" reply long enough to need 3+ chat messages is whispered
     // to this chatter instead, with a one-line summary in chat (whisper.ts).
     // Plain chat (triggers, chronicle, NPC chatter) always replies in chat.
-    if (chatMessage.trim().startsWith("!")) setReplyInitiator({ userId: chatterId, display, broadcasterId });
+    if (chatMessage.trim().startsWith("!")) setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
 
     // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
     const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);
@@ -311,6 +311,7 @@ async function handleRequest(req: Request): Promise<Response> {
       await purgeHuntCooldownData(broadcasterId, purge);
       await purgeRaidData(broadcasterId, purge);
       await purgeViewerNames(broadcasterId);
+      await purgeReplyPages(broadcasterId);
       if (purge) {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
