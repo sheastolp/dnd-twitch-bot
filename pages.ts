@@ -238,48 +238,44 @@ function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
 }
 
+/** A feature/group switch rendered like the rest of the dashboard: a square tile
+ * (name + On/Off) that expands into a window holding the details and the button.
+ * The tile keeps id="toggle-<key>" so /dashboard/go#toggle-<key> links land on it. */
+function toggleTile(d: DashboardData, key: string, label: string, sub: string, enabled: boolean, hidden: string, warn = ""): string {
+  const dlg = `dlg-tgl-${escapeHtml(key)}`;
+  // Group labels look like "Battle maps (!map …)": the tile shows the short name, the window shows it all.
+  const paren = label.indexOf(" (");
+  const short = paren > 0 ? label.slice(0, paren) : label;
+  const pill = `<span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>`;
+  return `<button type="button" class="tile${enabled ? "" : " tile-paused"}" id="toggle-${escapeHtml(key)}" data-open="${dlg}" aria-haspopup="dialog">
+      <span class="tile-title">${escapeHtml(short)}${warn ? " ⚠️" : ""}</span>${pill}
+    </button>${editorDialog(dlg, escapeHtml(label), `<div class="toggle-detail">
+      ${sub ? `<p>${escapeHtml(sub)}</p>` : ""}${warn ? `<p class="warn">${warn}</p>` : ""}
+      <div class="row-controls">${pill}${guideLink(key)}
+        <form method="post" action="/dashboard/features" class="push">
+          ${dashHidden(d.broadcasterId, d.channelKey)}${hidden}
+          <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
+        </form>
+      </div>
+    </div>`)}`;
+}
+
 function featureToggleRow(d: DashboardData, intentOn: string, intentOff: string, label: string, sub: string, enabled: boolean): string {
   const key = intentOn.replace(/_on$/, "");
-  return `<div class="toggle-row" id="toggle-${key}">
-    <div class="toggle-label">${escapeHtml(label)}${guideLink(key)}<small>${escapeHtml(sub)}</small></div>
-    <span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>
-    <form method="post" action="/dashboard/features">
-      ${dashHidden(d.broadcasterId, d.channelKey)}
-      <input type="hidden" name="intent" value="${enabled ? intentOff : intentOn}">
-      <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
-    </form>
-  </div>`;
+  return toggleTile(d, key, label, sub, enabled, `<input type="hidden" name="intent" value="${enabled ? intentOff : intentOn}">`);
 }
 
 function autoBanToggleRow(d: DashboardData): string {
   const enabled = d.autoBanEnabled;
   const sub = 'Permanently bans non-mods who say "ai viewers" — same as !autoban on/off';
   const warn = !d.autoBanPermitted
-    ? `<small>⚠️ Ban permission not granted yet — the broadcaster needs to <a href="/connect">reconnect</a> and approve it, or nothing will be banned.</small>`
+    ? `⚠️ Ban permission not granted yet — the broadcaster needs to <a href="/connect">reconnect</a> and approve it, or nothing will be banned.`
     : "";
-  const button = `<form method="post" action="/dashboard/features">
-      ${dashHidden(d.broadcasterId, d.channelKey)}
-      <input type="hidden" name="intent" value="${enabled ? "autoban_off" : "autoban_on"}">
-      <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
-    </form>`;
-  return `<div class="toggle-row" id="toggle-autoban">
-    <div class="toggle-label">Auto-ban${guideLink("autoban")}<small>${escapeHtml(sub)}</small>${warn}</div>
-    <span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>
-    ${button}
-  </div>`;
+  return toggleTile(d, "autoban", "Auto-ban", sub, enabled, `<input type="hidden" name="intent" value="${enabled ? "autoban_off" : "autoban_on"}">`, warn);
 }
 
 function groupToggleRow(d: DashboardData, key: string, label: string, enabled: boolean): string {
-  return `<div class="toggle-row" id="toggle-${escapeHtml(key)}">
-    <div class="toggle-label">${escapeHtml(label)}${guideLink(key)}</div>
-    <span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>
-    <form method="post" action="/dashboard/features">
-      ${dashHidden(d.broadcasterId, d.channelKey)}
-      <input type="hidden" name="intent" value="${enabled ? "group_off" : "group_on"}">
-      <input type="hidden" name="group" value="${escapeHtml(key)}">
-      <button type="submit" class="${enabled ? "danger" : ""}">${enabled ? "Turn off" : "Turn on"}</button>
-    </form>
-  </div>`;
+  return toggleTile(d, key, label, "", enabled, `<input type="hidden" name="intent" value="${enabled ? "group_off" : "group_on"}"><input type="hidden" name="group" value="${escapeHtml(key)}">`);
 }
 
 /** Stable anchor id for a command-group heading (used by the dashboard index). */
@@ -323,10 +319,10 @@ function renderFeaturesSection(d: DashboardData): string {
     bySection.set(def.section, rows);
   }
   const groups = [...bySection]
-    .map(([section, rows]) => `<details class="grp" id="grp-${sectionSlug(section)}" open><summary><h4>${escapeHtml(section)}</h4><span class="count">${rows.length}</span></summary><div class="toggles">${rows.join("")}</div></details>`)
+    .map(([section, rows]) => `<details class="grp" id="grp-${sectionSlug(section)}" open><summary><h4>${escapeHtml(section)}</h4><span class="count">${rows.length}</span></summary><div class="tiles">${rows.join("")}</div></details>`)
     .join("");
   return `<details class="sec" id="sec-features" open><summary><h2>Bot & feature switches</h2></summary><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
-    <div class="toggles">${dedicated}</div>
+    <div class="tiles">${dedicated}</div>
     <h3>Command groups</h3>
     <p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need the gold switch above on.</p>
     ${groups}
@@ -527,15 +523,13 @@ export function renderDashboardPage(d: DashboardData): string {
     .banner{padding:10px 14px;border-radius:6px;margin:12px 0}
     .banner.ok{background:#1e3320;color:#a7e6ac}
     .banner.error{background:#3a1f1f;color:#f0a6a6}
-    .toggles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
-    @media(max-width:900px){.toggles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media(max-width:560px){.toggles{grid-template-columns:1fr}}
-    .toggle-row{display:grid;grid-template-columns:1fr auto;grid-template-areas:"label label" "pill btn";align-items:center;gap:10px;background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:10px 14px;min-width:0}
-    .toggle-label{grid-area:label;font-size:.92rem;min-width:0;overflow-wrap:anywhere}
-    .toggle-row>.pill{grid-area:pill;justify-self:start}
-    .toggle-row>form{grid-area:btn;margin:0}
-    .toggle-row button{margin:0;white-space:nowrap}
     .guide-link{white-space:nowrap}
+    .tile>.pill{flex:0 0 auto}
+    .tile:target{border-color:#e6a56e;box-shadow:0 0 0 2px #e6a56e66}
+    .tile{scroll-margin-top:24px}
+    .toggle-detail p{margin:8px 0;color:#d6c6b5;font-size:.92rem}
+    .toggle-detail .warn{color:#f0c39e}
+    .row-controls form.push{margin:0 0 0 auto}
     .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin:12px 0}
     .tile{aspect-ratio:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;text-align:center;background:#1c1712;color:#f4eadb;border:1px solid #453626;border-radius:10px;padding:10px;margin:0;font-family:inherit;font-size:.92rem;cursor:pointer;min-width:0;transition:transform .12s,border-color .12s,background .12s}
     .tile:hover,.tile:focus-visible{transform:translateY(-2px);border-color:#e6a56e;background:#221b15;outline:none}
@@ -551,9 +545,6 @@ export function renderDashboardPage(d: DashboardData): string {
     dialog.editor .row-form,dialog.editor .add-form{background:none;border:0;padding:0}
     button.x{background:none;color:#aa9b8d;font-size:1.1rem;padding:2px 8px;margin:0}
     button.x:hover{color:#f4eadb}
-    .toggle-label small{display:block;color:#aa9b8d;font-weight:400;margin-top:2px}
-.toggle-row:target{border-color:#e6a56e;box-shadow:0 0 0 2px #e6a56e66}
-.toggle-row{scroll-margin-top:24px}
 .guide-link{font-size:.8rem;font-weight:400;margin-left:4px}
     .pill{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
     .pill.on{background:#1e3320;color:#a7e6ac}
@@ -574,7 +565,7 @@ export function renderDashboardPage(d: DashboardData): string {
     function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
     // Open every collapsed section containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
     function reveal(el){for(var n=el;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true}}
-    function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el){reveal(el);el.scrollIntoView()}}
+    function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el){reveal(el);el.scrollIntoView();if(el.hasAttribute("data-open"))setTimeout(function(){el.click()},0)}}
     load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=false});
     goHash();
     all.forEach(function(d){d.addEventListener("toggle",save)});
