@@ -19,6 +19,7 @@ import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwear
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
+import { ensureBestiaryTables, getChannelRoster, handleBestiaryCommand, purgeBestiaryData } from "./bestiary.ts";
 import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, onRaidStreamStatus, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
@@ -95,6 +96,7 @@ function ensureSchema(): Promise<void> {
         ensureRaidTables(),
         ensureViewerNameTables(),
         ensureWatchtimeTables(),
+        ensureBestiaryTables(),
       ]);
     })().catch((e) => {
       schemaReady = null;
@@ -266,9 +268,9 @@ async function handleRequest(req: Request): Promise<Response> {
     // current by the stream.online/offline notifications below, so this
     // check costs nothing extra (no Twitch API call in this hot path) for a
     // channel that's already caught up.
-    // Exception: !roster only posts a read-only link to the roster page, so it
-    // answers anyone even while offline (viewers browse the roster between streams).
-    const offlineExempt = /^!roster$/i.test(chatMessage);
+    // Exception: !roster / !bestiary only post a read-only link to their web
+    // page, so they answer anyone even while offline (viewers browse between streams).
+    const offlineExempt = /^!(?:roster|bestiary)$/i.test(chatMessage);
     if (!isModerator && !offlineExempt && Number(connection.is_live) !== 1) {
       // Channel connected before this feature existed — one-time backfill,
       // then re-check; every later message for this channel skips straight
@@ -324,6 +326,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeSwearJarData(broadcasterId);
         await purgeRedemptionData(broadcasterId);
         await purgeWatchtimeData(broadcasterId);
+        await purgeBestiaryData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);
@@ -375,7 +378,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // isChannelEnabled check just above — features with their own
       // dedicated toggle (market/chronicle/npc) and !dashboard itself are
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
-      const group = groupForMessage(chatMessage);
+      const group = groupForMessage(chatMessage, /^!dndduel\s/i.test(chatMessage) ? await getChannelRoster(broadcasterId) : undefined);
       const rateLimited = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
       const [allowed, groupOn, hexNotice] = await Promise.all([
         rateLimited ? checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS) : true,
@@ -440,6 +443,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");

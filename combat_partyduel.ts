@@ -2,7 +2,8 @@
 // Split out of combat.ts (which re-exports it) to keep every file well
 // under Val Town's per-file size ceiling.
 
-import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel } from "./data.ts";
+import { findMonsterByName } from "./data.ts";
+import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { combatStats, firstAlive } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
@@ -156,6 +157,7 @@ export async function handlePartyDuelCommand(
           "DELETE FROM party_monster_duels WHERE broadcaster_id = ?",
           [broadcasterId],
         );
+        const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), true, attacker.level);
         const xpNotes: string[] = [];
         for (const n of partyHunt.members) {
           if ((partyHunt.member_hp[n] ?? 0) > 0) {
@@ -177,7 +179,7 @@ export async function handlePartyDuelCommand(
         await sendChatMessages(
           `@${display} ${playerResult} ${partyHunt.monster_name} falls! ${
             duelNarration("victory")
-          } XP: ${xpNotes.join(", ") || "none"}.${lootNote}`,
+          } XP: ${xpNotes.join(", ") || "none"}.${lootNote}${learnNote}`,
           broadcasterId,
         );
         return true;
@@ -223,10 +225,11 @@ export async function handlePartyDuelCommand(
           "DELETE FROM party_monster_duels WHERE broadcaster_id = ?",
           [broadcasterId],
         );
+        const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), false, attacker.level);
         await sendChatMessages(
           `@${display} ${playerResult} ${monsterResult} ${
             duelNarration("defeat")
-          } The party is wiped.`,
+          } The party is wiped.${learnNote}`,
           broadcasterId,
         );
         return true;
@@ -285,10 +288,10 @@ export async function handlePartyDuelCommand(
     }
     // Resolve the target up front so a typo is reported before anything else
     // (and before a party-membership message), without starting a hunt.
-    const namedBase = monsterNameArg ? findMonsterByName(monsterNameArg) : undefined;
+    const namedBase = monsterNameArg ? findMonsterByName(monsterNameArg, await getChannelRoster(broadcasterId)) : undefined;
     if (monsterNameArg && !namedBase) {
       await sendChatMessage(
-        `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or leave it off for a random foe.`,
+        `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling (or teach it to the bestiary), !bestiary for the list, or leave it off for a random foe.`,
         broadcasterId,
       );
       return true;
@@ -343,9 +346,10 @@ export async function handlePartyDuelCommand(
     // Scale monster gently for group size (still player-favored). A named
     // target is scaled to the party's average level the same way a random
     // pick is; the group-size tweak below applies to both.
-    const monster = namedBase
-      ? scaleMonsterForLevel(namedBase, avgLevel)
-      : pickMonsterForLevel(avgLevel);
+    // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
+    const summoned = await summonMonster(broadcasterId, avgLevel, namedBase ? namedBase.name : null);
+    if (!summoned) return true; // unreachable: namedBase was just resolved
+    const monster = summoned;
     const sizeScale = 0.5 + livingMembers.length * 0.22; // 1p~0.72, 2p~0.94, 3p~1.16
     monster.hp = Math.max(10, Math.round(monster.hp * sizeScale));
     monster.attack = Math.max(
@@ -442,6 +446,7 @@ export async function handlePartyDuelCommand(
         });
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
+      const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, partyWon, avgLevel);
       const xpNotes: string[] = [];
       let lootNote = "";
       let loot = "";
@@ -463,7 +468,7 @@ export async function handlePartyDuelCommand(
       const roster = livingMembers.map((n) => `${n}:${hp[n]}`).join(", ");
       const shownLog = battle.render(700);
       const msg =
-        `@${display} party ${partyName} hunts ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
+        `@${display} party ${partyName} hunts ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp})! ${
           duelNarration("challenge")
         } Auto-resolved in ${battle.roundCount} round${
           battle.roundCount === 1 ? "" : "s"
@@ -471,7 +476,7 @@ export async function handlePartyDuelCommand(
           partyWon
             ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}`
             : `Defeat. ${duelNarration("defeat")}`
-        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`;
+        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.${learnNote}`;
       await sendChatMessages(
         msg,
         broadcasterId,
@@ -516,7 +521,7 @@ export async function handlePartyDuelCommand(
       ],
     );
     await sendChatMessage(
-      `@${display} classic party hunt! ${partyName} vs ${monster.name} (CR ${monster.cr}) AC ${monster.ac}, HP ${monster.hp}. ${
+      `@${display} classic party hunt! ${partyName} vs ${monster.name} (CR ${monster.cr}${tierTag(monster.tier)}) AC ${monster.ac}, HP ${monster.hp}. ${
         livingMembers[0]
       } goes first. ${
         duelNarration("challenge")

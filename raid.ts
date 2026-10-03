@@ -29,6 +29,7 @@
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
+import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";
 import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { monsterLootCopper, splitLoot } from "./loot.ts";
@@ -48,7 +49,7 @@ export const MAX_RAID_COOLDOWN_SECONDS = 2 * 3600;
 export const DEFAULT_RAID_COOLDOWN_SECONDS = Math.floor(envNumber("RAID_COOLDOWN_SECONDS", 600, 0, MAX_RAID_COOLDOWN_SECONDS));
 export const MUSTER_MS = Math.floor(envNumber("RAID_MUSTER_SECONDS", 60, 15, 600)) * 1000;
 export const RAID_PARTY_MAX = Math.floor(envNumber("RAID_PARTY_MAX", 6, 1, 20));
-const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
+export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
 const RAID_HP_MULTIPLIER = envNumber("RAID_HP_MULTIPLIER", 2, 0.1, 20);
 const RAID_LOOT_MULTIPLIER = envNumber("RAID_LOOT_MULTIPLIER", 5, 0, 100);
 /** Rounds one raid lasts before the party has to fall back. */
@@ -150,11 +151,15 @@ async function raidWaitMs(q: RaidQuest, now = Date.now()): Promise<number> {
   return Math.max(0, q.last_raid_at + cd - now);
 }
 
-/** A random boss from the top of the bestiary (CR RAID_MIN_CR and up). */
-export function pickRaidBoss(rng: () => number = Math.random): SoloMonster {
-  let pool = SOLO_MONSTERS.filter((m) => m.crValue >= RAID_MIN_CR);
-  if (!pool.length) pool = [...SOLO_MONSTERS].sort((a, b) => b.crValue - a.crValue).slice(0, 5);
-  const base = pool[Math.floor(rng() * pool.length)];
+/** A random boss from the top of the bestiary (CR RAID_MIN_CR and up). The
+ * pool is the channel's live roster (core + learned, see bestiary.ts), so a
+ * learned high-CR monster can be posted as a raid boss. */
+export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonster[] = SOLO_MONSTERS): SoloMonster {
+  const source = roster.length ? roster : SOLO_MONSTERS;
+  let pool = source.filter((m) => m.crValue >= RAID_MIN_CR);
+  // Fallback grows with the roster (~3% of it, never fewer than 5).
+  if (!pool.length) pool = [...source].sort((a, b) => b.crValue - a.crValue).slice(0, Math.max(5, Math.ceil(source.length * 0.03)));
+  const base = stripMeta(pool[Math.floor(rng() * pool.length)]);
   return { ...base, hp: Math.max(10, Math.round(base.hp * RAID_HP_MULTIPLIER)) };
 }
 
@@ -167,7 +172,10 @@ export function pickRaidBoss(rng: () => number = Math.random): SoloMonster {
 export async function createRaidQuest(broadcasterId: string, streamStartedAt: string): Promise<string | null> {
   const existing = await getRaidQuest(broadcasterId);
   if (streamStartedAt && existing?.stream_started_at === streamStartedAt) return null;
-  const boss = pickRaidBoss();
+  // Adapted like every other hunt: a boss species the channel keeps slaying
+  // comes back having learned from it (bestiary.ts).
+  const picked = pickRaidBoss(Math.random, await getChannelRoster(broadcasterId));
+  const boss = applyAdaptation(picked, (await getAdaptation(broadcasterId, picked.name)).tier);
   await sqlite.execute(
     `INSERT OR REPLACE INTO raid_quests (broadcaster_id, stream_started_at, monster_name, monster_cr, monster_ac,
       monster_hp, monster_hp_max, monster_attack, monster_die, monster_bonus, status, posted_at, raids,
@@ -176,7 +184,7 @@ export async function createRaidQuest(broadcasterId: string, streamStartedAt: st
     [broadcasterId, streamStartedAt, boss.name, boss.cr, boss.ac, boss.hp, boss.hp, boss.attack, boss.die, boss.bonus, Date.now()],
   );
   const cd = await getRaidCooldownSeconds(broadcasterId);
-  return `📯 RAID QUEST posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
+  return `📯 RAID QUEST posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
     `far too much for one hero. Type !raid to sound the war horn; anyone with a saved hero can join within ${waitText(MUSTER_MS)} ` +
     `(up to ${RAID_PARTY_MAX}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
     `Slay it this stream for its full XP and a ${RAID_LOOT_MULTIPLIER > 0 ? "great hoard" : "place in the chronicle"}!`;
@@ -388,8 +396,9 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     );
     const won = await changed(slain, async () => true);
     const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : { note: "", hoard: "" };
+    const learnNote = won ? await recordMonsterOutcome(broadcasterId, boss.name, true, raidLevel(heroes)) : "";
     const msg = `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards.note}` +
-      ` The raid quest is complete for this stream.`;
+      ` The raid quest is complete for this stream.${learnNote}`;
     await sendChatMessages(msg, broadcasterId, {
       names: [...new Set([...names, ...Object.keys(contributors)])],
       detail: fullLog(msg),
@@ -400,9 +409,12 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
 
   const cd = await getRaidCooldownSeconds(broadcasterId);
   const standing = names.filter((n) => fight.hp[n] > 0).length;
+  // A rout is a win the boss learns from; falling back with heroes standing
+  // settles nothing either way.
+  const learnNote = standing ? "" : await recordMonsterOutcome(broadcasterId, boss.name, false, raidLevel(heroes));
   const msg = `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
     `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
-    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.`;
+    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.${learnNote}`;
   await sendChatMessages(msg, broadcasterId, {
     names,
     detail: fullLog(msg),
@@ -414,6 +426,11 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     }),
   });
   return true;
+}
+
+/** Average hero level of a raid party (sets the odds the boss learns against). */
+function raidLevel(heroes: Array<{ c: any }>): number {
+  return heroes.length ? Math.round(heroes.reduce((t, h) => t + Number(h.c.level ?? 1), 0) / heroes.length) : 1;
 }
 
 /** XP for the boss to every hero who struck it, plus a split hoard. Returns

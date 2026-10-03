@@ -8,7 +8,9 @@ import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
-import { getRaidRosterStatus } from "./raid.ts";
+import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
+import { getAdaptations, getChannelRoster } from "./bestiary.ts";
+import { renderBestiaryPage } from "./bestiary_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
 import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo } from "./dashboard.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
@@ -278,6 +280,21 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const characters = truncated ? fetched.slice(0, ROSTER_LIMIT) : fetched;
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
     return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated, gold, raid), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
+  // Public bestiary: every monster the channel can hunt right now (core +
+  // learned) with its record and adaptation — the page !bestiary links to.
+  // Same trust model as /roster.
+  if (req.method === "GET" && path === "/bestiary") {
+    const channelId = url.searchParams.get("channel");
+    if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster = await getBroadcaster(channelId);
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Bestiary unavailable for this channel.", { status: 404 });
+    const [roster, adapt] = await Promise.all([getChannelRoster(channelId), getAdaptations(channelId)]);
+    const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
+    return new Response(renderBestiaryPage(channelName, roster, adapt, RAID_MIN_CR, PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

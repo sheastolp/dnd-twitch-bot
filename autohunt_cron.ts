@@ -11,6 +11,7 @@
 
 import { ensureTables, recordMonitorEvent } from "./db.ts";
 import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
+import { ensureBestiaryTables } from "./bestiary.ts";
 import { settleAutohunt } from "./autohunt.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid.ts";
@@ -18,6 +19,7 @@ import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid
 export default async function () {
   await ensureTables();
   await ensureAutohuntTables();
+  await ensureBestiaryTables();
   const now = Date.now();
   const due = await getDueAutohuntSessions(now);
   let reports = 0;

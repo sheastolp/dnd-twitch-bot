@@ -9,6 +9,7 @@ import { maybeNpcChatter } from "./npcs.ts";
 import { handleCustomCommandInvocation, handleTriggerMatch } from "./customcommands.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup } from "./lookups.ts";
+import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckKind, modifier, logRowText } from "./utils.ts";
 import { rollDice } from "./dice.ts";
@@ -110,12 +111,14 @@ export async function handleBuiltinChatCommand(ctx: {
       } else {
         const isRule = kind === "rule" || kind === "rules";
         const isMonster = kind === "monster";
+        // A monster this channel can't hunt yet is learned into its bestiary.
+        const learnedNote = data && isMonster ? await maybeLearnFromLookup(broadcasterId, data, chatter) : "";
         await sendChatMessages(
           data
-            ? `@${display} ${formatLookup(kind, data, bonus)}`
+            ? `@${display} ${formatLookup(kind, data, bonus)}${learnedNote}`
             : `@${display} couldn't find that ${kind}. Try e.g. !spell fireball, !item longsword, or !rule advantage`,
           broadcasterId,
-          isRule ? { maxParts: 3 } : isMonster ? { maxParts: 2 } : undefined,
+          isRule ? { maxParts: 3 } : isMonster ? { maxParts: learnedNote ? 3 : 2 } : undefined,
         );
       }
     }

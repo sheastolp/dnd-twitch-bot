@@ -2,7 +2,8 @@
 // Split out of combat.ts (which re-exports it) to keep every file well
 // under Val Town's per-file size ceiling.
 
-import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel } from "./data.ts";
+import { findMonsterByName } from "./data.ts";
+import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { combatStats } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { simulateMonsterFight } from "./battle.ts";
@@ -76,7 +77,7 @@ export async function handleMonsterDuelCommand(
       ];
       if (
         rest && !rest.startsWith("@") && !reserved.includes(restLower) &&
-        findMonsterByName(rest)
+        findMonsterByName(rest, await getChannelRoster(broadcasterId))
       ) {
         monsterNameArg = rest;
         namedMode = "auto";
@@ -142,19 +143,14 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    let monster;
-    if (monsterNameArg) {
-      const base = findMonsterByName(monsterNameArg);
-      if (!base) {
-        await sendChatMessage(
-          `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or !dndduel monster classic for a random foe.`,
-          broadcasterId,
-        );
-        return true;
-      }
-      monster = scaleMonsterForLevel(base, c.level);
-    } else {
-      monster = pickMonsterForLevel(c.level);
+    // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
+    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
+    if (!monster) {
+      await sendChatMessage(
+        `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling (or teach it to the bestiary), !bestiary for the list, or !dndduel monster classic for a random foe.`,
+        broadcasterId,
+      );
+      return true;
     }
     if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
     await sqlite.execute(
@@ -176,7 +172,7 @@ export async function handleMonsterDuelCommand(
       ],
     );
     await sendChatMessage(
-      `@${display} classic monster fight! ${monster.name} (CR ${monster.cr}) AC ${monster.ac}, HP ${monster.hp}. Your HP: ${c.hpMax}. ${
+      `@${display} classic monster fight! ${monster.name} (CR ${monster.cr}${tierTag(monster.tier)}) AC ${monster.ac}, HP ${monster.hp}. Your HP: ${c.hpMax}. ${
         duelNarration("challenge")
       } Use !dndduel attack.`,
       broadcasterId,
@@ -194,19 +190,14 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    let monster;
-    if (monsterNameArg) {
-      const base = findMonsterByName(monsterNameArg);
-      if (!base) {
-        await sendChatMessage(
-          `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling, or !dndduel for a random foe.`,
-          broadcasterId,
-        );
-        return true;
-      }
-      monster = scaleMonsterForLevel(base, c.level);
-    } else {
-      monster = pickMonsterForLevel(c.level);
+    // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
+    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
+    if (!monster) {
+      await sendChatMessage(
+        `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling (or teach it to the bestiary), !bestiary for the list, or !dndduel for a random foe.`,
+        broadcasterId,
+      );
+      return true;
     }
     if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
     const fight = simulateMonsterFight(c, username, monster);
@@ -215,6 +206,7 @@ export async function handleMonsterDuelCommand(
       broadcasterId,
     ]);
     const won = monsterHp <= 0 && playerHp > 0;
+    const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, won, c.level);
     let xpNote = "";
     let lootNote = "";
     let loot = "";
@@ -231,7 +223,7 @@ export async function handleMonsterDuelCommand(
     }
     const shownLog = battle.render();
     const msg =
-      `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
+      `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp})! ${
         duelNarration("challenge")
       } Auto-resolved in ${battle.roundCount} round${
         battle.roundCount === 1 ? "" : "s"
@@ -241,7 +233,7 @@ export async function handleMonsterDuelCommand(
             duelNarration("victory")
           }${xpNote}${lootNote}`
           : `${monster.name} wins. ${duelNarration("defeat")}`
-      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`;
+      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.${learnNote}`;
     await sendChatMessages(
       msg,
       broadcasterId,
@@ -308,6 +300,7 @@ export async function handleMonsterDuelCommand(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",
         [broadcasterId],
       );
+      const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), true, player.level);
       const xp = await awardMonsterXp(
         username,
         String(active.monster_cr ?? "1"),
@@ -324,7 +317,7 @@ export async function handleMonsterDuelCommand(
       await sendChatMessage(
         `@${display} ${playerResult} ${active.monster_name} is defeated! ${
           duelNarration("victory")
-        }${xpNote}${lootNote}`,
+        }${xpNote}${lootNote}${learnNote}`,
         broadcasterId,
       );
       return true;
@@ -352,10 +345,11 @@ export async function handleMonsterDuelCommand(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",
         [broadcasterId],
       );
+      const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), false, player.level);
       await sendChatMessages(
         `@${display} ${playerResult} ${monsterResult} ${
           duelNarration("defeat")
-        } ${active.monster_name} wins this encounter.`,
+        } ${active.monster_name} wins this encounter.${learnNote}`,
         broadcasterId,
       );
     } else {

@@ -4,7 +4,7 @@
 // size ceiling.
 
 import { resolveCheckKind } from "./utils.ts";
-import { findMonsterByName } from "./data.ts";
+import { findMonsterByName, type SoloMonster } from "./data.ts";
 
 // ── Dashboard feature groups ──────────────────────────────────────────────
 // Per-channel command toggles surfaced on the web dashboard
@@ -90,6 +90,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   autohunt: { section: "Arena, wilds & the company", label: "Autohunt (!autohunt)", commands: ["autohunt", "autohuntstatus", "autohuntstop"], parent: "combat" },
   huntcooldown: { section: "Arena, wilds & the company", label: "Hunting cooldown (!huntcooldown)", commands: ["huntcooldown", "huntcd"], parent: "combat" },
   raid: { section: "Arena, wilds & the company", label: "Raid quest (!raid)", commands: ["raid"], parent: "combat" },
+  bestiary: { section: "Arena, wilds & the company", label: "Bestiary (!bestiary — huntable monsters & what they've learned)", commands: ["bestiary"], parent: "combat" },
   // Chronicle, oracle & NPCs (chronicle and NPCs have their own switches)
   oracle: { section: "Chronicle, oracle & NPCs", label: "Oracle (!oracle)", commands: ["oracle"], parent: "dice" },
   ads: { section: "Chronicle, oracle & NPCs", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
@@ -133,7 +134,12 @@ const DUEL_CONTROLS = new Set(["accept", "decline", "attack", "status", "show", 
  * switches, mod balance tools, and the shared accept/attack/status/end
  * controls of a fight already under way).
  */
-export function groupForMessage(message: string): string | null {
+export function groupForMessage(
+  message: string,
+  // The channel's live bestiary (bestiary.ts getChannelRoster), so a
+  // `!dndduel <learned monster>` counts as a hunt, not a PvP duel.
+  roster?: SoloMonster[],
+): string | null {
   const parts = message.trim().toLowerCase().split(/\s+/);
   const word = (parts[0] ?? "").replace(/^!/, "");
   const sub = parts[1] ?? "";
@@ -164,7 +170,7 @@ export function groupForMessage(message: string): string | null {
       if (sub === "monster") return DUEL_CONTROLS.has(parts[2] ?? "") ? null : "hunts";
       if (DUEL_CONTROLS.has(sub)) return null;
       if (sub.startsWith("@") || ["classic", "turn", "manual", "auto", "quick"].includes(sub)) return "duels";
-      return findMonsterByName(parts.slice(1).join(" ")) ? "hunts" : "duels";
+      return findMonsterByName(parts.slice(1).join(" "), roster) ? "hunts" : "duels";
     }
     case "party":
       return sub === "hunt" ? "partyhunts" : "party";

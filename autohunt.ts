@@ -19,7 +19,7 @@
 // every fight at full HP, so a loss costs a bout's XP and loot, nothing more.
 
 import { getCharacter } from "./db.ts";
-import { pickMonsterForLevel } from "./data.ts";
+import { recordMonsterOutcome, summonMonster } from "./bestiary.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot } from "./loot.ts";
@@ -137,8 +137,10 @@ export async function settleAutohunt(
       missing = true;
       break;
     }
-    const monster = pickMonsterForLevel(c.level);
+    // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
+    const monster = (await summonMonster(bid, c.level))!;
     const fight = simulateMonsterFight(c, session.display_name, monster);
+    await recordMonsterOutcome(bid, monster.name, fight.won, c.level);
     if (fight.won) {
       wins++;
       const gained = await awardMonsterXp(username, monster.cr, bid);

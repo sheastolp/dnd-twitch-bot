@@ -2176,17 +2176,36 @@ const MONSTER_ALIASES: Record<string, string> = {
  * (case-insensitive) match first, then a substring match, so "dragon" can
  * find "Adult Red Dragon" and multi-word names work without quoting.
  */
-export function findMonsterByName(name: string): SoloMonster | undefined {
+export function findMonsterByName(
+  name: string,
+  // The channel's live roster (core + learned, see bestiary.ts). Defaults to
+  // the core table so sync callers keep working without a DB round-trip.
+  roster: SoloMonster[] = SOLO_MONSTERS,
+): SoloMonster | undefined {
   const q = name.trim().toLowerCase();
   if (!q) return undefined;
-  const exact = SOLO_MONSTERS.find((m) => m.name.toLowerCase() === q);
+  const exact = roster.find((m) => m.name.toLowerCase() === q);
   if (exact) return exact;
   const alias = MONSTER_ALIASES[q];
   if (alias) {
-    const aliased = SOLO_MONSTERS.find((m) => m.name === alias);
+    const aliased = roster.find((m) => m.name === alias);
     if (aliased) return aliased;
   }
-  return SOLO_MONSTERS.find((m) => m.name.toLowerCase().includes(q));
+  return roster.find((m) => m.name.toLowerCase().includes(q));
+}
+
+/**
+ * Lowest hero level whose random encounter pool (pickMonsterForLevel) can
+ * roll this CR, or null if no level 1–20 ever meets it at random — it can
+ * still be hunted by name. Mirrors the maxCr band below.
+ */
+export function randomEncounterMinLevel(crValue: number, roster: SoloMonster[] = SOLO_MONSTERS): number | null {
+  const lowest = Math.min(...roster.map((m) => m.crValue));
+  if (crValue <= lowest) return 1;
+  for (let lv = 1; lv <= 20; lv++) {
+    if (crValue <= ((lv + 1) / 4) * 1.25 + 0.25) return lv;
+  }
+  return null;
 }
 
 /**
@@ -2194,23 +2213,35 @@ export function findMonsterByName(name: string): SoloMonster | undefined {
  * Tuned so solo heroes win often at low level, but face a genuinely losable
  * fight at high level — not a guaranteed win.
  */
-export function pickMonsterForLevel(level: number): SoloMonster {
+export function pickMonsterForLevel(
+  level: number,
+  // The channel's live roster (core + learned, see bestiary.ts). Every bound
+  // below is derived from whatever roster is passed in rather than fixed
+  // numbers, so newly learned monsters are always eligible.
+  roster: SoloMonster[] = SOLO_MONSTERS,
+): SoloMonster {
   const lv = Math.max(1, Math.min(20, Math.floor(level || 1)));
+  const source = roster.length ? roster : SOLO_MONSTERS;
+  const crs = source.map((m) => m.crValue);
+  const lowestCr = Math.min(...crs);
+  const highestCr = Math.max(...crs);
   // Softer curve than true 5e deadly encounters — stream-friendly.
   // L1 → ~0.25–0.5 | L4 → ~1 | L8 → ~2 | L12 → ~3.5 | L20 → ~5.5
-  const targetCr = Math.max(0.125, Math.min(10, (lv + 1) / 4));
-  const minCr = 0.125;
-  const maxCr = Math.min(12, targetCr * 1.25 + 0.25);
+  const targetCr = Math.max(lowestCr, Math.min(highestCr, (lv + 1) / 4));
+  const minCr = lowestCr;
+  const maxCr = Math.min(highestCr, targetCr * 1.25 + 0.25);
 
-  let pool = SOLO_MONSTERS.filter((m) =>
+  let pool = source.filter((m) =>
     m.crValue >= minCr && m.crValue <= maxCr
   );
   if (!pool.length) {
-    pool = [...SOLO_MONSTERS]
+    // Nearest few by CR — the fallback grows with the roster (~3% of it,
+    // never fewer than 5) instead of a fixed slice.
+    pool = [...source]
       .sort((a, b) =>
         Math.abs(a.crValue - targetCr) - Math.abs(b.crValue - targetCr)
       )
-      .slice(0, 5);
+      .slice(0, Math.max(5, Math.ceil(source.length * 0.03)));
   }
 
   // Weight toward monsters at or below target CR (easier wins more often).
@@ -2255,6 +2286,7 @@ export const lookupResources: Record<string, string> = {
   subrace: "subraces",
   rule: "rule-sections",
   rules: "rule-sections",
+  monster: "monsters",
 };
 
 export const MAX_LOOKUP_MESSAGE_LENGTH = 300;
