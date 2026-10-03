@@ -48,6 +48,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **loot.ts** | Coin dropped by slain monsters (solo fights and party hunts), scaled by CR and split among surviving hunters; called from `combat.ts` next to each XP award |
 | **redemptions.ts** / **redemptions_db.ts** | Channel-point rewards that touch the game: `!boon` links a reward (by title) to a **robbery shield** or a **"can't use <feature>" lockout**; the EventSub `channel.channel_points_custom_reward_redemption.add` handler applies it, `rob.ts` honors the shield, and `main.ts` blocks hexed commands before any handler runs. Needs `channel:read:redemptions` (reconnect once) |
 | **rob.ts** | `!rob @user` — robbery duel: both saved characters fight via the shared `resolvePlayerDuel` in `combat.ts`; the loser pays the winner 1–9% of their coin. Cooldowns live in `points_db.ts` (`rob_cooldowns`) |
+| **swearjar.ts** | The swear jar: `!jar` total, `!jar +N` / `!jar -N` (subtract is mod-only, no cooldown), and automatic collection — each swear word in a plain chat message moves 2 cp (`SWEAR_COST_COPPER`) from the chatter's gold into the jar and announces it. Word list and detection live at the top of the file; table `swear_jar` is created by `ensureSwearJarTables()` |
 | **nick.ts** | `!nick @user <nickname>` / `!nick remove @user` (mod) and `!nick list` — per-channel battle-log nicknames; table `viewer_nicknames` lives in `mentions.ts` and is purged by `!dndbot leave purge` |
 | **watchtime.ts** | `!watchtime [@user]` — per-channel watch-time clock (StreamElements-style: counts everyone in the chat list while live via a 15-minute `watchtime_cron.ts` poll of Get Chatters, `moderator:read:chatters`; chat messages also advance it, so channels without the scope still work) and `!followage [@user]` — follow age via Helix Get Channel Followers using the broadcaster's stored token (`moderator:read:followers`). Own table `watchtime_stats`; purged by `!dndbot leave purge` |
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
@@ -265,6 +266,12 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!gold top [N]` / `!goldboard [N]` | Richest adventurers (default 5, max 10) |
 | `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
 | `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
+| `!jar` | **Swear jar:** shows the total. Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
+| `!jar +<amount>` | Add coin to the jar by hand, e.g. `!jar +8`, `!jar +5sp` |
+| `!jar +<amount> @user` | Fine a viewer: moves that much of *their* gold (whatever they can afford) into the jar *(mod)* |
+| `!jar -<amount>` | Take coin out of the jar *(mod)* |
+| `!jar giveaway` | Give the **whole jar** to a random chatter from the past week (paid into their gold, never the streamer) and empty it *(mod)*. Limited to **once every 7 days**; an empty jar or empty pool doesn't use up the week |
+| `!fine` | Fine the streamer one swear word (2 cp from the streamer's gold into the jar). Anyone can use it, no cooldown |
 | `!gold on` / `off` | Turn coin, the leaderboard, giveaways and paid haggling on or off; on by default *(mod)* |
 | `!gold status` | Check whether it's on (open to everyone) |
 | `!giveaway` | Current giveaway, ticket price and entry counts |
@@ -319,10 +326,6 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!trigger remove <keyword>` | Delete a trigger *(mod)* |
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
 | `!trigger list` | List configured trigger keywords |
-| `!var set <name> <value>` | Create/overwrite a named channel variable *(mod)* |
-| `!var add <name> <n>` | Add `n` to a variable (negative to subtract; defaults to 1) *(mod)* |
-| `!var remove <name>` | Delete a variable *(mod)* |
-| `!var get <name>` / `!var list` | Show one variable / all variables |
 
 Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 
@@ -334,16 +337,11 @@ Custom command/trigger names can't reuse a built-in command word, and each chann
 | `{target}` | First `@mention` in a command's arguments (commands only; falls back to `{user}`) |
 | `{touser}` | First word of the arguments, `@` stripped (falls back to `{user}`) |
 | `{args}` | Everything after the command, or the whole message for a trigger |
-| `{1}` … `{9}` | The Nth word of the arguments (blank if missing) |
 | `{count}` | How many times this command/trigger has now fired |
 | `{random:a\|b\|c}` | Picks one option at random (max 5 per response) |
 | `{randnum:MIN-MAX}` | Random integer in range, negatives allowed, e.g. `{randnum:-5-10}` |
 | `{d4}` `{d6}` `{d8}` `{d10}` `{d12}` `{d20}` `{d100}` | Shorthand die-roll expansions |
 | `{repeat:N\|text}` | Repeats `text` back-to-back `N` times (capped at 10) |
-| `{roll:XdY+Z}` | Full dice expression, total only, e.g. `{roll:2d6+3}`, `{roll:d20-1}` (up to 100 dice, d1000) |
-| `{var:name}` | A named channel variable (`0` if unset) |
-| `{var:name+N}` / `{var:name-N}` | Add/subtract `N`, save, and show the new value, e.g. `{var:deaths+1}` |
-| `{var:name=text}` | Set the variable to literal text and show it |
 | `{math:expr}` | Evaluates a numeric expression — digits, `+ - * / % ( ) .` only, e.g. `{math:(3+4)*2}` |
 | `{channel}` | Broadcaster's display name |
 | `{time}` / `{date}` | Current UTC time (`HH:MM`) / date (`YYYY-MM-DD`) |
@@ -351,8 +349,6 @@ Custom command/trigger names can't reuse a built-in command word, and each chann
 | `{twitchemotes}` `{7tvemotes}` `{bttvemotes}` `{ffzemotes}` | A random emote from that provider's set for this channel (public, unauthenticated APIs) |
 
 Every placeholder that needs a network or DB call is only resolved when it actually appears in the response text.
-
-Variables are resolved first (so `{math:{var:wins}*10}` works), user-supplied text (`{args}`, `{1}`…) last, so nothing a chatter types is ever treated as a placeholder. Variable names are letters, numbers and `_` (max 25); values are capped at 100 characters; at most 5 `{var:…}` per response; each channel can hold `MAX_CUSTOM_VARIABLES_PER_CHANNEL` variables (default 100). Variables are shared between commands and triggers, so `!death` can do `{var:deaths+1}` while `!deaths` just shows `{var:deaths}`.
 
 ### Timed messages
 Recurring announcements, posted automatically by a separate cron trigger (`timedmessages_cron.ts`) rather than in response to anything in chat. Each message keeps its own schedule, so several messages with different intervals in the same channel rotate independently instead of firing together.

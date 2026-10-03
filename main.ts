@@ -908,8 +908,8 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
-      // !jar (swear jar) is deliberately exempt: no cooldown on its trigger.
-      if (!isModerator && !/^!jar(?:\s|$)/i.test(chatMessage) && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
+      // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
+      if (!isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage) && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
       const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
       await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
       await recordViewerName(broadcasterId, chatter, display); // for battle-log short names
