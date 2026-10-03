@@ -10,12 +10,15 @@
 //   !dndbot edit <name> <response>     (mod) change an existing one
 //   !dndbot remove <name>              (mod) delete one
 //   !dndbot cooldown <name> <seconds>  (mod) per-command cooldown (0-3600s)
+//   !dndbot enable/disable <name>      (mod) turn one command on/off without
+//                                      deleting it
 //   !dndbot list                       anyone — list configured command names
 //
 //   !trigger add <keyword> <response>      (mod) fire <response> whenever
 //                                           <keyword> appears in chat (no !)
 //   !trigger remove <keyword>              (mod)
 //   !trigger cooldown <keyword> <seconds>  (mod)
+//   !trigger enable/disable <keyword>      (mod)
 //   !trigger list                          anyone
 //
 //   !var set <name> <value>   (mod) create/overwrite a named channel variable
@@ -76,7 +79,9 @@ import {
   markCustomTriggerUsed,
   editCustomCommand,
   setCustomCommandCooldown,
+  setCustomCommandEnabled,
   setCustomTriggerCooldown,
+  setCustomTriggerEnabled,
   setCustomVariable,
   useCustomCommand,
 } from "./db.ts";
@@ -347,6 +352,10 @@ export function parseCooldownSeconds(raw: string | undefined): number | null {
   return Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_COOLDOWN_SECONDS ? seconds : null;
 }
 
+function isOff(row: any): boolean {
+  return Number(row.enabled ?? 1) === 0;
+}
+
 async function requireModerator(display: string, broadcasterId: string, isModerator: boolean, what: string) {
   if (isModerator) return true;
   await sendChatMessage(`@${display} only the broadcaster or a moderator can manage ${what}.`, broadcasterId);
@@ -366,7 +375,7 @@ async function handleDndbotCustomCommandSubcommand(
     const rows = await listCustomCommands(broadcasterId);
     await sendChatMessages(
       rows.length
-        ? `@${display} Custom commands (${rows.length}): ${rows.map((r: any) => `!${r.name}`).join(", ")}`
+        ? `@${display} Custom commands (${rows.length}): ${rows.map((r: any) => `!${r.name}${isOff(r) ? " (off)" : ""}`).join(", ")}`
         : `@${display} no custom commands yet.${isModerator ? " Add one with !dndbot add <name> <response>." : ""}`,
       broadcasterId,
     );
@@ -444,8 +453,23 @@ async function handleDndbotCustomCommandSubcommand(
     return true;
   }
 
+  if (action === "enable" || action === "disable") {
+    if (!(await requireModerator(display, broadcasterId, isModerator, "custom commands"))) return true;
+    const name = sanitizeCommandName(parts[2] ?? "");
+    if (!name) {
+      await sendChatMessage(`@${display} usage: !dndbot ${action} <name>`, broadcasterId);
+      return true;
+    }
+    const updated = await setCustomCommandEnabled(broadcasterId, name, action === "enable");
+    await sendChatMessage(
+      updated ? `@${display} !${name} ${action}d.` : `@${display} !${name} doesn't exist.`,
+      broadcasterId,
+    );
+    return true;
+  }
+
   await sendChatMessage(
-    `@${display} Custom commands: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot list — add/edit/remove/cooldown are mod-only`,
+    `@${display} Custom commands: !dndbot add <name> <response> | !dndbot edit <name> <response> | !dndbot remove <name> | !dndbot cooldown <name> <seconds> | !dndbot enable/disable <name> | !dndbot list — all but list are mod-only`,
     broadcasterId,
   );
   return true;
@@ -464,7 +488,7 @@ async function handleTriggerSubcommand(
     const rows = await listCustomTriggers(broadcasterId);
     await sendChatMessages(
       rows.length
-        ? `@${display} Chat triggers (${rows.length}): ${rows.map((r: any) => `"${r.keyword}"`).join(", ")}`
+        ? `@${display} Chat triggers (${rows.length}): ${rows.map((r: any) => `"${r.keyword}"${isOff(r) ? " (off)" : ""}`).join(", ")}`
         : `@${display} no chat triggers yet.${isModerator ? " Add one with !trigger add <keyword> <response>." : ""}`,
       broadcasterId,
     );
@@ -542,8 +566,24 @@ async function handleTriggerSubcommand(
     return true;
   }
 
+  if (action === "enable" || action === "disable") {
+    if (!(await requireModerator(display, broadcasterId, isModerator, "triggers"))) return true;
+    const rawKeyword = chatMessage.replace(/^!trigger\s+(?:enable|disable)\s+/i, "").replace(/^"|"$/g, "").trim();
+    const keyword = sanitizeTriggerKeyword(rawKeyword);
+    if (!keyword) {
+      await sendChatMessage(`@${display} usage: !trigger ${action} <keyword>`, broadcasterId);
+      return true;
+    }
+    const updated = await setCustomTriggerEnabled(broadcasterId, keyword, action === "enable");
+    await sendChatMessage(
+      updated ? `@${display} trigger "${keyword}" ${action}d.` : `@${display} no trigger found for "${keyword}".`,
+      broadcasterId,
+    );
+    return true;
+  }
+
   await sendChatMessage(
-    `@${display} Chat triggers: !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger list — add/remove/cooldown are mod-only`,
+    `@${display} Chat triggers: !trigger add <keyword> <response> | !trigger remove <keyword> | !trigger cooldown <keyword> <seconds> | !trigger enable/disable <keyword> | !trigger list — all but list are mod-only`,
     broadcasterId,
   );
   return true;
@@ -628,7 +668,7 @@ async function handleVarSubcommand(
 }
 
 /**
- * Handles !dndbot add/edit/remove/cooldown/list and !trigger ... management
+ * Handles !dndbot add/edit/remove/cooldown/enable/disable/list and !trigger ... management
  * syntax. Returns false if the message is neither — in particular, call this
  * only after main.ts's own !dndbot on/off/status/leave checks have already
  * had a chance to match and return early.
@@ -681,7 +721,7 @@ export async function handleCustomCommandInvocation(
 
 /**
  * Passive keyword matching for ordinary (non-"!") chat messages. Fires at
- * most one trigger per message, skipping any still on cooldown.
+ * most one trigger per message, skipping disabled ones and any still on cooldown.
  */
 export async function handleTriggerMatch(
   chatMessage: string,
@@ -696,7 +736,7 @@ export async function handleTriggerMatch(
   const now = Date.now();
   for (const row of triggers) {
     const keyword = String(row.keyword ?? "");
-    if (!keyword || !buildKeywordRegex(keyword).test(lower)) continue;
+    if (!keyword || isOff(row) || !buildKeywordRegex(keyword).test(lower)) continue;
     const cooldownMs = Number(row.cooldown_ms ?? 0);
     const lastUsedAt = Number(row.last_used_at ?? 0);
     if (cooldownMs > 0 && now - lastUsedAt < cooldownMs) continue; // on cooldown — see if another trigger matches

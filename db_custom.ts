@@ -27,7 +27,7 @@ export async function getCustomCommand(broadcasterId: string, name: string) {
 }
 
 export async function listCustomCommands(broadcasterId: string) {
-  const res = await sqlite.execute("SELECT name, uses FROM custom_commands WHERE broadcaster_id = ? ORDER BY name ASC", [broadcasterId]);
+  const res = await sqlite.execute("SELECT name, uses, enabled FROM custom_commands WHERE broadcaster_id = ? ORDER BY name ASC", [broadcasterId]);
   return res.rows;
 }
 
@@ -67,10 +67,19 @@ export async function setCustomCommandCooldown(broadcasterId: string, name: stri
   return true;
 }
 
-/** Atomically checks cooldown and (if clear) records a use. Returns null if the command doesn't exist. */
+export async function setCustomCommandEnabled(broadcasterId: string, name: string, enabled: boolean) {
+  if (!(await getCustomCommand(broadcasterId, name))) return false;
+  await sqlite.execute(
+    "UPDATE custom_commands SET enabled = ?, updated_at = ? WHERE broadcaster_id = ? AND name = ?",
+    [enabled ? 1 : 0, Date.now(), broadcasterId, name],
+  );
+  return true;
+}
+
+/** Atomically checks cooldown and (if clear) records a use. Returns null if the command doesn't exist or is disabled. */
 export async function useCustomCommand(broadcasterId: string, name: string) {
   const row = await getCustomCommand(broadcasterId, name);
-  if (!row) return null;
+  if (!row || Number(row.enabled ?? 1) === 0) return null;
   const now = Date.now();
   const cooldownMs = Number(row.cooldown_ms ?? 0);
   const lastUsedAt = Number(row.last_used_at ?? 0);
@@ -171,6 +180,15 @@ export async function setCustomTriggerCooldown(broadcasterId: string, keyword: s
   await sqlite.execute(
     "UPDATE custom_triggers SET cooldown_ms = ?, updated_at = ? WHERE broadcaster_id = ? AND keyword = ?",
     [cooldownMs, Date.now(), broadcasterId, keyword],
+  );
+  return true;
+}
+
+export async function setCustomTriggerEnabled(broadcasterId: string, keyword: string, enabled: boolean) {
+  if (!(await getCustomTrigger(broadcasterId, keyword))) return false;
+  await sqlite.execute(
+    "UPDATE custom_triggers SET enabled = ?, updated_at = ? WHERE broadcaster_id = ? AND keyword = ?",
+    [enabled ? 1 : 0, Date.now(), broadcasterId, keyword],
   );
   return true;
 }

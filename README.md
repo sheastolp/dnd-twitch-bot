@@ -71,7 +71,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **combat_shared.ts** / **combat_duel.ts** / **combat_monster.ts** / **combat_party.ts** / **combat_partyduel.ts** | Shared timeouts/forfeits/PvP resolver, PvP duels, solo monster duels, `!party`, party duels + party hunts — re-exported from `combat.ts`, which keeps the initiative tracker |
 | **raid.ts** | The stream's raid quest — posted on `stream.online`, `!raid` musters a temporary party against a high-level boss whose HP persists between raids, with a per-channel raid cooldown |
-| **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
+| **customcommands.ts** | `!dndbot add/edit/remove/cooldown/enable/disable/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
 | **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant_cron.ts` |
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
@@ -285,7 +285,7 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!gold top [N]` / `!goldboard [N]` | Richest adventurers (default 5, max 10) |
 | `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
 | `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
-| `!jar` | **Swear jar:** shows the total. Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
+| `!jar` | **Swear jar:** shows the total, plus when the jar was last given away (who won and how much). Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
 | `!jar +<amount>` | Add coin to the jar by hand, e.g. `!jar +8`, `!jar +5sp` |
 | `!jar +<amount> @user` | Fine a viewer: moves that much of *their* gold (whatever they can afford) into the jar *(mod)* |
 | `!jar -<amount>` | Take coin out of the jar *(mod)* |
@@ -333,7 +333,7 @@ Lockable features: `rob`, `haggle`, `duel` (all `!dndduel` plus `!party hunt`), 
 **Upgrading from the first gold version:** balances and giveaway prices written back when 1 chat message earned "1 gold" are converted once, automatically, on the next request (×100, so 1 old gold becomes 1 gp). A fresh install has nothing to convert.
 
 ### Custom commands & triggers
-Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but different subcommands (`add`/`edit`/`remove`/`cooldown`/`list` vs. `on`/`off`/`status`/`leave`), so there's no collision.
+Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but different subcommands (`add`/`edit`/`remove`/`cooldown`/`enable`/`disable`/`list` vs. `on`/`off`/`status`/`leave`), so there's no collision.
 
 | Command | Description |
 |---------|-------------|
@@ -341,11 +341,13 @@ Shares the `!dndbot` word used by [Stewards](#stewards-settings) below, but diff
 | `!dndbot edit <name> <response>` | Change an existing custom command *(mod)* |
 | `!dndbot remove <name>` | Delete a custom command *(mod)* |
 | `!dndbot cooldown <name> <seconds>` | Per-command cooldown, 0-3600s; default 5s *(mod)* |
-| `!dndbot list` | List configured custom command names |
+| `!dndbot enable <name>` / `disable <name>` | Turn one custom command on/off without deleting it *(mod)* |
+| `!dndbot list` | List configured custom command names (disabled ones marked `(off)`) |
 | `!trigger add <keyword> <response>` | Fire `<response>` whenever `<keyword>` appears in chat, no `!` needed *(mod)* — quote multi-word keywords |
 | `!trigger remove <keyword>` | Delete a trigger *(mod)* |
 | `!trigger cooldown <keyword> <seconds>` | Per-trigger cooldown, 0-3600s; default 15s *(mod)* |
-| `!trigger list` | List configured trigger keywords |
+| `!trigger enable <keyword>` / `disable <keyword>` | Turn one trigger on/off without deleting it *(mod)* |
+| `!trigger list` | List configured trigger keywords (disabled ones marked `(off)`) |
 
 Custom command/trigger names can't reuse a built-in command word, and each channel has a configurable cap on how many of each it can store.
 

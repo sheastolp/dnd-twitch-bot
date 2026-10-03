@@ -361,6 +361,7 @@ export async function ensureTables() {
       broadcaster_id TEXT, name TEXT, response TEXT, created_by TEXT,
       created_at INTEGER, updated_at INTEGER, uses INTEGER NOT NULL DEFAULT 0,
       cooldown_ms INTEGER NOT NULL DEFAULT ${DEFAULT_CUSTOM_COMMAND_COOLDOWN_MS}, last_used_at INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (broadcaster_id, name)
     )`,
   );
@@ -369,9 +370,15 @@ export async function ensureTables() {
       broadcaster_id TEXT, keyword TEXT, response TEXT, created_by TEXT,
       created_at INTEGER, updated_at INTEGER, uses INTEGER NOT NULL DEFAULT 0,
       cooldown_ms INTEGER NOT NULL DEFAULT ${DEFAULT_CUSTOM_TRIGGER_COOLDOWN_MS}, last_used_at INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (broadcaster_id, keyword)
     )`,
   );
+  // Per-command/per-trigger on/off (!dndbot enable/disable, !trigger
+  // enable/disable, or the dashboard's Active checkbox) — a disabled one
+  // keeps its response/uses/cooldown but never fires. Added after launch.
+  try { await sqlite.execute(`ALTER TABLE custom_commands ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
+  try { await sqlite.execute(`ALTER TABLE custom_triggers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
   // Named per-channel variables for custom command/trigger responses
   // ({var:name}, {var:name+1}, …) and the !var chat command — see
   // customcommands.ts. Values are stored as text; numeric ops coerce.
