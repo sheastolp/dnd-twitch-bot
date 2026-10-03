@@ -456,7 +456,9 @@ export function renderDashboardPage(d: DashboardData): string {
     .banner{padding:10px 14px;border-radius:6px;margin:12px 0}
     .banner.ok{background:#1e3320;color:#a7e6ac}
     .banner.error{background:#3a1f1f;color:#f0a6a6}
-    .toggles{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+    .toggles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+    @media(max-width:900px){.toggles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:560px){.toggles{grid-template-columns:1fr}}
     .toggle-row{display:flex;align-items:center;gap:12px;background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:10px 14px}
     .toggle-label{flex:1;font-size:.92rem}
     .toggle-label small{display:block;color:#aa9b8d;font-weight:400;margin-top:2px}
