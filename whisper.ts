@@ -33,11 +33,27 @@ const BOT_WHISPER_SCOPE = "user:manage:whispers";
 
 export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
-const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator }>();
+const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; deferred: Promise<unknown>[] }>();
 
-/** Runs one request with its own (initially empty) reply-initiator slot. */
+/** Runs one request with its own (initially empty) reply-initiator slot.
+ * Work handed to defer() runs alongside the request and is awaited before
+ * the response is returned, so the isolate isn't torn down mid-write. */
 export function runRequestScope<T>(fn: () => Promise<T>): Promise<T> {
-  return requestScope.run({}, fn);
+  const store = { deferred: [] as Promise<unknown>[] };
+  return requestScope.run(store, async () => {
+    try {
+      return await fn();
+    } finally {
+      await Promise.allSettled(store.deferred);
+    }
+  });
+}
+
+/** Starts bookkeeping that the reply doesn't depend on (activity logs,
+ * watch time…) without making the reply wait for it. */
+export function defer(work: Promise<unknown>) {
+  const guarded = work.catch((e) => console.error("deferred work failed", e));
+  requestScope.getStore()?.deferred.push(guarded);
 }
 
 /** Marks the chatter whose command this request is answering. */

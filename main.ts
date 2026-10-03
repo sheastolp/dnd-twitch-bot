@@ -12,7 +12,7 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
-import { ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
+import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
@@ -236,9 +236,12 @@ async function handleRequest(req: Request): Promise<Response> {
     // stale EventSub subscription harmless after disconnect/offboarding.
     // The connection row and the operator blocklist are independent reads —
     // fetch them concurrently instead of back-to-back.
-    const [connection, blocked] = await Promise.all([
+    // channelOn is only needed further down, but fetching it here in the
+    // same round-trip batch saves a sequential query on every message.
+    const [connection, blocked, channelOn] = await Promise.all([
       getBroadcaster(broadcasterId),
       isChannelBlocked(broadcasterId),
+      isChannelEnabled(broadcasterId),
     ]);
     if (!connection || Number(connection.connected) !== 1) return new Response("OK");
 
@@ -354,29 +357,38 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response("OK");
     }
 
-    if (!(await isChannelEnabled(broadcasterId))) return new Response("OK");
+    if (!channelOn) return new Response("OK");
 
-    await maybeLaunchRaidSafe(broadcasterId); // due raid musters launch on any chat message
-
+    // Bookkeeping the reply doesn't depend on runs alongside it (defer —
+    // awaited before the response is returned) instead of in front of it.
+    defer(maybeLaunchRaidSafe(broadcasterId)); // due raid musters launch on any chat message
     // Watch-time clock (see watchtime.ts): every message while live, commands included.
-    if (Number(connection.is_live) === 1) await trackWatchtime(broadcasterId, chatter, display);
+    if (Number(connection.is_live) === 1) defer(trackWatchtime(broadcasterId, chatter, display));
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.
       // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
-      if (!isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage) && !(await checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS))) return new Response("OK");
-      const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
-      await recordActivity(chatter, broadcasterId, commandWord, chatMessage);
-      await recordViewerName(broadcasterId, chatter, display); // for battle-log short names
+      // The rate limit, the dashboard group switch and channel-point hexes
+      // are independent lookups — run them together, then apply them in order.
       // Dashboard-controlled feature groups (see COMMAND_GROUPS in
-      // utils.ts). Silent no-op when disabled, same as the master
+      // utils.ts) are a silent no-op when disabled, same as the master
       // isChannelEnabled check just above — features with their own
       // dedicated toggle (market/chronicle/npc) and !dashboard itself are
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
       const group = groupForMessage(chatMessage);
-      if (group && !(await isCommandGroupEnabled(broadcasterId, group))) return new Response("OK");
-      // Channel-point "can't use <feature>" hexes (see redemptions.ts).
-      const hexNotice = await checkFeatureLock(chatMessage, chatter, broadcasterId);
+      const rateLimited = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
+      const [allowed, groupOn, hexNotice] = await Promise.all([
+        rateLimited ? checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS) : true,
+        group ? isCommandGroupEnabled(broadcasterId, group) : true,
+        checkFeatureLock(chatMessage, chatter, broadcasterId), // channel-point "can't use <feature>" hexes
+      ]);
+      // Throttle non-mod command spam before it reaches any handler.
+      // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
+      if (!allowed) return new Response("OK");
+      const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
+      defer(recordActivity(chatter, broadcasterId, commandWord, chatMessage));
+      defer(recordViewerName(broadcasterId, chatter, display)); // for battle-log short names
+      if (!groupOn) return new Response("OK");
       if (hexNotice) {
         await sendChatMessage(`@${display} ${hexNotice}`, broadcasterId);
         return new Response("OK");
@@ -384,16 +396,24 @@ async function handleRequest(req: Request): Promise<Response> {
     } else if (Number(connection.is_live) === 1) {
       // Copper for chatting (see points.ts): plain messages only, live only,
       // and a silent no-op unless the channel turned gold on (!gold on).
-      if (await isCommandGroupEnabled(broadcasterId, "chatgold")) await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
+      // Silent bookkeeping, so it runs alongside the reply (see defer above).
+      defer((async () => {
+        if (await isCommandGroupEnabled(broadcasterId, "chatgold")) await maybeAwardChatPoints(chatMessage, chatter, display, broadcasterId);
+      })());
     }
 
     // Swear jar (see swearjar.ts): plain chat only. Takes 2 cp of gold per
     // swear word and announces it; never consumes the message, so the rest of
     // the chat handling (triggers, goodnight, etc.) still runs. Failures here
     // must never break normal chat handling.
-    if (!chatMessage.startsWith("!") && (await isCommandGroupEnabled(broadcasterId, "jar"))) {
-      try { await maybeChargeSwearJar(chatMessage, chatter, display, broadcasterId); }
-      catch (e) { await recordMonitorEvent("swearjar_error", String(e)); }
+    // Runs alongside the trigger/goodnight/chronicle handling below rather
+    // than in front of it (see defer above).
+    if (!chatMessage.startsWith("!")) {
+      defer((async () => {
+        if (!(await isCommandGroupEnabled(broadcasterId, "jar"))) return;
+        try { await maybeChargeSwearJar(chatMessage, chatter, display, broadcasterId); }
+        catch (e) { await recordMonitorEvent("swearjar_error", String(e)); }
+      })());
     }
 
     // Command handlers (return true if handled)

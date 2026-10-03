@@ -46,6 +46,7 @@ function newId(): string {
 // Cron vals (timed messages, autohunt, merchant) don't run main.ts's schema
 // setup, so make sure the table exists before the first save in an isolate.
 let tablesReady = false;
+let lastCleanup = 0;
 
 /** Stores `owner`'s latest full reply and returns their page link — the same
  * link every time for the same viewer in the same channel. `owner` is a login
@@ -62,18 +63,20 @@ export async function saveReplyPage(
   }
   const ownerKey = owner ? owner.toLowerCase() : CHANNEL_OWNER;
   const now = Date.now();
-  // Free the space of stale content; the rows (and their links) stay.
-  await sqlite.execute(
-    "UPDATE reply_links SET summary = '', detail = '' WHERE updated_at < ? AND detail <> ''",
-    [now - REPLY_PAGE_TTL_MS],
-  );
-  await sqlite.execute(
+  // Free the space of stale content (the rows and their links stay) — at
+  // most every 10 minutes per isolate, off the reply's critical path.
+  if (now - lastCleanup > 10 * 60_000) {
+    lastCleanup = now;
+    sqlite.execute("UPDATE reply_links SET summary = '', detail = '' WHERE updated_at < ? AND detail <> ''", [now - REPLY_PAGE_TTL_MS])
+      .catch(() => {});
+  }
+  const res = await sqlite.execute(
     `INSERT INTO reply_links (broadcaster_id, owner_key, owner_name, id, summary, detail, updated_at) VALUES (?,?,?,?,?,?,?)
      ON CONFLICT(broadcaster_id, owner_key) DO UPDATE SET
-       owner_name = excluded.owner_name, summary = excluded.summary, detail = excluded.detail, updated_at = excluded.updated_at`,
+       owner_name = excluded.owner_name, summary = excluded.summary, detail = excluded.detail, updated_at = excluded.updated_at
+     RETURNING id`,
     [broadcasterId, ownerKey, owner ?? "", newId(), summary, detail.slice(0, MAX_DETAIL_LEN), now],
   );
-  const res = await sqlite.execute("SELECT id FROM reply_links WHERE broadcaster_id = ? AND owner_key = ?", [broadcasterId, ownerKey]);
   return `${PUBLIC_BASE_URL}/r/${String(res.rows[0]?.id)}`;
 }
 

@@ -551,12 +551,19 @@ export async function saveEncounter(e: any) {
   );
 }
 
+const lastActivityPrune = new Map<string, number>();
+
 export async function recordActivity(username: string, broadcasterId: string, action: string, detail: string) {
   await sqlite.execute(
     "INSERT INTO activity_logs (username,broadcaster_id,action,detail,created_at) VALUES (?,?,?,?,?)",
     [username, broadcasterId, action.slice(0, 40), detail.replace(/\s+/g, " ").trim().slice(0, 220), Date.now()],
   );
   // Retain at most 5,000 rows per channel, plus a hard 90-day privacy window.
+  // The trim scans the channel's newest 5,000 ids, so do it at most every
+  // few minutes per channel per isolate rather than on every command.
+  const now = Date.now();
+  if (now - (lastActivityPrune.get(broadcasterId) ?? 0) < 5 * 60_000) return;
+  lastActivityPrune.set(broadcasterId, now);
   await sqlite.execute(
     `DELETE FROM activity_logs
      WHERE created_at < ?
@@ -615,10 +622,16 @@ export async function claimEventSubMessage(messageId: string, now = Date.now()) 
 let lastRateLimitPrune = 0;
 export async function checkCommandRateLimit(broadcasterId: string, username: string, cooldownMs = 1200) {
   const now = Date.now();
-  const res = await sqlite.execute("SELECT last_at FROM command_rate_limits WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username]);
-  const last = Number(res.rows[0]?.last_at ?? 0);
-  if (now - last < cooldownMs) return false;
-  await sqlite.execute("INSERT OR REPLACE INTO command_rate_limits (broadcaster_id,username,last_at) VALUES (?,?,?)", [broadcasterId, username, now]);
+  // One round-trip: stamp the use only if the cooldown has passed, and read
+  // back whether it did (RETURNING yields no row when the WHERE blocks it).
+  const res = await sqlite.execute(
+    `INSERT INTO command_rate_limits (broadcaster_id,username,last_at) VALUES (?,?,?)
+     ON CONFLICT(broadcaster_id,username) DO UPDATE SET last_at = excluded.last_at
+     WHERE excluded.last_at - command_rate_limits.last_at >= ?
+     RETURNING last_at`,
+    [broadcasterId, username, now, cooldownMs],
+  );
+  if (!res.rows.length) return false;
   // Throttled prune (see claimEventSubMessage) — not needed on every command.
   if (now - lastRateLimitPrune > 60_000) {
     lastRateLimitPrune = now;

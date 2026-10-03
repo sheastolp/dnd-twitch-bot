@@ -120,14 +120,11 @@ export async function sendChatMessages(
   // Battle logs shorten bare names; "@name" tags are capped at two. See mentions.ts.
   if (opts?.names?.length) {
     // Battle logs: bare names -> one whole word of the display name ("Stoned").
-    let displays = new Map<string, string>();
-    try {
-      displays = await lookupViewerNames(broadcasterId, opts.names);
-    } catch (_) { /* table not ready: fall back to what the text itself shows */ }
-    let nicks = new Map<string, string>();
-    try {
-      nicks = await lookupNicknames(broadcasterId, opts.names);
-    } catch (_) { /* table not ready: no !nick overrides */ }
+    // Both lookups at once; a missing table just means no data from it.
+    const [displays, nicks] = await Promise.all([
+      lookupViewerNames(broadcasterId, opts.names).catch(() => new Map<string, string>()), // fall back to the text's own names
+      lookupNicknames(broadcasterId, opts.names).catch(() => new Map<string, string>()), // no !nick overrides
+    ]);
     const lead = text.match(/^(?:[^\w@]*)@([A-Za-z0-9_]{1,25})\b/)?.[1];
     if (lead) displays.set(lead.toLowerCase(), lead);
     text = shortenNames(text, opts.names, displays, nicks);
