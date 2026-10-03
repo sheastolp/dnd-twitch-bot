@@ -5,6 +5,7 @@
 import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
+import { DASH_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
 
 // ── Web dashboard (see dashboard.ts for the !dashboard chat command that
 // hands out the link, and main.ts for the GET/POST /dashboard routes) ──
@@ -301,20 +302,14 @@ function renderTimedMessagesSection(d: DashboardData): string {
 // of the real management UI, not the UI itself.
 export function renderDashboardLoginGate(d: { broadcasterName: string; loginUrl: string; error?: string }): string {
   const gateBanner = d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title>
-  <style>
-    :root{color-scheme:dark}
-    body{font-family:Georgia,serif;max-width:520px;margin:80px auto;background:#15120f;color:#f4eadb;padding:24px;text-align:center}
-    h1{color:#e6a56e}
-    .muted{color:#aa9b8d;font-size:.9rem}
-    a.btn{display:inline-block;background:#9147ff;color:#fff;border:0;border-radius:6px;padding:12px 22px;font-size:1rem;text-decoration:none;margin-top:16px}
-    .banner{padding:10px 14px;border-radius:6px;margin:12px 0}
-    .banner.error{background:#3a1f1f;color:#f0a6a6}
-  </style></head><body>
-  <h1>🔒 ${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}</style></head><body>
+  ${scrollOpen("gate")}
+  <span class="pill">Moderators only</span>
+  <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">This link is only good with a matching Twitch login — you need to be a moderator or the broadcaster of this channel.</p>
   ${gateBanner}
-  <a class="btn" href="${d.loginUrl}">Log in with Twitch</a>
+  <p><a class="btn" href="${d.loginUrl}">Log in with Twitch</a></p>
+  ${scrollClose}
   </body></html>`;
 }
 
@@ -325,90 +320,12 @@ export function renderDashboardPage(d: DashboardData): string {
     : d.notice
     ? `<p class="banner ok">${escapeHtml(d.notice)}</p>`
     : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title>
-  <style>
-    :root{color-scheme:dark}
-    body{font-family:Georgia,serif;max-width:1180px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px}
-    h1{color:#e6a56e;margin-bottom:2px}
-    h2{color:#e6a56e;margin:0}
-    h3{color:#d6c6b5;margin:14px 0 8px}
-    a{color:#e6a56e}
-    .muted{color:#aa9b8d;font-size:.88rem}
-    code{background:#0e0d0c;color:#f0c39e;padding:2px 6px;border-radius:4px}
-    summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none}
-    summary::-webkit-details-marker{display:none}
-    summary::before{content:"▸";color:#aa9b8d;font-size:.9rem;width:1em;transition:transform .15s}
-    details[open]>summary::before{transform:rotate(90deg)}
-    summary:hover h2,summary:hover h4{text-decoration:underline;text-decoration-color:#684632}
-    summary:focus-visible{outline:2px solid #e6a56e;outline-offset:4px;border-radius:4px}
-    details{scroll-margin-top:16px}
-    .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
-    .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
-    .index ol{margin:8px 0 0;padding-left:0;list-style:none;line-height:1.7;columns:3;column-gap:32px}
-    .index li::before{content:"📜";margin-right:6px;font-size:.9em}
-    .index ol>li{break-inside:avoid}
-    .index ol>li:has(ul){break-inside:auto}
-    .index ul{margin:0 0 4px;padding-left:14px;list-style:none;font-size:.85rem}
-    @media(max-width:800px){.index ol{columns:2}}
-    @media(max-width:520px){.index ol{columns:1}}
-    button.link{background:none;border:0;padding:0;margin:0;color:#e6a56e;font:inherit;font-size:.85rem;cursor:pointer;text-decoration:underline}
-    .row-form,.add-form{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 14px}
-    .add-form{border-style:dashed}
-    .row-head{font-size:.92rem;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
-    textarea,input[type=text],input[type=number]{width:100%;box-sizing:border-box;background:#0e0d0c;color:#f4eadb;border:1px solid #453626;border-radius:6px;padding:8px;font-family:inherit;margin:4px 0}
-    label{display:block;font-size:.85rem;color:#c9b8a6}
-    label.check{display:flex;align-items:center;gap:6px;font-size:.9rem}
-    .row-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px}
-    .row-controls label{flex:0 0 auto}
-    button{background:#9147ff;color:#fff;border:0;border-radius:6px;padding:8px 16px;font-size:.9rem;cursor:pointer;margin-top:6px}
-    button.danger{background:#5c2a2a}
-    .banner{padding:10px 14px;border-radius:6px;margin:12px 0}
-    .banner.ok{background:#1e3320;color:#a7e6ac}
-    .banner.error{background:#3a1f1f;color:#f0a6a6}
-    .guide-link{white-space:nowrap}
-    .tile>.pill{flex:0 0 auto}
-    .tile:target{border-color:#e6a56e;box-shadow:0 0 0 2px #e6a56e66}
-    .tile{scroll-margin-top:24px}
-    .toggle-detail p{margin:8px 0;color:#d6c6b5;font-size:.92rem}
-    .toggle-detail .warn{color:#f0c39e}
-    .row-controls form.push{margin:0 0 0 auto}
-    .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin:12px 0}
-    .tile{aspect-ratio:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;text-align:center;background:#1c1712;color:#f4eadb;border:1px solid #453626;border-radius:10px;padding:10px;margin:0;font-family:inherit;font-size:.92rem;cursor:pointer;min-width:0;transition:transform .12s,border-color .12s,background .12s}
-    .tile:hover,.tile:focus-visible{transform:translateY(-2px);border-color:#e6a56e;background:#221b15;outline:none}
-    .tile-title{font-weight:700;color:#f0c39e;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-    .tile-meta{font-size:.75rem;color:#aa9b8d}
-    .tile-new{border-style:dashed;background:transparent}
-    .tile-new .tile-title{color:#e6a56e;font-weight:400}
-    .tile-paused{opacity:.6}
-    .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;margin:12px 0}
-    details.folder{box-sizing:border-box;background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
-    .board-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;align-items:start;margin:22px 0}
-    @media(min-width:1100px){.board-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
-    .masonry{grid-auto-rows:4px;row-gap:0}
-    details.folder.big.wide{margin:0 0 22px}
-    details.folder.big{padding:16px 18px;background:#17130f;border-color:#7a5238}
-    details.folder.big>summary{border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
-    h2.folder-name{font-size:1.3rem;color:#e6a56e;margin:0}
-    details.folder>summary{justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
-    details.folder>summary::before{order:-1}
-    .folder-name{flex:1;font-weight:700;color:#f0c39e;font-size:1.02rem}
-    .tiles.mini{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 0}
-    .tiles.mini .tile{font-size:.82rem;padding:8px}
-    dialog.editor{background:#1c1712;color:#f4eadb;border:1px solid #684632;border-radius:12px;width:min(560px,92vw);max-height:88vh;padding:16px 20px 20px;box-shadow:0 24px 60px #000c}
-    dialog.editor::backdrop{background:#000b}
-    .editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
-    .editor-head h3{margin:0;color:#e6a56e}
-    dialog.editor .row-form,dialog.editor .add-form{background:none;border:0;padding:0}
-    button.x{background:none;color:#aa9b8d;font-size:1.1rem;padding:2px 8px;margin:0}
-    button.x:hover{color:#f4eadb}
-.guide-link{font-size:.8rem;font-weight:400;margin-left:4px}
-    .pill{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px}
-    .pill.on{background:#1e3320;color:#a7e6ac}
-    .pill.off{background:#3a1f1f;color:#f0a6a6}
-    button.danger{background:#5c2a2a}
-  </style></head><body>
-  <h1>🛡️ ${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
-  <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}</style></head><body>
+  ${scrollOpen()}
+  <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
+  <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
+  <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
+  <a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></header>
   ${banner}
   ${renderDashboardIndex()}
   <div class="board-row">
@@ -465,5 +382,6 @@ export function renderDashboardPage(d: DashboardData): string {
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
     goHash();
   })();</script>
+  ${scrollClose}
   </body></html>`;
 }

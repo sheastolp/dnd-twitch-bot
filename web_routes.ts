@@ -64,13 +64,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   if (req.method === "GET" && (path === "/guide" || path === "/commands")) {
     return page(
       "GuildScribe Codex",
-      `<h1>GuildScribe Codex</h1><p class="intro">The guild’s book of rites — every command for adventurers at the table.</p>${renderGuidePage()}`,
+      renderGuidePage(),
     );
   }
   if (req.method === "GET" && (path === "/donate" || path === "/donations")) {
     return page(
       "Support the Guild",
-      `<h1>Support the Guild</h1><p>If GuildScribe has served your campaign, you can leave a tribute so the scribes may keep the halls open.</p><h2>Ethereum (ETH)</h2><p><code class="address">0x422413678AdFC67d3d9AB545FE4e1ec1D00197fd</code></p><p>Send ETH on the Ethereum network. Verify the address and network in your wallet before confirming.</p><h2>Bitcoin (BTC)</h2><p><code class="address">3JYo1Vwyh6aQENzXoi16rA9mXZuZQVL1rN</code></p><p>Send BTC on the Bitcoin network. Verify the address carefully before confirming.</p><p><a href="/">Return to the Guild Hall</a></p><style>.address{display:block;word-break:break-all;background:#111;border:1px solid #444;padding:12px;border-radius:6px;color:#9fe870}</style>`,
+      `<h1>Support the Guild</h1><p>If GuildScribe has served your campaign, you can leave a tribute so the scribes may keep the halls open.</p><h2>Ethereum (ETH)</h2><p><code class="address">0x422413678AdFC67d3d9AB545FE4e1ec1D00197fd</code></p><p>Send ETH on the Ethereum network. Verify the address and network in your wallet before confirming.</p><h2>Bitcoin (BTC)</h2><p><code class="address">3JYo1Vwyh6aQENzXoi16rA9mXZuZQVL1rN</code></p><p>Send BTC on the Bitcoin network. Verify the address carefully before confirming.</p><p><a href="/">Return to the Guild Hall</a></p><style>.address{display:block;word-break:break-all;padding:12px;font-size:.95rem}</style>`,
     );
   }
 
@@ -471,7 +471,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     if (!username && !channelId) {
       return page(
         "D&D Twitch Bot",
-        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""}</p>`,
+        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""}</p>`,
       );
     }
     if (!username) return new Response("Missing character user.", { status: 400 });

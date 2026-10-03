@@ -11,6 +11,7 @@
 
 import { getBroadcaster, getBroadcasterByLogin } from "./db.ts";
 import { escapeHtml } from "./utils.ts";
+import { HOWTO_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
 import { HOWTO_SETUP, type HowtoTopic } from "./howto_pages.ts";
 import { HOWTO_PLAY } from "./howto_pages2.ts";
 
@@ -24,20 +25,9 @@ const GO_PAGES: Record<string, { label: string; path: string }> = {
   maps: { label: "Battle maps", path: "/maps" },
 };
 
-const STYLE = `:root{color-scheme:dark}*{box-sizing:border-box}body{max-width:860px;margin:0 auto;padding:28px 16px 48px;background:#15120f;color:#f4eadb;font-family:Georgia,serif;line-height:1.55}
-a{color:#e6a56e}h1{font-size:2.3rem;line-height:1.1;margin:10px 0 6px}h2{color:#e6a56e;border-bottom:1px solid #684632;padding-bottom:6px;margin-top:30px}h3{color:#f0c39e;margin:0 0 4px}p{color:#d6c6b5}
-code{font-family:ui-monospace,SFMono-Regular,monospace;background:#0e0d0c;color:#f0c39e;padding:1px 5px;border-radius:4px;font-size:.88em;overflow-wrap:anywhere}
-.crumbs{font-size:.9rem;color:#aa9b8d}.pill{display:inline-block;border:1px solid #b97545;border-radius:999px;padding:3px 10px;color:#e6a56e;font:600 .74rem ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em}
-ol.steps{counter-reset:s;list-style:none;padding:0}ol.steps>li{counter-increment:s;position:relative;background:#211b16;border:1px solid #684632;border-radius:10px;padding:12px 14px 12px 52px;margin:10px 0}
-ol.steps>li::before{content:counter(s);position:absolute;left:14px;top:11px;width:26px;height:26px;border-radius:50%;background:#b97545;color:#15120f;font:700 .9rem/26px ui-monospace,monospace;text-align:center}
-ul.tips{padding-left:1.2em}ul.tips li{margin:6px 0;color:#d6c6b5}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px}.card{background:#211b16;border:1px solid #684632;border-radius:10px;padding:16px}
-.card p{margin:8px 0}.btn{display:inline-block;background:#b97545;color:#15120f;border:1px solid #e6a56e;border-radius:8px;padding:9px 14px;font:700 .9rem ui-monospace,monospace;text-decoration:none;margin:4px 8px 4px 0}.btn:hover{background:#e6a56e}
-input{font:1rem Georgia,serif;padding:9px 12px;border-radius:8px;border:1px solid #684632;background:#0e0d0c;color:#f4eadb;width:min(100%,280px)}button{font:700 .95rem ui-monospace,monospace;padding:9px 14px;border-radius:8px;border:1px solid #e6a56e;background:#b97545;color:#15120f;cursor:pointer}`;
-
 function shell(title: string, body: string, status = 200): Response {
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body>${body}</body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(title)}</title><style>${SCROLL_CSS}${HOWTO_CSS}</style></head><body>${scrollOpen()}${body}${scrollClose}</body></html>`,
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -76,7 +66,7 @@ function renderGoForm(page: string, error?: string): Response {
   return shell(
     `${p.label} · GuildScribe`,
     `<div class="crumbs"><a href="/guide">Guild Codex</a></div><h1>${escapeHtml(p.label)}</h1>
-${error ? `<p style="color:#e0604f">${escapeHtml(error)}</p>` : ""}<p>Which channel? Type its Twitch login (the name in its twitch.tv URL).</p>
+${error ? `<p class="banner error">${escapeHtml(error)}</p>` : ""}<p>Which channel? Type its Twitch login (the name in its twitch.tv URL).</p>
 <form method="get" action="/go/${page}"><input name="channel" placeholder="e.g. sheastolp" autocomplete="off" required pattern="[A-Za-z0-9_]{1,25}"> <button type="submit">Open</button></form>`,
     error ? 404 : 200,
   );
@@ -120,7 +110,7 @@ export function renderGuideModPagesSection(): string {
   const item = (title: string, href: string, text: string, label: string, go?: string) =>
     `<section class="card"><h3 style="margin-top:0">${title}</h3><p>${text}</p><p><a href="${href}"${go ? ` data-go="${go}"` : ""}>${label} →</a></p></section>`;
   return `<h2 id="mod-pages">Suggested pages for mods+</h2><p>Pages the broadcaster and moderators will want to bookmark. Enter your channel once and the links below open your channel's pages directly.</p>
-<form id="mod-pages-form" class="note" onsubmit="return false" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><label for="mod-channel"><strong>Your channel:</strong></label><input id="mod-channel" placeholder="Twitch login, e.g. sheastolp" autocomplete="off" style="font:1rem Georgia,serif;padding:8px 12px;border-radius:8px;border:1px solid #684632;background:#0e0d0c;color:#f4eadb;min-width:0;width:min(100%,260px)"><span class="muted" id="mod-channel-note">Links ask for it if left blank.</span></form>
+<form id="mod-pages-form" class="note" onsubmit="return false" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><label for="mod-channel"><strong>Your channel:</strong></label><input id="mod-channel" placeholder="Twitch login, e.g. sheastolp" autocomplete="off" style="min-width:0;width:min(100%,260px)"><span class="muted" id="mod-channel-note">Links ask for it if left blank.</span></form>
 <div class="grid">
 ${item("Web dashboard", "/dashboard/go", "Feature on/off switches plus custom commands, triggers and timed messages. The first time, type <code>!dashboard</code> in chat and log in with Twitch; afterwards this link goes straight there for 12 hours.", "Open my dashboard")}
 ${item("OBS overlays", "/go/overlays", "Every stream overlay with its URL, suggested size and a live preview. Also posted by <code>!overlays</code>.", "Set up overlays", "overlays")}
