@@ -95,6 +95,11 @@ async function recordWhisperResult(r: WhisperResult) {
 
 /** Plain-English reason for a failed whisper, from Twitch's status code. */
 export function explainWhisperFailure(r: WhisperResult): string {
+  // Twitch reports an unverified sender as a 401, same as a bad token, so
+  // check its message first.
+  if (/verified phone/i.test(r.detail)) {
+    return "the bot account has no verified phone number, which Twitch requires to send whispers — log in to Twitch as the bot, add and verify a phone number under Settings → Security and Privacy, then run !whispertest again";
+  }
   switch (r.status) {
     case 0: return r.detail || "the bot has no whisper token — log in to Twitch as the bot account and open /connect-bot";
     case 400: return `Twitch rejected the request (400): ${r.detail}`;
