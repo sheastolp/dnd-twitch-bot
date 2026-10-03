@@ -80,6 +80,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/enable/disable/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
 | **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant_cron.ts` |
+| **howto.ts** / **howto_pages.ts** / **howto_pages2.ts** | Step-by-step how-to guides (`/howto`, `/howto/<slug>`; topics live in the two `howto_pages` files), the Codex's **How-to guides** and **Suggested pages for mods+** sections, and `/go/<page>?channel=<login>` shortcuts that open a channel's roster, bestiary, maps or overlays by Twitch login |
 | **overlay.ts** / **overlay_page.ts** | OBS overlays: `/overlays` setup page, `/overlay?panel=<name>` transparent browser sources, and the `/overlay/data` JSON they poll (`getOverlayData` gathers raid, fights, giveaway, merchant, jar, leaderboards and guild summary, honoring the channel's dashboard switches); `!overlays` (mod, in chat_builtin.ts) posts the link |
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
@@ -500,6 +501,8 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /?channel=<broadcaster_id>&user=<username>` | Channel-scoped character sheet |
 | `GET /maps?channel=<broadcaster_id>` | List a channel's battle maps |
 | `GET /roster?channel=<broadcaster_id>` | Every saved character, plus every party and its members, for a connected channel (linked by `!roster`) |
+| `GET /howto` · `/howto/<slug>` | How-to guide index and individual step-by-step guides (connect, dashboard, overlays, stream day, custom commands, timed messages, channel points, giveaways, first character, gold, raid, market, maps, NPCs, moderation), linked from the top of `/guide` |
+| `GET /go/<overlays\|roster\|bestiary\|maps>?channel=<login>` | Redirects to that page for a connected channel by Twitch login (asks for the channel when it's missing); used by the Codex's *Suggested pages for mods+* |
 | `GET /overlays?channel=<id or login>` | OBS overlay setup page: each panel's URL, suggested size and a live preview (linked by `!overlays`) |
 | `GET /overlay?channel=<id or login>&panel=<name>` | One transparent OBS Browser-source overlay. Panels: `status`, `raid`, `battle`, `giveaway`, `merchant`, `jar`, `gold`, `dice`, `guild`, `all`, `rotate`. Extras: `scale`, `align=right/center`, `refresh` (s), `limit`, `window=hour/day/week` (dice), `cycle` (s, rotate), `always=1` |
 | `GET /overlay/data?channel=<id or login>&panels=<a,b>` | The JSON the overlays poll; public and read-only like `/roster`, only for connected channels, and switched-off features come back `null` |

@@ -20,6 +20,7 @@ import { PUBLIC_BASE_URL } from "./config.ts";
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleOverlayRoute } from "./overlay.ts";
+import { handleHowtoRoute } from "./howto.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -233,6 +234,11 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
 
   // OBS browser-source overlays (/overlays setup page, /overlay, /overlay/data)
   // — see overlay.ts. Same public, connected-channel-only model as /roster.
+  // Step-by-step how-to guides and /go/<page> channel shortcuts — see howto.ts.
+  if (path.startsWith("/howto") || path.startsWith("/go/")) {
+    const howto = await handleHowtoRoute(req, url, path);
+    if (howto) return howto;
+  }
   if (path.startsWith("/overlay")) {
     const overlay = await handleOverlayRoute(req, url, path);
     if (overlay) return overlay;
