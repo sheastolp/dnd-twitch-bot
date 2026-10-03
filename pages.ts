@@ -294,10 +294,10 @@ function renderDashboardIndex(): string {
     <div class="index-head"><strong>Index</strong><span class="index-ctl"><button type="button" class="link" data-all="open">Expand all</button> · <button type="button" class="link" data-all="close">Collapse all</button></span></div>
     <ol>
       <li><a href="#sec-features">Bot &amp; feature switches</a></li>
-      <li><a href="#sec-groups">Command groups</a><ul>${groupLinks}</ul></li>
       <li><a href="#sec-commands">Custom commands</a></li>
       <li><a href="#sec-triggers">Chat triggers</a></li>
       <li><a href="#sec-timed">Timed messages</a></li>
+      <li><a href="#sec-groups">Command groups</a><ul>${groupLinks}</ul></li>
     </ol>
   </nav>`;
 }
@@ -566,12 +566,13 @@ export function renderDashboardPage(d: DashboardData): string {
     .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;margin:12px 0}
     details.folder{box-sizing:border-box;background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
     details.folder[open]{aspect-ratio:1}
-    .board{display:flex;flex-direction:column;gap:18px;margin:22px 0}
-    .board-col{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:18px;align-items:start;min-width:0}
-    .board-col.wide{display:block}
-    details.folder.big{padding:16px 18px;background:#17130f;border-color:#7a5238}
-    @media(min-width:1180px){.board{flex-direction:row;align-items:flex-start}.board-col{flex:1;display:flex;flex-direction:column;align-items:stretch;container-type:inline-size}.board-col.wide{flex:2;display:block}.board-col>details.folder.big[open]{aspect-ratio:auto;min-height:100cqw}}
+    .board-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;align-items:stretch;margin:22px 0}
+    .board-row{container-type:inline-size}
+    .board-row>details.folder.big[open]{aspect-ratio:auto}
+    @media(min-width:1100px){.board-row{grid-template-columns:repeat(4,minmax(0,1fr))}.board-row>details.folder.big[open]{min-height:calc((100cqw - 54px) / 4)}}
+    details.folder.big.wide{margin:0 0 22px}
     details.folder.big.wide[open]{aspect-ratio:auto}
+    details.folder.big{padding:16px 18px;background:#17130f;border-color:#7a5238}
     details.folder.big>summary{border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
     h2.folder-name{font-size:1.3rem;color:#e6a56e;margin:0}
     details.folder>summary{justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
@@ -596,15 +597,13 @@ export function renderDashboardPage(d: DashboardData): string {
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p>
   ${banner}
   ${renderDashboardIndex()}
-  <div class="board">
-    <div class="board-col">
-      ${features.switches}
-      ${renderCommandsSection(d)}
-      ${renderTriggersSection(d)}
-      ${renderTimedMessagesSection(d)}
-    </div>
-    <div class="board-col wide">${features.groups}</div>
+  <div class="board-row">
+    ${features.switches}
+    ${renderCommandsSection(d)}
+    ${renderTriggersSection(d)}
+    ${renderTimedMessagesSection(d)}
   </div>
+  ${features.groups}
   <script>(function(){
     var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.folder"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
