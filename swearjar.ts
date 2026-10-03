@@ -24,6 +24,12 @@
 // they have; a chatter with an empty purse pays nothing (and the bot stays
 // quiet rather than spamming chat). Needs the gold system on (!gold on).
 //
+// Learning: the jar teaches itself new swear words per channel (see "Learning"
+// below). Unknown words that keep turning up right next to swearing, from
+// several different chatters, and almost never anywhere else, are promoted to
+// "learned" and start charging. Mods can undo a bad guess with !jar forget
+// <word> and see what's been learned with !jar words.
+//
 // Detection is word-based (see countSwearWords), so innocent words that
 // merely contain a swear ("class", "assassin", "Scunthorpe") are never hit.
 // Edit SWEAR_BASES below to tune the list (it includes UK/Irish slang such as
@@ -73,6 +79,28 @@ export async function ensureSwearJarTables() {
       amount INTEGER NOT NULL DEFAULT 0
     )`,
   );
+  // Learned vocabulary, per channel. status: 'candidate' (being watched),
+  // 'learned' (charges like a built-in word) or 'blocked' (a mod said no).
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS swear_words (
+      broadcaster_id TEXT NOT NULL,
+      word TEXT NOT NULL,
+      swear_msgs INTEGER NOT NULL DEFAULT 0,
+      total_msgs INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'candidate',
+      updated_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (broadcaster_id, word)
+    )`,
+  );
+  // Which distinct chatters have used a candidate next to swearing.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS swear_word_users (
+      broadcaster_id TEXT NOT NULL,
+      word TEXT NOT NULL,
+      username TEXT NOT NULL,
+      PRIMARY KEY (broadcaster_id, word, username)
+    )`,
+  );
 }
 
 export async function getJarTotal(broadcasterId: string): Promise<number> {
@@ -96,7 +124,7 @@ export async function adjustJar(broadcasterId: string, delta: number): Promise<n
 
 /** `!dndbot leave purge`: forget the channel's jar. */
 export async function purgeSwearJarData(broadcasterId: string) {
-  for (const table of ["swear_jar", "swear_jar_giveaways"]) {
+  for (const table of ["swear_jar", "swear_jar_giveaways", "swear_words", "swear_word_users"]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
 }
@@ -200,6 +228,180 @@ export function countSwearWords(message: string): number {
   return count;
 }
 
+// ── Learning ──
+//
+// A word is only ever learned from evidence in plain chat, never guessed from
+// spelling alone:
+//   * it must sit within LEARN_WINDOW words of a swear (built-in or already
+//     learned) — "this fucking zorbag" nominates "zorbag";
+//   * from then on every message containing it is counted, so a normal word
+//     ("awesome", "idiot") that also gets used cleanly sinks its own ratio;
+//   * it is learned once it has LEARN_MIN_HITS swear-adjacent uses by
+//     LEARN_MIN_USERS different chatters AND at least LEARN_MIN_RATIO of all
+//     its uses since nomination were swear-adjacent.
+// Emote-looking tokens (KEKW, PogChamp), very common words, links and
+// numbers are never nominated. A mod can veto any word with !jar forget.
+
+const LEARN_WINDOW = 2;
+const LEARN_MIN_HITS = 5;
+const LEARN_MIN_USERS = 3;
+const LEARN_MIN_RATIO = 0.6;
+const MAX_CANDIDATES = 400;
+const MAX_NOMINATIONS_PER_MESSAGE = 4;
+const CANDIDATE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const WORD_CACHE_TTL_MS = 60_000;
+
+const STOPWORDS = new Set((
+  "the and for are but not you all any can had her was one our out day get has him his how man new now old see two way " +
+  "who boy did its let put say she too use that with have this will your from they know want been good much some time " +
+  "very when come here just like long make many over such take than them well were what then there their about would " +
+  "these other which could first after again where those being still every great think going really right while never " +
+  "should because people little always before thing things stuff game games play played playing stream chat guys yeah " +
+  "okay lol lmao haha nice cool wait hmm yes nope also even only more most into onto ever gonna wanna gotta"
+).split(/\s+/));
+
+type WordStatus = "candidate" | "learned" | "blocked";
+interface WordCache { at: number; words: Map<string, WordStatus> }
+const wordCaches = new Map<string, WordCache>();
+
+async function loadWords(broadcasterId: string): Promise<Map<string, WordStatus>> {
+  const hit = wordCaches.get(broadcasterId);
+  if (hit && Date.now() - hit.at < WORD_CACHE_TTL_MS) return hit.words;
+  const res = await sqlite.execute("SELECT word, status FROM swear_words WHERE broadcaster_id = ?", [broadcasterId]);
+  const words = new Map<string, WordStatus>();
+  for (const r of res.rows as any[]) words.set(String(r.word), String(r.status) as WordStatus);
+  wordCaches.set(broadcasterId, { at: Date.now(), words });
+  return words;
+}
+
+function invalidateWords(broadcasterId: string) {
+  wordCaches.delete(broadcasterId);
+}
+
+/** The forms a stretched-out word could take: "fuuuck" -> itself, "fuuck", "fuck". */
+function wordForms(word: string): string[] {
+  const forms = [word];
+  const s2 = word.replace(/(.)\1{2,}/g, "$1$1");
+  if (s2 !== word) forms.push(s2);
+  const s1 = word.replace(/(.)\1{2,}/g, "$1");
+  if (s1 !== word) forms.push(s1);
+  return forms;
+}
+
+interface Tok { word: string; learnedHit: boolean; known: boolean; eligible: boolean }
+
+function tokenize(message: string, words: Map<string, WordStatus>): Tok[] {
+  const out: Tok[] = [];
+  for (const raw of message.split(/[^A-Za-z0-9@$]+/)) {
+    if (!raw) continue;
+    const word = normalizeToken(raw.toLowerCase());
+    const mixedCase = /[a-z]/.test(raw) && /[A-Z]/.test(raw.slice(1)); // PogChamp, xQcOW
+    const allCaps = raw.length > 1 && raw === raw.toUpperCase() && /[A-Z]/.test(raw); // KEKW, LUL
+    const forms = wordForms(word);
+    out.push({
+      word: forms[forms.length - 1],
+      known: isSwear(word),
+      learnedHit: !!word && forms.some((f) => words.get(f) === "learned"),
+      eligible: /^[a-z]{3,20}$/.test(word) && !/[@$]/.test(raw) && !mixedCase && !allCaps && !STOPWORDS.has(word),
+    });
+  }
+  return out;
+}
+
+/** Updates the channel's vocabulary from one plain message. Learned words show
+ * up in the next message's detection. */
+async function observeMessage(
+  toks: Tok[],
+  chatMessage: string,
+  chatter: string,
+  broadcasterId: string,
+  words: Map<string, WordStatus>,
+): Promise<void> {
+  const swearAt: number[] = [];
+  toks.forEach((t, i) => { if (t.known || t.learnedHit) swearAt.push(i); });
+  const nearSwear = (i: number) => swearAt.some((j) => Math.abs(i - j) <= LEARN_WINDOW);
+  const hasLink = /https?:\/\/|www\./i.test(chatMessage);
+  const now = Date.now();
+
+  const adjacent = new Set<string>(); // swear-adjacent uses of candidates / new nominees
+  const present = new Set<string>(); // every candidate that appears at all
+  let nominations = 0;
+  toks.forEach((t, i) => {
+    if (!t.eligible || t.known || t.learnedHit) return;
+    const status = words.get(t.word);
+    if (status === "blocked" || status === "learned") return;
+    const near = swearAt.length > 0 && !hasLink && nearSwear(i);
+    if (status === "candidate") {
+      present.add(t.word);
+      if (near) adjacent.add(t.word);
+    } else if (near && nominations < MAX_NOMINATIONS_PER_MESSAGE) {
+      nominations++;
+      adjacent.add(t.word);
+      present.add(t.word);
+    }
+  });
+  if (!present.size) return;
+
+  const candidateCount = [...words.values()].filter((v) => v === "candidate").length;
+  const touchedHits: string[] = [];
+  for (const word of present) {
+    const isNew = !words.has(word);
+    if (isNew && candidateCount + 1 > MAX_CANDIDATES) continue;
+    const hit = adjacent.has(word) ? 1 : 0;
+    await sqlite.execute(
+      `INSERT INTO swear_words (broadcaster_id, word, swear_msgs, total_msgs, status, updated_at)
+       VALUES (?, ?, ?, 1, 'candidate', ?)
+       ON CONFLICT(broadcaster_id, word) DO UPDATE SET
+         swear_msgs = swear_msgs + excluded.swear_msgs,
+         total_msgs = total_msgs + 1,
+         updated_at = excluded.updated_at
+       WHERE status = 'candidate'`,
+      [broadcasterId, word, hit, now],
+    );
+    if (isNew) words.set(word, "candidate");
+    if (hit) {
+      await sqlite.execute(
+        "INSERT OR IGNORE INTO swear_word_users (broadcaster_id, word, username) VALUES (?, ?, ?)",
+        [broadcasterId, word, chatter.toLowerCase()],
+      );
+      touchedHits.push(word);
+    }
+  }
+
+  let promoted = false;
+  for (const word of touchedHits) {
+    const row = (await sqlite.execute(
+      `SELECT w.swear_msgs AS hits, w.total_msgs AS total,
+              (SELECT COUNT(*) FROM swear_word_users u WHERE u.broadcaster_id = w.broadcaster_id AND u.word = w.word) AS users
+       FROM swear_words w WHERE w.broadcaster_id = ? AND w.word = ? AND w.status = 'candidate'`,
+      [broadcasterId, word],
+    )).rows[0] as any;
+    if (!row) continue;
+    const hits = Number(row.hits), total = Number(row.total), users = Number(row.users);
+    if (hits >= LEARN_MIN_HITS && users >= LEARN_MIN_USERS && total > 0 && hits / total >= LEARN_MIN_RATIO) {
+      await sqlite.execute(
+        "UPDATE swear_words SET status = 'learned', updated_at = ? WHERE broadcaster_id = ? AND word = ? AND status = 'candidate'",
+        [now, broadcasterId, word],
+      );
+      words.set(word, "learned");
+      promoted = true;
+    }
+  }
+  if (promoted) invalidateWords(broadcasterId);
+
+  // Housekeeping (1 message in 40): drop stale candidates and their evidence.
+  if (Math.random() < 1 / 40) {
+    const cutoff = now - CANDIDATE_TTL_MS;
+    await sqlite.execute(
+      `DELETE FROM swear_word_users WHERE broadcaster_id = ? AND word IN
+         (SELECT word FROM swear_words WHERE broadcaster_id = ? AND status = 'candidate' AND updated_at < ?)`,
+      [broadcasterId, broadcasterId, cutoff],
+    );
+    await sqlite.execute("DELETE FROM swear_words WHERE broadcaster_id = ? AND status = 'candidate' AND updated_at < ?", [broadcasterId, cutoff]);
+    invalidateWords(broadcasterId);
+  }
+}
+
 // ── Auto-collection (called by main.ts for plain chat) ──
 
 const FINE_LINES: Array<(by: string, streamer: string, paid: string, jar: string) => string> = [
@@ -222,7 +424,8 @@ const PAID_LINES: Array<(name: string, paid: string, jar: string) => string> = [
   (n, p, j) => `🫙 Mind your tongue, @${n}! That's ${p} into the swear jar (jar: ${j}).`,
 ];
 
-/** Charges the chatter if their message contains swear words. Safe to call for
+/** Charges the chatter if their message contains swear words (built-in or
+ * learned for this channel), and learns from the message. Safe to call for
  * every plain, non-bot chat message: silent no-op when the gold system is off,
  * there's no swearing, or the chatter has no coin. Returns true if coin moved. */
 export async function maybeChargeSwearJar(
@@ -231,7 +434,19 @@ export async function maybeChargeSwearJar(
   display: string,
   broadcasterId: string,
 ): Promise<boolean> {
-  const swears = Math.min(MAX_SWEARS_PER_MESSAGE, countSwearWords(chatMessage));
+  let words = new Map<string, WordStatus>();
+  let toks: Tok[];
+  try {
+    words = await loadWords(broadcasterId);
+    toks = tokenize(chatMessage, words);
+    // Learning runs even while gold is off or the chatter is broke.
+    await observeMessage(toks, chatMessage, chatter, broadcasterId, words);
+  } catch (e) {
+    console.error("swear jar learning failed", e); // never let learning break charging
+    toks = tokenize(chatMessage, words);
+  }
+  const hits = toks.filter((t) => t.known || t.learnedHit);
+  const swears = Math.min(MAX_SWEARS_PER_MESSAGE, hits.length);
   if (swears === 0) return false;
   if (!(await isPointsEnabled(broadcasterId))) return false;
 
@@ -244,7 +459,10 @@ export async function maybeChargeSwearJar(
   if (!(await trySpend(broadcasterId, chatter, pay))) return false;
 
   const total = await adjustJar(broadcasterId, pay);
-  await sendChatMessage(pick(PAID_LINES)(display, formatCoins(pay), formatCoins(total)), broadcasterId);
+  // Name any learned words that were charged so mods can see (and veto) them.
+  const learnedWords = [...new Set(hits.filter((t) => !t.known && t.learnedHit).map((t) => t.word))];
+  const note = learnedWords.length ? ` (learned word: ${learnedWords.slice(0, 3).join(", ")} — mods: !jar forget <word>)` : "";
+  await sendChatMessage(pick(PAID_LINES)(display, formatCoins(pay), formatCoins(total)) + note, broadcasterId);
   return true;
 }
 
@@ -264,6 +482,9 @@ export async function handleJarCommand(
   if (m[1].toLowerCase() === "fine") return await handleFine(display, broadcasterId);
 
   if (/^giveaway$/i.test(args)) return await handleGiveaway(display, broadcasterId, isModerator);
+  if (/^words$/i.test(args)) return await handleWords(display, broadcasterId, isModerator);
+  const forget = args.match(/^forget\s+(\S+)$/i);
+  if (forget) return await handleForget(forget[1], display, broadcasterId, isModerator);
 
   if (!args) {
     const total = await getJarTotal(broadcasterId);
@@ -288,7 +509,7 @@ export async function handleJarCommand(
   }
   if (!adj || amount === null || amount <= 0) {
     await sendChatMessage(
-      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway (mod only) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
+      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway (mod only) | !jar words / !jar forget <word> (mod: learned words) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
       broadcasterId,
     );
     return true;
@@ -403,5 +624,53 @@ async function handleGiveaway(display: string, broadcasterId: string, isModerato
   await adjustBalance(broadcasterId, winner.username, winner.displayName, amount);
   await sqlite.execute("UPDATE swear_jar_giveaways SET amount = ? WHERE broadcaster_id = ?", [amount, broadcasterId]);
   await sendChatMessage(pick(GIVEAWAY_LINES)(winner.displayName, formatCoins(amount), display), broadcasterId);
+  return true;
+}
+
+// ── !jar words / !jar forget (mod tools for the learned vocabulary) ──
+
+async function handleWords(display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can see the learned words.`, broadcasterId);
+    return true;
+  }
+  const res = await sqlite.execute(
+    "SELECT word FROM swear_words WHERE broadcaster_id = ? AND status = 'learned' ORDER BY updated_at DESC LIMIT 20",
+    [broadcasterId],
+  );
+  const list = (res.rows as any[]).map((r) => String(r.word));
+  await sendChatMessage(
+    list.length
+      ? `🫙 @${display} Words the jar has learned here: ${list.join(", ")}. Remove one with !jar forget <word>.`
+      : `🫙 @${display} The jar hasn't learned any new words in this channel yet.`,
+    broadcasterId,
+  );
+  return true;
+}
+
+async function handleForget(rawWord: string, display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can make the jar forget a word.`, broadcasterId);
+    return true;
+  }
+  const word = wordForms(normalizeToken(rawWord.toLowerCase())).pop() ?? "";
+  if (!/^[a-z]{2,25}$/.test(word)) {
+    await sendChatMessage(`@${display} Usage: !jar forget <word>`, broadcasterId);
+    return true;
+  }
+  if (isSwear(word)) {
+    await sendChatMessage(`@${display} "${word}" is a built-in word, so it can't be forgotten (it's in swearjar.ts).`, broadcasterId);
+    return true;
+  }
+  // 'blocked' keeps it from ever being nominated again.
+  await sqlite.execute(
+    `INSERT INTO swear_words (broadcaster_id, word, swear_msgs, total_msgs, status, updated_at)
+     VALUES (?, ?, 0, 0, 'blocked', ?)
+     ON CONFLICT(broadcaster_id, word) DO UPDATE SET status = 'blocked', updated_at = excluded.updated_at`,
+    [broadcasterId, word, Date.now()],
+  );
+  await sqlite.execute("DELETE FROM swear_word_users WHERE broadcaster_id = ? AND word = ?", [broadcasterId, word]);
+  invalidateWords(broadcasterId);
+  await sendChatMessage(`🫙 @${display} The jar has forgotten "${word}" and won't learn it again here.`, broadcasterId);
   return true;
 }
