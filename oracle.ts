@@ -10,7 +10,7 @@
 
 import { sendChatMessage } from "./twitch.ts";
 import { getRecentChatters } from "./db.ts";
-import { rollOracle } from "./utils.ts";
+import { rollOracle } from "./flavor.ts";
 
 const MIN_QUESTION_LEN = 2;
 

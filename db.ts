@@ -2,7 +2,7 @@
 
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import type { Character } from "./types.ts";
-import { COMMAND_GROUPS } from "./utils.ts";
+import { COMMAND_GROUPS } from "./commandgroups.ts";
 
 // Channel-wide default cooldowns for custom commands/triggers (mods can
 // override per-command/per-trigger with !dndbot cooldown / !trigger cooldown).

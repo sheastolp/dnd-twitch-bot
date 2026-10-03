@@ -2,7 +2,8 @@
 // to keep files well under Val Town's per-file size ceiling. Re-exported
 // from pages.ts, so importers don't change.
 
-import { COMMAND_GROUPS, escapeHtml } from "./utils.ts";
+import { escapeHtml } from "./utils.ts";
+import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
 
 // ── Web dashboard (see dashboard.ts for the !dashboard chat command that

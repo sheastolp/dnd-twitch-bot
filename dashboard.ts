@@ -54,7 +54,7 @@ import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, i
 import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
 import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
-import { COMMAND_GROUPS } from "./utils.ts";
+import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
   sanitizeTriggerKeyword,

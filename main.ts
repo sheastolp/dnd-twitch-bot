@@ -127,27 +127,11 @@ import {
   verifyEventSub,
   deleteEventSubSubscription,
 } from "./twitch.ts";
-import {
-  formatRaceName,
-  formatStatLine,
-  escapeHtml,
-  rollDice,
-  rollFate,
-  rollHug,
-  renderShmash,
-  rollNewSubThankYou,
-  rollResubThankYou,
-  rollGiftSubThankYou,
-  rollRaidThankYou,
-  resolveCheckKind,
-  modifier,
-  isBotAccount,
-  hasModeratorBadge,
-  logRowText,
-  isGoodnightMessage,
-  goodnightReply,
-  groupForMessage,
-} from "./utils.ts";
+import { formatRaceName, formatStatLine, escapeHtml, resolveCheckKind, modifier, isBotAccount, hasModeratorBadge, logRowText } from "./utils.ts";
+import { rollDice } from "./dice.ts";
+import { rollFate, rollHug, renderShmash } from "./flavor.ts";
+import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidThankYou, isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
+import { groupForMessage } from "./commandgroups.ts";
 import { classes } from "./data.ts";
 import { chatHelpText } from "./help.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";

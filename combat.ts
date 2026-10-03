@@ -5,7 +5,8 @@ import {
   pickMonsterForLevel,
   scaleMonsterForLevel,
 } from "./data.ts";
-import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
+import { combatStats, firstAlive, modifier } from "./utils.ts";
+import { duelNarration } from "./narration.ts";
 import { acWhy, BattleLog, MONSTER_AC_WHY, simulateAttack, simulateMonsterFight } from "./battle.ts";
 import {
   createPartyInvite,
