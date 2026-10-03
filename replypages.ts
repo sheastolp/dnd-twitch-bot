@@ -9,7 +9,7 @@
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 
-const REPLY_PAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const REPLY_PAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_DETAIL_LEN = 20_000;
 
 export async function ensureReplyPageTables() {
@@ -77,12 +77,12 @@ export async function handleReplyPageRoute(req: Request, path: string): Promise<
       `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)} — GuildScribe</title><style>:root{color-scheme:dark}body{font-family:Georgia,serif;max-width:760px;margin:32px auto;background:#15120f;color:#f4eadb;padding:20px;line-height:1.55}h1{color:#e6a56e;font-size:1.4rem}.summary{background:#211b16;border:1px solid #684632;border-radius:10px;padding:14px 16px}.log{list-style:none;padding:0;margin:20px 0}.log li{padding:7px 0;border-bottom:1px solid #2a231c}.log li:last-child{border-bottom:0}.muted{color:#aa9b8d;font-size:.9rem}a{color:#e6a56e}@media(max-width:600px){body{margin:16px auto;padding:14px}}</style></head><body>${body}</body></html>`,
       { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
     );
-  if (!row) return html(404, "Not found", `<h1>📜 This scroll has crumbled</h1><p class="muted">Detail pages are kept for 7 days. This one has expired or never existed.</p>`);
+  if (!row) return html(404, "Not found", `<h1>📜 This scroll has crumbled</h1><p class="muted">Detail pages are kept for 24 hours. This one has expired or never existed.</p>`);
   const when = new Date(Number(row.created_at)).toISOString().replace("T", " ").slice(0, 16) + " UTC";
   const lines = detailLines(String(row.detail)).map((l) => `<li>${esc(l)}</li>`).join("");
   return html(
     200,
     "Full reply",
-    `<h1>📜 Full reply</h1><p class="summary">${esc(String(row.summary))}</p><ul class="log">${lines}</ul><p class="muted">Posted ${when} · kept for 7 days.</p>`,
+    `<h1>📜 Full reply</h1><p class="summary">${esc(String(row.summary))}</p><ul class="log">${lines}</ul><p class="muted">Posted ${when} · kept for 24 hours.</p>`,
   );
 }
