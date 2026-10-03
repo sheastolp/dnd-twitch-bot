@@ -9,7 +9,8 @@ import { acWhy, BattleLog, MONSTER_AC_WHY, simulateAttack } from "./battle.ts";
 import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
-import { awardMonsterLoot, partyLootNote } from "./loot.ts";
+import { awardMonsterLoot, lootSummary, partyLootNote } from "./loot.ts";
+import { fightSummary } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, isChallengeExpired, forfeitIfIdlePartyDuel, forfeitIfIdlePartyHunt } from "./combat_shared.ts";
 
@@ -427,6 +428,7 @@ export async function handlePartyDuelCommand(
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const xpNotes: string[] = [];
       let lootNote = "";
+      let loot = "";
       if (partyWon) {
         for (const n of livingMembers) {
           if (hp[n] > 0) {
@@ -438,9 +440,9 @@ export async function handlePartyDuelCommand(
             }
           }
         }
-        lootNote = partyLootNote(
-          await awardMonsterLoot(livingMembers.filter((n) => hp[n] > 0), monster.cr, broadcasterId),
-        );
+        const paid = await awardMonsterLoot(livingMembers.filter((n) => hp[n] > 0), monster.cr, broadcasterId);
+        lootNote = partyLootNote(paid);
+        loot = lootSummary(paid);
       }
       const roster = livingMembers.map((n) => `${n}:${hp[n]}`).join(", ");
       await sendChatMessages(
@@ -454,7 +456,15 @@ export async function handlePartyDuelCommand(
             : `Defeat. ${duelNarration("defeat")}`
         } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`,
         broadcasterId,
-        { names: livingMembers },
+        {
+          names: livingMembers,
+          summary: fightSummary({
+            fighter: `party ${partyName}`,
+            enemy: monster.name,
+            outcome: partyWon ? "Victory!" : `Defeat — ${monster.name} wins.`,
+            loot,
+          }),
+        },
       );
       return true;
     }
@@ -644,7 +654,14 @@ export async function handlePartyDuelCommand(
         duelNarration("victory")
       } HP [${left}] vs [${right}]`,
       broadcasterId,
-      { names: [...attackers, ...defenders] },
+      {
+        names: [...attackers, ...defenders],
+        summary: fightSummary({
+          fighter: `party ${challenge.challenger_party}`,
+          enemy: `party ${challenge.defender_party}`,
+          outcome: `${winnerParty} wins!`,
+        }),
+      },
     );
     return true;
   }

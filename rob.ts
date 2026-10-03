@@ -29,6 +29,7 @@ import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { formatCoins } from "./coins.ts";
+import { fightSummary } from "./whisper.ts";
 import { robShieldRemainingMs } from "./redemptions.ts";
 import {
   getBalance,
@@ -158,14 +159,24 @@ export async function handleRobCommand(
   const percent = rollRobPercent();
   const amount = robAmount(loserNow, percent);
   let outcome: string;
+  let loot = "";
   if (amount <= 0 || (await transferPoints(broadcasterId, loser, winner, winnerName, amount)) !== "ok") {
     outcome = `${loserName} has nothing left to lose — the winner leaves empty-handed.`;
   } else {
+    loot = `${winnerName} +${formatCoins(amount)}`;
     outcome = robberWon
       ? `💰 @${display} slips away with ${percent}% of ${loserName}'s purse: ${formatCoins(amount)}!`
       : `🛡️ @${display} is caught red-handed! ${winnerName} claims ${percent}% of their purse as a fine: ${formatCoins(amount)}.`;
   }
 
-  await sendChatMessages(`🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows! ${result.log} ${outcome}`, broadcasterId, { names: [robber, target, display, targetPurse.displayName] });
+  await sendChatMessages(`🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows! ${result.log} ${outcome}`, broadcasterId, {
+    names: [robber, target, display, targetPurse.displayName],
+    summary: fightSummary({
+      fighter: display,
+      enemy: targetPurse.displayName,
+      outcome: robberWon ? `${display} gets away with it!` : `${display} is caught — ${targetPurse.displayName} wins.`,
+      loot,
+    }),
+  });
   return true;
 }

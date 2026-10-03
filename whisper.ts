@@ -161,7 +161,17 @@ export function whisperSummary(display: string, text: string): string {
   const body = text.replace(new RegExp(`^\\W*@${display.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[\\s,:]*`, "i"), "").trim();
   const firstSentence = body.match(/^[\s\S]*?[.!?](?=\s|$)/)?.[0] ?? body;
   const gist = firstSentence.length > 120 ? firstSentence.slice(0, 119).trimEnd() + "…" : firstSentence;
-  return `@${display} 📜 ${gist} (full reply sent to you by whisper)`;
+  return `@${display} 📜 ${gist} ${whisperNote("reply")}`;
+}
+
+export function whisperNote(what: string): string {
+  return `(full ${what} sent to you by whisper)`;
+}
+
+/** Chat summary for a whispered fight: who fought whom, how it ended, and
+ * the loot won ("none" when there was none, e.g. PvP or a loss). */
+export function fightSummary(f: { fighter: string; enemy: string; outcome: string; loot?: string }): string {
+  return `⚔️ ${f.fighter} vs ${f.enemy} — ${f.outcome} 🪙 Loot: ${f.loot || "none"}.`;
 }
 
 // ── /connect-bot: grant the bot account's whisper scope once ──

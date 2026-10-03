@@ -3,7 +3,7 @@
 import { limitNameMentions, lookupNicknames, lookupViewerNames, mentionNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { getReplyInitiator, MIN_WHISPER_PARTS, sendWhisperParts, WHISPER_MAX, whisperSummary } from "./whisper.ts";
+import { getReplyInitiator, MIN_WHISPER_PARTS, sendWhisperParts, WHISPER_MAX, whisperNote, whisperSummary } from "./whisper.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -108,7 +108,9 @@ export async function sendChatMessage(text: string, broadcasterId: string) {
 export async function sendChatMessages(
   text: string,
   broadcasterId: string,
-  opts?: { maxParts?: number; names?: string[] },
+  // summary: the chat line used if this reply is whispered (see whisper.ts) —
+  // fights pass fightSummary(...) so chat still sees who fought and how it went.
+  opts?: { maxParts?: number; names?: string[]; summary?: string },
 ) {
   const maxParts = opts?.maxParts ?? MAX_PARTS;
   // Battle logs shorten bare names; "@name" tags are capped at two. See mentions.ts.
@@ -129,8 +131,9 @@ export async function sendChatMessages(
   text = limitNameMentions(text, mentionNames(text, opts?.names));
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
-  // Battle logs are a show for the whole channel, so they never go by whisper.
-  if (!opts?.names?.length && (await whisperLongReply(text, parts.length, broadcasterId))) return;
+  // A battle log only goes by whisper when its caller gave a fight summary
+  // for chat; others (raids) are a show for the whole channel and stay put.
+  if ((!opts?.names?.length || opts.summary) && (await whisperLongReply(text, parts.length, broadcasterId, opts?.summary))) return;
   for (let i = 0; i < parts.length; i++) {
     const ok = await sendChatMessage(parts[i], broadcasterId);
     if (!ok && i < parts.length - 1) {
@@ -145,13 +148,16 @@ export async function sendChatMessages(
  * whispered to the chatter who ran the command, with one summary line in
  * chat (see whisper.ts). Returns false — send in chat as usual — when
  * there's no requesting chatter or the whisper can't be delivered. */
-async function whisperLongReply(text: string, chatParts: number, broadcasterId: string): Promise<boolean> {
+async function whisperLongReply(text: string, chatParts: number, broadcasterId: string, summary?: string): Promise<boolean> {
   if (chatParts < MIN_WHISPER_PARTS) return false;
   const initiator = getReplyInitiator();
   if (!initiator || initiator.broadcasterId !== broadcasterId) return false;
   const whisperParts = splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim());
   if (!(await sendWhisperParts(initiator.userId, whisperParts))) return false;
-  await sendChatMessage(whisperSummary(initiator.display, text), broadcasterId);
+  await sendChatMessage(
+    summary ? `@${initiator.display} ${summary} ${whisperNote("battle log")}` : whisperSummary(initiator.display, text),
+    broadcasterId,
+  );
   return true;
 }
 

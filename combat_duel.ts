@@ -6,6 +6,7 @@ import { combatStats } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { getCharacter, getDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
+import { fightSummary } from "./whisper.ts";
 import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, resolvePlayerDuel } from "./combat_shared.ts";
 
 export async function handleDuelCommand(
@@ -101,7 +102,10 @@ export async function handleDuelCommand(
     await sendChatMessages(
       `@${display} accepted! ${duelNarration("accept")} ${result.log}`,
       broadcasterId,
-      { names: [String(challenge.challenger), username] },
+      {
+        names: [String(challenge.challenger), username],
+        summary: fightSummary({ fighter: String(challenge.challenger), enemy: display, outcome: `${result.winner} wins!` }),
+      },
     );
     return true;
   }

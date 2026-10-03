@@ -9,7 +9,8 @@ import { simulateMonsterFight } from "./battle.ts";
 import { getCharacter, getMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
-import { awardMonsterLoot, soloLootNote } from "./loot.ts";
+import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
+import { fightSummary } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, forfeitIfIdleMonsterDuel } from "./combat_shared.ts";
 
@@ -216,6 +217,7 @@ export async function handleMonsterDuelCommand(
     const won = monsterHp <= 0 && playerHp > 0;
     let xpNote = "";
     let lootNote = "";
+    let loot = "";
     if (won) {
       const xp = await awardMonsterXp(username, monster.cr, broadcasterId);
       if (xp) {
@@ -223,7 +225,9 @@ export async function handleMonsterDuelCommand(
           xp.leveledTo ? ` — leveled to ${xp.leveledTo}!` : ""
         }`;
       }
-      lootNote = soloLootNote(await awardMonsterLoot([username], monster.cr, broadcasterId));
+      const paid = await awardMonsterLoot([username], monster.cr, broadcasterId);
+      lootNote = soloLootNote(paid);
+      loot = lootSummary(paid);
     }
     await sendChatMessages(
       `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
@@ -238,7 +242,10 @@ export async function handleMonsterDuelCommand(
           : `${monster.name} wins. ${duelNarration("defeat")}`
       } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`,
       broadcasterId,
-      { names: [username] },
+      {
+        names: [username],
+        summary: fightSummary({ fighter: display, enemy: monster.name, outcome: won ? `${display} wins!` : `${monster.name} wins.`, loot }),
+      },
     );
     return true;
   }

@@ -87,6 +87,13 @@ export function soloLootNote(paid: Array<{ username: string; copper: number }> |
   return paid?.length ? ` 🪙 Loot: +${formatCoins(paid[0].copper)}.` : "";
 }
 
+/** Bare loot for a fight summary: "2 sp 3 cp" solo, "a +4 cp, b +4 cp" for a
+ * party; "" when nothing was paid. */
+export function lootSummary(paid: Array<{ username: string; copper: number }> | null): string {
+  if (!paid?.length) return "";
+  return paid.length === 1 ? formatCoins(paid[0].copper) : paid.map((p) => `${p.username} +${formatCoins(p.copper)}`).join(", ");
+}
+
 /** " 🪙 Loot: a+4 cp, b+4 cp." for a party hunt. */
 export function partyLootNote(paid: Array<{ username: string; copper: number }> | null): string {
   return paid?.length ? ` 🪙 Loot: ${paid.map((p) => `${p.username}+${formatCoins(p.copper)}`).join(", ")}.` : "";
