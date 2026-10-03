@@ -320,15 +320,15 @@ function renderFeaturesSection(d: DashboardData): string {
     if (enabled) g.on++;
     bySection.set(def.section, g);
   }
-  // Each Codex section is a square "folder" tile; clicking it opens a window holding its switch tiles.
-  const groups = `<div class="tiles">${[...bySection]
+  // Each Codex section is a large collapsible square holding its switch tiles inline.
+  const groups = `<div class="folders">${[...bySection]
     .map(([section, g]) => {
-      const slug = sectionSlug(section);
       const total = g.rows.length;
       const state = g.on === total ? "all on" : g.on === 0 ? "all off" : `${g.on}/${total} on`;
-      return `<button type="button" class="tile tile-folder${g.on === 0 ? " tile-paused" : ""}" id="grp-${slug}" data-open="dlg-grp-${slug}" aria-haspopup="dialog">
-        <span class="folder-icon" aria-hidden="true">📁</span><span class="tile-title">${escapeHtml(section)}</span><span class="tile-meta">${total} switch${total === 1 ? "" : "es"} · ${state}</span>
-      </button>${editorDialog(`dlg-grp-${slug}`, `📂 ${escapeHtml(section)}`, `<p class="muted">Click a switch to turn it on or off.</p><div class="tiles">${g.rows.join("")}</div>`, "folder")}`;
+      return `<details class="folder" id="grp-${sectionSlug(section)}" open>
+        <summary><span class="folder-name">${escapeHtml(section)}</span><span class="tile-meta">${total} switch${total === 1 ? "" : "es"} · ${state}</span></summary>
+        <div class="tiles mini">${g.rows.join("")}</div>
+      </details>`;
     })
     .join("")}</div>`;
   return `<details class="sec" id="sec-features" open><summary><h2>Bot & feature switches</h2></summary><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
@@ -545,11 +545,14 @@ export function renderDashboardPage(d: DashboardData): string {
     .tile-new{border-style:dashed;background:transparent}
     .tile-new .tile-title{color:#e6a56e;font-weight:400}
     .tile-paused{opacity:.6}
-    .tile-folder{position:relative;border-radius:4px 10px 10px 10px;border-color:#684632;background:linear-gradient(#241c15,#1c1712);margin-top:10px}
-    .tile-folder::before{content:"";position:absolute;top:-10px;left:-1px;width:45%;height:10px;background:#241c15;border:1px solid #684632;border-bottom:0;border-radius:6px 8px 0 0}
-    .tile-folder:hover::before,.tile-folder:focus-visible::before{border-color:#e6a56e;background:#221b15}
-    .folder-icon{font-size:1.6rem;line-height:1}
-    dialog.editor.folder{width:min(760px,94vw)}
+    .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;margin:12px 0}
+    details.folder{background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
+    details.folder[open]{aspect-ratio:1}
+    details.folder>summary{justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
+    details.folder>summary::before{order:-1}
+    .folder-name{flex:1;font-weight:700;color:#f0c39e;font-size:1.02rem}
+    .tiles.mini{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 0}
+    .tiles.mini .tile{font-size:.82rem;padding:8px}
     dialog.editor{background:#1c1712;color:#f4eadb;border:1px solid #684632;border-radius:12px;width:min(560px,92vw);max-height:88vh;padding:16px 20px 20px;box-shadow:0 24px 60px #000c}
     dialog.editor::backdrop{background:#000b}
     .editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
@@ -572,11 +575,11 @@ export function renderDashboardPage(d: DashboardData): string {
   ${renderTriggersSection(d)}
   ${renderTimedMessagesSection(d)}
   <script>(function(){
-    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec"));
+    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec,details.folder"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
     function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
     // Open every collapsed section / folder window containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
-    function reveal(el){var dl=[];for(var n=el.parentElement;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true;else if(n.tagName==="DIALOG"&&!n.open)dl.unshift(n)}dl.forEach(function(d){openDlg(d,document.querySelector('[data-open="'+d.id+'"]'),true)})}
+    function reveal(el){var dl=[];for(var n=el;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true;else if(n.tagName==="DIALOG"&&!n.open)dl.unshift(n)}dl.forEach(function(d){openDlg(d,document.querySelector('[data-open="'+d.id+'"]'),true)})}
     function show(el){reveal(el);if(el.hasAttribute("data-open")){el.scrollIntoView({block:"center"});openDlg(document.getElementById(el.getAttribute("data-open")),el)}else el.scrollIntoView()}
     function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el)show(el)}
     load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=false});
