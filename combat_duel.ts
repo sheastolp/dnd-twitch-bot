@@ -99,10 +99,12 @@ export async function handleDuelCommand(
       challenger,
       defender,
     );
+    const intro = `@${display} accepted! ${duelNarration("accept")} `;
     await sendChatMessages(
-      `@${display} accepted! ${duelNarration("accept")} ${result.log}`,
+      intro + result.log,
       broadcasterId,
       {
+        detail: intro + result.fullLog,
         names: [String(challenge.challenger), username],
         summary: fightSummary({ fighter: String(challenge.challenger), enemy: display, outcome: `${result.winner} wins!` }),
       },

@@ -445,18 +445,22 @@ export async function handlePartyDuelCommand(
         loot = lootSummary(paid);
       }
       const roster = livingMembers.map((n) => `${n}:${hp[n]}`).join(", ");
-      await sendChatMessages(
+      const shownLog = battle.render(700);
+      const msg =
         `@${display} party ${partyName} hunts ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
           duelNarration("challenge")
         } Auto-resolved in ${battle.roundCount} round${
           battle.roundCount === 1 ? "" : "s"
-        }: ${battle.render(700)} — ${
+        }: ${shownLog} — ${
           partyWon
             ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}`
             : `Defeat. ${duelNarration("defeat")}`
-        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`,
+        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.`;
+      await sendChatMessages(
+        msg,
         broadcasterId,
         {
+          detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
           names: livingMembers,
           summary: fightSummary({
             fighter: `party ${partyName}`,
@@ -645,16 +649,20 @@ export async function handlePartyDuelCommand(
     await sqlite.execute("DELETE FROM party_duels WHERE broadcaster_id = ?", [
       broadcasterId,
     ]);
-    await sendChatMessages(
+    const shownLog = battle.render(700);
+    const msg =
       `@${display} party duel accepted! ${
         duelNarration("accept")
       } ${challenge.challenger_party} vs ${challenge.defender_party} auto-resolved in ${rounds} round${
         rounds === 1 ? "" : "s"
-      }. ${battle.render(700)} — ${winnerParty} wins! ${
+      }. ${shownLog} — ${winnerParty} wins! ${
         duelNarration("victory")
-      } HP [${left}] vs [${right}]`,
+      } HP [${left}] vs [${right}]`;
+    await sendChatMessages(
+      msg,
       broadcasterId,
       {
+        detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
         names: [...attackers, ...defenders],
         summary: fightSummary({
           fighter: `party ${challenge.challenger_party}`,

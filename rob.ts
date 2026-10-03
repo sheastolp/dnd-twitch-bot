@@ -169,7 +169,9 @@ export async function handleRobCommand(
       : `🛡️ @${display} is caught red-handed! ${winnerName} claims ${percent}% of their purse as a fine: ${formatCoins(amount)}.`;
   }
 
-  await sendChatMessages(`🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows! ${result.log} ${outcome}`, broadcasterId, {
+  const lunge = `🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows!`;
+  await sendChatMessages(`${lunge} ${result.log} ${outcome}`, broadcasterId, {
+    detail: `${lunge} ${result.fullLog} ${outcome}`,
     names: [robber, target, display, targetPurse.displayName],
     summary: fightSummary({
       fighter: display,

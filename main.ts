@@ -13,6 +13,7 @@ import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.t
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
+import { ensureReplyPageTables } from "./replypages.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
@@ -86,6 +87,7 @@ function ensureSchema(): Promise<void> {
         ensurePointsTables(),
         ensureSwearJarTables(),
         ensureWhisperTables(),
+        ensureReplyPageTables(),
         ensureAutohuntTables(),
         ensureRedemptionTables(),
         ensureHuntCooldownTables(),

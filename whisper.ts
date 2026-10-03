@@ -1,11 +1,12 @@
-// Long replies go by whisper.
+// Long replies: summary in chat, full output by link (and by whisper).
 //
 // When a chat command's reply would take MIN_WHISPER_PARTS (3) or more chat
-// messages, sendChatMessages (twitch.ts) whispers the full reply to whoever
-// ran the command and posts one short summary line in chat instead, so a big
-// lookup doesn't flood the channel. Battle logs (the `names` option) and
-// anything sent without a requesting user (crons, sub/raid thank-yous) stay
-// in chat as before.
+// messages, sendChatMessages (twitch.ts) posts one short summary message in
+// chat ending in a link to a page with the full output (replypages.ts), and
+// also whispers the full reply to whoever ran the command when whispers are
+// set up. Battle logs (the `names` option) without a fight summary (raids),
+// and anything sent without a requesting user (crons, sub/raid thank-yous),
+// stay in chat as before.
 //
 // Who "ran the command" is tracked per request with AsyncLocalStorage:
 // main.ts wraps every request in runRequestScope() and calls
@@ -18,7 +19,7 @@
 // /connect-bot once to grant it; the refresh token is stored in
 // bot_user_tokens and refreshed automatically. Until that's done (or if
 // Twitch refuses a whisper, e.g. the viewer blocks whispers from strangers),
-// replies fall back to normal chat messages.
+// only the chat summary and link are sent.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
@@ -155,20 +156,22 @@ export async function sendWhisperParts(toUserId: string, parts: string[]): Promi
   return true;
 }
 
-/** The one chat line posted in place of a whispered reply: the opening of
- * the reply (its first sentence, trimmed) so chat still sees the gist. */
-export function whisperSummary(display: string, text: string): string {
-  const body = text.replace(new RegExp(`^\\W*@${display.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[\\s,:]*`, "i"), "").trim();
-  const firstSentence = body.match(/^[\s\S]*?[.!?](?=\s|$)/)?.[0] ?? body;
-  const gist = firstSentence.length > 120 ? firstSentence.slice(0, 119).trimEnd() + "…" : firstSentence;
-  return `@${display} 📜 ${gist} ${whisperNote("reply")}`;
+/** The one-paragraph chat summary of a long reply: its opening sentences, up
+ * to SUMMARY_MAX characters, cut at a sentence end where possible. The
+ * caller appends the link to the full reply. */
+const SUMMARY_MAX = 220;
+export function replySummary(display: string, text: string): string {
+  const body = text.replace(new RegExp(`^\\W*@${display.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b[\\s,:]*`, "i"), "").replace(/\s*\|\s*/g, " · ").trim();
+  let gist = body;
+  if (gist.length > SUMMARY_MAX) {
+    const cut = gist.slice(0, SUMMARY_MAX);
+    const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    gist = end > 60 ? cut.slice(0, end + 1) : cut.slice(0, SUMMARY_MAX - 1).trimEnd() + "…";
+  }
+  return `@${display} ${gist}`;
 }
 
-export function whisperNote(what: string): string {
-  return `(full ${what} sent to you by whisper)`;
-}
-
-/** Chat summary for a whispered fight: who fought whom, how it ended, and
+/** Chat summary for a long fight: who fought whom, how it ended, and
  * the loot won ("none" when there was none, e.g. PvP or a loss). */
 export function fightSummary(f: { fighter: string; enemy: string; outcome: string; loot?: string }): string {
   return `⚔️ ${f.fighter} vs ${f.enemy} — ${f.outcome} 🪙 Loot: ${f.loot || "none"}.`;

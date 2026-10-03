@@ -103,7 +103,7 @@ export function resolvePlayerDuel(
   bName: string,
   aChar: any,
   bChar: any,
-): { winner: string; log: string; rounds: number } {
+): { winner: string; log: string; fullLog: string; rounds: number } {
   const hp: Record<string, number> = {
     [aName]: aChar.hpMax,
     [bName]: bChar.hpMax,
@@ -121,14 +121,16 @@ export function resolvePlayerDuel(
     }
   }
   const winner = hp[aName] > 0 ? aName : bName;
+  const shown = battle.render();
   const log = [
     `${aName} (${aChar.hpMax} HP) vs ${bName} (${bChar.hpMax} HP) — auto-resolved in ${rounds} round${
       rounds === 1 ? "" : "s"
     }.`,
-    battle.render(),
+    shown,
     `— ${winner} wins! ${duelNarration("victory")} Final: ${aName} ${
       hp[aName]
     }/${aChar.hpMax} HP, ${bName} ${hp[bName]}/${bChar.hpMax} HP.`,
   ].join(" ");
-  return { winner, log, rounds };
+  // fullLog: every round, uncut, for the reply's detail page (replypages.ts).
+  return { winner, log, fullLog: log.replace(shown, battle.render(Number.MAX_SAFE_INTEGER)), rounds };
 }

@@ -229,20 +229,24 @@ export async function handleMonsterDuelCommand(
       lootNote = soloLootNote(paid);
       loot = lootSummary(paid);
     }
-    await sendChatMessages(
+    const shownLog = battle.render();
+    const msg =
       `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}, AC ${monster.ac}, HP ${monster.hp})! ${
         duelNarration("challenge")
       } Auto-resolved in ${battle.roundCount} round${
         battle.roundCount === 1 ? "" : "s"
-      } (${username} vs ${monster.name}): ${battle.render()} — ${
+      } (${username} vs ${monster.name}): ${shownLog} — ${
         won
           ? `${username} defeats ${monster.name}! ${
             duelNarration("victory")
           }${xpNote}${lootNote}`
           : `${monster.name} wins. ${duelNarration("defeat")}`
-      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`,
+      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.`;
+    await sendChatMessages(
+      msg,
       broadcasterId,
       {
+        detail: msg.replace(shownLog, battle.render(Number.MAX_SAFE_INTEGER)),
         names: [username],
         summary: fightSummary({ fighter: display, enemy: monster.name, outcome: won ? `${display} wins!` : `${monster.name} wins.`, loot }),
       },
