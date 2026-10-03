@@ -72,6 +72,38 @@ export async function ensureWhisperTables() {
       updated_at INTEGER
     )`,
   );
+  // The last whisper attempt's outcome (one row), for /connect-bot/status
+  // and !whispertest — Twitch's error text is otherwise only in the logs.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS whisper_status (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      at INTEGER NOT NULL, ok INTEGER NOT NULL, status INTEGER NOT NULL, detail TEXT NOT NULL DEFAULT ''
+    )`,
+  );
+}
+
+export type WhisperResult = { ok: boolean; status: number; detail: string };
+
+async function recordWhisperResult(r: WhisperResult) {
+  try {
+    await sqlite.execute(
+      "INSERT OR REPLACE INTO whisper_status (id, at, ok, status, detail) VALUES (1, ?, ?, ?, ?)",
+      [Date.now(), r.ok ? 1 : 0, r.status, r.detail.slice(0, 500)],
+    );
+  } catch (_) { /* table missing in a cron isolate: diagnostics only */ }
+}
+
+/** Plain-English reason for a failed whisper, from Twitch's status code. */
+export function explainWhisperFailure(r: WhisperResult): string {
+  switch (r.status) {
+    case 0: return r.detail || "the bot has no whisper token — log in to Twitch as the bot account and open /connect-bot";
+    case 400: return `Twitch rejected the request (400): ${r.detail}`;
+    case 401: return `the bot's token is invalid or lacks user:manage:whispers (401: ${r.detail}) — redo /connect-bot as the bot account`;
+    case 403: return `Twitch refused (403: ${r.detail}). Usually the bot account has no verified phone number (Twitch → Settings → Security and Privacy), or the viewer blocks whispers from strangers`;
+    case 404: return `Twitch couldn't find the recipient (404: ${r.detail})`;
+    case 429: return `rate-limited by Twitch (429) — whispers to new recipients are capped per day/minute. ${r.detail}`;
+    default: return `Twitch returned ${r.status}: ${r.detail}`;
+  }
 }
 
 async function saveBotToken(botId: string, token: any) {
@@ -115,7 +147,7 @@ async function getBotUserToken(forceRefresh = false): Promise<string | null> {
   return cachedToken.token;
 }
 
-async function sendOneWhisper(toUserId: string, message: string): Promise<boolean> {
+async function sendOneWhisper(toUserId: string, message: string): Promise<WhisperResult> {
   const send = (token: string) =>
     fetch(
       `https://api.twitch.tv/helix/whispers?${new URLSearchParams({ from_user_id: env("TWITCH_BOT_ID"), to_user_id: toUserId })}`,
@@ -125,34 +157,89 @@ async function sendOneWhisper(toUserId: string, message: string): Promise<boolea
         body: JSON.stringify({ message }),
       },
     );
+  const noToken = { ok: false, status: 0, detail: "" };
   let token = await getBotUserToken();
-  if (!token) return false;
+  if (!token) return noToken;
   let res = await send(token);
   if (res.status === 401) {
     token = await getBotUserToken(true);
-    if (!token) return false;
+    if (!token) return { ...noToken, detail: "the bot's whisper token could not be refreshed — redo /connect-bot as the bot account" };
     res = await send(token);
   }
-  if (!res.ok) console.error(`Twitch whisper failed: ${res.status} ${await res.text().catch(() => "")}`);
-  return res.ok;
+  let detail = "";
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    try {
+      detail = String(JSON.parse(body).message ?? body);
+    } catch {
+      detail = body;
+    }
+    console.error(`Twitch whisper failed: ${res.status} ${detail}`);
+  }
+  const result = { ok: res.ok, status: res.status, detail };
+  await recordWhisperResult(result);
+  return result;
 }
 
 /** Whispers `parts` (each ≤ WHISPER_MAX) in order. Returns false if the
  * first one couldn't be sent, so the caller can fall back to chat; a later
  * part failing just ends the whisper early. */
 export async function sendWhisperParts(toUserId: string, parts: string[]): Promise<boolean> {
+  return (await sendWhisperPartsDetailed(toUserId, parts)).ok;
+}
+
+/** sendWhisperParts, but returns why the first part failed (for !whispertest). */
+export async function sendWhisperPartsDetailed(toUserId: string, parts: string[]): Promise<WhisperResult> {
   const list = parts.slice(0, MAX_WHISPER_PARTS);
+  let first: WhisperResult = { ok: false, status: 0, detail: "nothing to send" };
   for (let i = 0; i < list.length; i++) {
-    let ok = false;
+    let r: WhisperResult;
     try {
-      ok = await sendOneWhisper(toUserId, list[i].slice(0, WHISPER_MAX));
+      r = await sendOneWhisper(toUserId, list[i].slice(0, WHISPER_MAX));
     } catch (err) {
       console.error("sendWhisper failed", err);
+      r = { ok: false, status: -1, detail: String(err) };
     }
-    if (!ok) return i > 0;
+    if (i === 0) first = r;
+    if (!r.ok) return i > 0 ? { ...first, ok: true } : r;
     if (i < list.length - 1) await sleep(WHISPER_DELAY_MS);
   }
-  return true;
+  return first;
+}
+
+/** Everything about the bot's whisper setup, for GET /connect-bot/status. */
+export async function whisperDiagnostics(): Promise<string[]> {
+  const out: string[] = [];
+  const botId = Deno.env.get("TWITCH_BOT_ID");
+  out.push(botId ? `TWITCH_BOT_ID is set (${botId}).` : "❌ TWITCH_BOT_ID is not set.");
+  const row: any = botId ? (await sqlite.execute("SELECT * FROM bot_user_tokens WHERE bot_id = ?", [botId])).rows[0] : null;
+  if (!row) {
+    out.push("❌ No whisper token stored for the bot. Log in to Twitch AS THE BOT ACCOUNT and open /connect-bot (its /connect-bot/callback URL must be added to your Twitch app's OAuth Redirect URLs).");
+  } else {
+    out.push(`✅ Whisper token stored (last updated ${new Date(Number(row.updated_at)).toISOString()}).`);
+    const token = await getBotUserToken(true);
+    if (!token) {
+      out.push("❌ Refreshing the token failed — redo /connect-bot as the bot account.");
+    } else {
+      const v = await fetch("https://id.twitch.tv/oauth2/validate", { headers: { Authorization: `OAuth ${token}` } });
+      if (!v.ok) {
+        out.push(`❌ Twitch says the token is invalid (${v.status}) — redo /connect-bot.`);
+      } else {
+        const info = await v.json();
+        const scopes: string[] = info.scopes ?? [];
+        out.push(`${String(info.user_id) === botId ? "✅" : "❌"} Token belongs to ${info.login} (${info.user_id})${String(info.user_id) === botId ? "" : ` — NOT the bot (${botId})`}.`);
+        out.push(`${scopes.includes(BOT_WHISPER_SCOPE) ? "✅" : "❌"} Scopes: ${scopes.join(", ") || "none"}.`);
+      }
+    }
+  }
+  const last: any = (await sqlite.execute("SELECT * FROM whisper_status WHERE id = 1")).rows[0];
+  if (!last) out.push("No whisper has been attempted yet. Run !whispertest in chat (mods), or trigger a reply longer than one chat message.");
+  else {
+    const r = { ok: Number(last.ok) === 1, status: Number(last.status), detail: String(last.detail) };
+    out.push(`Last whisper attempt ${new Date(Number(last.at)).toISOString()}: ${r.ok ? "✅ delivered" : `❌ ${explainWhisperFailure(r)}`}.`);
+  }
+  out.push("Reminder: Twitch only lets accounts with a verified phone number send whispers, and only replies longer than one chat message are whispered (or run !whispertest).");
+  return out;
 }
 
 /** The one-paragraph chat summary of a long reply: its opening sentences, up
@@ -202,6 +289,11 @@ export async function handleBotConnectRoute(req: Request, url: URL, path: string
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
+  }
+
+  if (path === "/connect-bot/status") {
+    const lines = await whisperDiagnostics();
+    return html("Whisper status", `<b>GuildScribe whisper status</b></p><ul>${lines.map((l) => `<li>${l.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</li>`).join("")}</ul><p>`);
   }
 
   if (path === "/connect-bot/callback") {
