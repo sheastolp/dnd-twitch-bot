@@ -39,6 +39,9 @@ Chat: `!guide` or `!link` posts that same URL.
 | File | Role |
 |------|------|
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** — Val Town HTTP trigger |
+| **web_routes.ts** | Every web route (health, static pages, OAuth connect/callback, character/map/roster pages, dashboard, `/admin/*`); `main.ts` calls it first and falls through to EventSub when nothing matched |
+| **chat_builtin.ts** | Built-in chat commands without their own module (`!logs`, `!help`, lookups, dice, `!createchar`, `!char`, …), custom-command invocation, and plain-chat replies (goodnight, triggers, chronicle, NPC chatter) |
+| **config.ts** | Shared runtime config (`PUBLIC_BASE_URL`) |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** — and records the current listing for `!haggle` |
 | **haggle.ts** | `!haggle <pitch>` — AI-voiced sassy haggling over the merchant's current listing (see `merchant_listings` in db.ts); no API key setup needed, uses Val Town's built-in `std/openai`, same as npcs.ts |
@@ -57,12 +60,16 @@ Chat: `!guide` or `!link` posts that same URL.
 | **types.ts** | Shared types |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration |
+| **narration.ts** / **dice.ts** / **flavor.ts** / **flavor_events.ts** | Duel narration lines, `!roll` dice expressions, fate/oracle/hug/shmash flavor, and sub/raid thank-yous + goodnight replies |
+| **commandgroups.ts** | Dashboard feature groups (`COMMAND_GROUPS`) and `groupForMessage` |
 | **db.ts** | SQLite schema + persistence |
+| **db_schema.ts** / **db_custom.ts** / **db_merchant.ts** / **db_maps.ts** | Schema + migrations, custom commands/triggers/variables/timed messages, merchant state, battle maps — all re-exported from `db.ts` |
 | **characters.ts** | Generation, XP, leveling, `!newchar` wizard |
 | **bg3.ts** | `!bg3roll`, `!bg3companion`, `!bg3origin`, `!bg3loot`, `!bg3camp` — standalone Baldur's Gate 3 flavor generators (no DB); `!bg3` — random race/class + player-chosen BG3 point-buy scores, saved via db.ts |
 | **bg3data.ts** | Static Baldur's Gate 3 knowledgebase — companions, origins, classes, races, locations, factions, deities, villains, legendary items |
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **combat.ts** | Duels, parties, hunts, initiative |
+| **combat_shared.ts** / **combat_duel.ts** / **combat_monster.ts** / **combat_party.ts** / **combat_partyduel.ts** | Shared timeouts/forfeits/PvP resolver, PvP duels, solo monster duels, `!party`, party duels + party hunts — re-exported from `combat.ts`, which keeps the initiative tracker |
 | **raid.ts** | The stream's raid quest — posted on `stream.online`, `!raid` musters a temporary party against a high-level boss whose HP persists between raids, with a per-channel raid cooldown |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
@@ -72,7 +79,12 @@ Chat: `!guide` or `!link` posts that same URL.
 | **lookups.ts** | dnd5eapi + formatting + reference links |
 | **twitch.ts** | Tokens, multi-part chat send |
 | **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page, web dashboard page |
+| **dashboard_page.ts** / **page_shell.ts** / **guide_arena.ts** / **guide_custom.ts** | Web dashboard page, the shared HTML shell, and the second/third parts of the Guild Codex page (`guide.ts` stitches them together) |
 | **README.md** | This document |
+
+---
+
+**File size rule:** Val Town rejects any file over roughly 80 KB ("File is too large" — the deploy then silently stays on old code). Keep every file at or under **44 KB (55% of that)**; when one grows past it, split it into a new module rather than trimming. Check with `wc -c *.ts | sort -rn | head`.
 
 ---
 
