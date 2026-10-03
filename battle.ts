@@ -21,7 +21,7 @@ const FATE_STAYS_HAND_DC = 18;
 //
 // Every auto-resolved fight (solo monster duel, party hunt, PvP duel, party
 // duel, !rob) records its swings through this one helper so chat reads the
-// same way everywhere: who swung at whom, whether it landed (roll vs AC),
+// same way everywhere: who swung at whom, whether it landed,
 // how much it did, and how much HP the target has left. Swings are grouped
 // into numbered rounds, and any rounds trimmed for chat length are shown as
 // an explicit "…R4–R7…" gap instead of silently vanishing.
@@ -40,6 +40,8 @@ interface Strike {
   damage: number;
   targetHp: number; // HP after the blow
   targetMax: number;
+  /** How the target's AC is worked out, shown on the first round only. */
+  acWhy?: string;
 }
 
 /** Pass as the hero's label to narrate the viewer in the second person
@@ -47,17 +49,30 @@ interface Strike {
  * name, which Twitch boxes on every appearance. */
 export const YOU = "you";
 
-function fmtStrike(s: Strike): string {
-  const check = `${s.total} vs AC ${s.ac}`;
+/** "10 base +3 STR/DEX +2 prof" — how a hero's AC is built. */
+export function acWhy(base: number, mod: number, prof: number): string {
+  return `${base} base ${mod < 0 ? "-" : "+"}${Math.abs(mod)} STR/DEX +${prof} prof`;
+}
+
+/** A monster's AC comes straight from its bestiary entry. */
+export const MONSTER_AC_WHY = "stat block";
+
+function fmtStrike(s: Strike, showAc = false): string {
+  // Compact on purpose: rolls vs AC are left out so a whole fight fits in
+  // one or two chat messages instead of a wall of text. The first round
+  // (showAc) spells out each roll vs AC and how that AC is determined.
+  const ac = showAc
+    ? ` [${s.total} vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]`
+    : "";
   const you = s.actor === YOU;
   const actor = you ? "You" : s.actor;
-  if (s.fumble) return `${actor} ${you ? "fumble" : "fumbles"} (nat 1)`;
-  if (!s.hit) return `${actor} ${you ? "miss" : "misses"} ${s.target} [${check}]`;
-  const verb = s.crit ? (you ? "💥 CRIT" : "💥 CRITS") : (you ? "hit" : "hits");
+  if (s.fumble) return `${actor} ${you ? "fumble" : "fumbles"}${showAc ? ` [nat 1 vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ""}`;
+  if (!s.hit) return `${actor} ${you ? "miss" : "misses"}${showAc ? ` ${s.target}${ac}` : ""}`;
+  const verb = s.crit ? (you ? "💥crit" : "💥crits") : (you ? "hit" : "hits");
   const tail = s.targetHp <= 0
     ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!`
-    : ` (${s.target} ${s.targetHp}/${s.targetMax} HP)`;
-  return `${actor} ${verb} ${s.target} [${s.crit ? "nat 20" : check}] for ${s.damage}${tail}`;
+    : ` (${s.targetHp}/${s.targetMax})`;
+  return `${actor} ${verb} ${s.target}${s.crit && showAc ? ` [nat 20 vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ac} ${s.damage}${tail}`;
 }
 
 export class BattleLog {
@@ -76,7 +91,7 @@ export class BattleLog {
   strike(s: Strike) {
     if (!this.rounds.length) this.nextRound();
     const r = this.rounds[this.rounds.length - 1];
-    r.lines.push(fmtStrike(s));
+    r.lines.push(fmtStrike(s, this.rounds.length === 1));
     if (s.crit || s.fumble || s.targetHp <= 0) r.notable = true;
   }
 
@@ -93,9 +108,9 @@ export class BattleLog {
    * then the most dramatic rounds (crits, fumbles, knockouts, fate), and
    * always the final round. Anything skipped is shown as a "…R4–R7…" gap.
    */
-  render(budget = 1300): string {
+  render(budget = 450): string {
     const texts = this.rounds.map((r, i) =>
-      `R${i + 1}: ${r.lines.join(" · ")}`
+      `R${i + 1}: ${r.lines.join(", ")}`
     );
     const n = texts.length;
     if (!n) return "";
@@ -165,6 +180,7 @@ export function simulateAttack(
     damage,
     targetHp: hp[defenderName] ?? 0,
     targetMax: Number((defender as any).hpMax ?? hp[defenderName] ?? 0),
+    acWhy: acWhy(10, targetStats.mod, defender.proficiency),
   };
 }
 
@@ -214,6 +230,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
       damage,
       targetHp: monsterHp,
       targetMax: monster.hp,
+      acWhy: MONSTER_AC_WHY,
     });
     if (monsterHp <= 0) break;
     const mRoll = 1 + Math.floor(Math.random() * 20);
@@ -243,6 +260,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
       // Show the blow's true result even when fate then rescues the hero.
       targetHp: fateSaved ? 0 : playerHp,
       targetMax: c.hpMax,
+      acWhy: acWhy(11, pStats.mod, c.proficiency),
     });
     if (fateSaved) {
       battle.note(`✨ fate stays its hand — ${username === YOU ? "you are" : username + " is"} left at 1 HP`);

@@ -6,7 +6,7 @@ import {
   scaleMonsterForLevel,
 } from "./data.ts";
 import { combatStats, duelNarration, firstAlive, modifier } from "./utils.ts";
-import { BattleLog, simulateAttack, simulateMonsterFight } from "./battle.ts";
+import { acWhy, BattleLog, MONSTER_AC_WHY, simulateAttack, simulateMonsterFight } from "./battle.ts";
 import {
   createPartyInvite,
   deletePartyInvite,
@@ -1509,6 +1509,7 @@ export async function handlePartyDuelCommand(
             damage,
             targetHp: monsterHp,
             targetMax: monster.hp,
+            acWhy: MONSTER_AC_WHY,
           });
         }
         if (monsterHp <= 0) break;
@@ -1535,6 +1536,7 @@ export async function handlePartyDuelCommand(
           damage: mDamage,
           targetHp: hp[victim],
           targetMax: Number(chars[victim].hpMax ?? memberHp[victim] ?? 0),
+          acWhy: acWhy(10, vStats.mod, chars[victim].proficiency),
         });
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
@@ -1561,7 +1563,7 @@ export async function handlePartyDuelCommand(
           duelNarration("challenge")
         } Auto-resolved in ${battle.roundCount} round${
           battle.roundCount === 1 ? "" : "s"
-        }: ${battle.render(1500)} — ${
+        }: ${battle.render(700)} — ${
           partyWon
             ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}`
             : `Defeat. ${duelNarration("defeat")}`
@@ -1753,7 +1755,7 @@ export async function handlePartyDuelCommand(
         duelNarration("accept")
       } ${challenge.challenger_party} vs ${challenge.defender_party} auto-resolved in ${rounds} round${
         rounds === 1 ? "" : "s"
-      }. ${battle.render(1500)} — ${winnerParty} wins! ${
+      }. ${battle.render(700)} — ${winnerParty} wins! ${
         duelNarration("victory")
       } HP [${left}] vs [${right}]`,
       broadcasterId,
