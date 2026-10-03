@@ -392,6 +392,13 @@ export async function handleBuiltinChatCommand(ctx: {
       `@${display} 📜 The guild roster — every adventurer and party in this channel: ${baseUrl}/roster?channel=${broadcasterId}`,
       broadcasterId,
     );
+  } else if (/^!overlays?$/i.test(chatMessage)) {
+    await sendChatMessage(
+      isModerator
+        ? `@${display} 🖼️ OBS overlays for this channel (raid boss, battle tracker, giveaway, leaderboards and more) — add any of them as a Browser source: ${baseUrl}/overlays?channel=${broadcasterId}`
+        : `@${display} only the broadcaster or a moderator can use !overlays.`,
+      broadcasterId,
+    );
   } else if (chatMessage.startsWith("!hp ")) {
     const delta = Number.parseInt(chatMessage.slice(4).trim());
     if (Number.isNaN(delta)) {

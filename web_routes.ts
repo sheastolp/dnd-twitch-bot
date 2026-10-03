@@ -19,6 +19,7 @@ import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapLis
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
+import { handleOverlayRoute } from "./overlay.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -228,6 +229,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       await recordMonitorEvent("oauth_callback_failed", String(e));
       return page("Connection failed", `<h1>Connection failed</h1><p>GuildScribe could not complete the Twitch connection. Please try again or use the support link on the home page.</p>`);
     }
+  }
+
+  // OBS browser-source overlays (/overlays setup page, /overlay, /overlay/data)
+  // — see overlay.ts. Same public, connected-channel-only model as /roster.
+  if (path.startsWith("/overlay")) {
+    const overlay = await handleOverlayRoute(req, url, path);
+    if (overlay) return overlay;
   }
 
   if (req.method === "GET" && path === "/maps") {

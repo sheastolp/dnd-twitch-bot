@@ -26,6 +26,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Stewards** | Channel on/off, disconnect/purge, in-chat activity logs, OAuth connect |
 | **Custom commands** | Broadcasters/mods add their own `!commands` and passive keyword triggers from chat, no code required |
 | **Timed messages** | Broadcasters/mods schedule recurring announcements (`!timedmsg`) that post automatically on their own rotating interval |
+| **OBS overlays** | `!overlays` *(mod)* links a setup page of transparent, auto-updating Browser-source panels: status bar, raid boss HP, live battle tracker, giveaway, peddler's stall, swear jar, coin and roll-call leaderboards, guild summary — singly, stacked, or rotating |
 | **Web dashboard** | `!dashboard` hands out a private link for managing custom commands, triggers, and timed messages from a browser instead of chat syntax |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Coin & giveaways** | Viewers earn **copper** by chatting while the stream is live, shown as gold, silver and copper (10 cp = 1 sp, 10 sp = 1 gp). `!gold` balance + rank, `!gold top` / `!goldboard` leaderboard, `!gold give` gifting, mod-run `!giveaway` draws with optional paid, weighted tickets, and real coin prices for `!haggle`. **On by default**, toggled per channel with `!gold on/off` or the web dashboard |
@@ -79,6 +80,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/enable/disable/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
 | **timedmessages_cron.ts** | Posts every timed message that's due — Val Town **cron trigger**, same shape as `merchant_cron.ts` |
+| **overlay.ts** / **overlay_page.ts** | OBS overlays: `/overlays` setup page, `/overlay?panel=<name>` transparent browser sources, and the `/overlay/data` JSON they poll (`getOverlayData` gathers raid, fights, giveaway, merchant, jar, leaderboards and guild summary, honoring the channel's dashboard switches); `!overlays` (mod, in chat_builtin.ts) posts the link |
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
@@ -182,6 +184,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!cancel` | Cancel wizard / `!bg3` creation |
 | `!char` / `!char @user` | Sheet summary (level, **XP**, stats, HP) |
 | `!roster` | Link to the **guild roster** web page — every adventurer, party and party member in the channel (searchable), with each adventurer's gold while the channel has gold on, and the current raid quest (boss, HP bar, muster/cooldown status, top damage) while the raid quest is switched on |
+| `!overlays` | *(mod)* Link to this channel's **OBS overlay** setup page — every overlay URL with its suggested Browser-source size and a live preview |
 | `!levelup` / `!levelup +/-N` | Adjust level |
 | `!hp` / `!hp +/-N` | Show or change HP |
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |
@@ -497,6 +500,9 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /?channel=<broadcaster_id>&user=<username>` | Channel-scoped character sheet |
 | `GET /maps?channel=<broadcaster_id>` | List a channel's battle maps |
 | `GET /roster?channel=<broadcaster_id>` | Every saved character, plus every party and its members, for a connected channel (linked by `!roster`) |
+| `GET /overlays?channel=<id or login>` | OBS overlay setup page: each panel's URL, suggested size and a live preview (linked by `!overlays`) |
+| `GET /overlay?channel=<id or login>&panel=<name>` | One transparent OBS Browser-source overlay. Panels: `status`, `raid`, `battle`, `giveaway`, `merchant`, `jar`, `gold`, `dice`, `guild`, `all`, `rotate`. Extras: `scale`, `align=right/center`, `refresh` (s), `limit`, `window=hour/day/week` (dice), `cycle` (s, rotate), `always=1` |
+| `GET /overlay/data?channel=<id or login>&panels=<a,b>` | The JSON the overlays poll; public and read-only like `/roster`, only for connected channels, and switched-off features come back `null` |
 | `GET /map?channel=<broadcaster_id>&map=<name>` | Live, auto-refreshing visual battle map (terrain grid + character tokens); read-only — editing happens via chat |
 | `POST /` | EventSub (chat + webhooks) |
 

@@ -1,0 +1,329 @@
+// GuildScribe — OBS overlays. Transparent browser-source pages that show a
+// channel's live game state (raid boss, the fight under way, giveaway, the
+// peddler's stall, swear jar) and running summaries (coin leaderboard,
+// natural 1/20 roll call, the guild's top adventurers).
+//
+//   GET /overlays?channel=<id|login>                 setup page: every overlay URL + live previews
+//   GET /overlay?channel=<id|login>&panel=<name>     one overlay (the OBS browser source)
+//   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
+//
+// Same trust model as /roster and /bestiary: public, read-only, and only for
+// connected channels. Nothing here is private — activity logs are never
+// exposed. Each panel respects the channel's dashboard switches, so a feature
+// that's switched off never shows up on stream. `!overlays` (mod) posts the
+// setup link in chat.
+
+import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { getBroadcaster, getBroadcasterByLogin, getCommandGroupToggles, getDuel, getMonsterDuel, getPartyDuel, getPartyMonsterDuel, isMerchantEnabled, getMerchantListing, listChannelCharacters } from "./db.ts";
+import { isPointsEnabled, getTopBalances } from "./points_db.ts";
+import { getDiceLeaderboard } from "./social_db.ts";
+import { getRaidRosterStatus } from "./raid.ts";
+import { getJarTotal } from "./swearjar.ts";
+import { lookupViewerNames } from "./mentions.ts";
+import { formatCoins } from "./coins.ts";
+import { formatRaceName } from "./utils.ts";
+import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
+import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
+import { PUBLIC_BASE_URL } from "./config.ts";
+
+/** Panels that fetch their own slice of data; "status", "all" and "rotate" combine these. */
+export const DATA_PANELS = ["raid", "battle", "giveaway", "merchant", "jar", "gold", "dice", "guild"] as const;
+type DataPanel = typeof DATA_PANELS[number];
+
+const DICE_WINDOWS: Record<string, number> = { hour: 3_600_000, day: 86_400_000, week: 7 * 86_400_000 };
+/** A closed giveaway's winners stay on screen this long after the draw. */
+const GIVEAWAY_WINNER_SHOW_MS = 10 * 60_000;
+
+type Combatant = { name: string; hp: number; hpMax: number; turn: boolean; down: boolean };
+type Fight = { kind: string; title: string; sides: Array<{ label: string; combatants: Combatant[] }> };
+
+export type OverlayData = {
+  channel: { id: string; name: string; live: boolean };
+  updatedAt: number;
+  raid?: Awaited<ReturnType<typeof getRaidRosterStatus>>;
+  battle?: Fight[];
+  giveaway?: { prize: string; cost: string; maxTickets: number; open: boolean; entrants: number; tickets: number; winners: string[] } | null;
+  merchant?: { merchant: string; item: string; price: string; postedAt: number } | null;
+  jar?: { total: number; text: string } | null;
+  gold?: Array<{ name: string; balance: number; text: string }> | null;
+  dice?: { window: string; nat20: Array<{ name: string; count: number }>; nat1: Array<{ name: string; count: number }> } | null;
+  guild?: { characters: number; parties: number; top: Array<{ name: string; level: number; race: string; cls: string; hp: number; hpMax: number }> } | null;
+};
+
+async function resolveChannel(param: string | null) {
+  if (!param) return null;
+  const clean = param.trim().replace(/^@/, "");
+  if (!/^[A-Za-z0-9_]{1,25}$/.test(clean)) return null;
+  const b: any = /^\d+$/.test(clean) ? await getBroadcaster(clean) : await getBroadcasterByLogin(clean.toLowerCase());
+  if (!b || Number(b.connected) !== 1) return null;
+  return {
+    id: String(b.broadcaster_id),
+    login: String(b.login ?? ""),
+    name: String(b.display_name || b.login || "This channel"),
+    live: Number(b.is_live) === 1,
+  };
+}
+
+const fresh = (row: any) => row && Date.now() - Number(row.updated_at ?? 0) <= DUEL_IDLE_TIMEOUT_MS;
+
+/** Every fight under way in the channel, with HP for each side. */
+async function loadFights(channelId: string): Promise<Fight[]> {
+  const [duel, hunt, partyDuel, partyHunt]: any[] = await Promise.all([
+    getDuel(channelId),
+    getMonsterDuel(channelId),
+    getPartyDuel(channelId),
+    getPartyMonsterDuel(channelId),
+  ]);
+  const players = new Set<string>();
+  if (fresh(duel)) [duel.challenger, duel.defender].forEach((n: string) => players.add(String(n)));
+  if (fresh(hunt)) players.add(String(hunt.player));
+  if (fresh(partyDuel)) [...partyDuel.challenger_members, ...partyDuel.defender_members].forEach((n: string) => players.add(String(n)));
+  if (fresh(partyHunt)) partyHunt.members.forEach((n: string) => players.add(String(n)));
+  if (!players.size) return [];
+
+  // Max HP (and display names) for everyone on the field, in two queries.
+  const list = [...players].map((p) => p.toLowerCase());
+  const [maxRes, names] = await Promise.all([
+    sqlite.execute(
+      `SELECT username, hp_max, hp_current FROM characters WHERE broadcaster_id = ? AND username IN (${list.map(() => "?").join(",")})`,
+      [channelId, ...list],
+    ),
+    lookupViewerNames(channelId, list).catch(() => new Map<string, string>()),
+  ]);
+  const sheet = new Map<string, { max: number; cur: number }>(
+    (maxRes.rows as any[]).map((r) => [String(r.username).toLowerCase(), { max: Number(r.hp_max), cur: Number(r.hp_current) }]),
+  );
+  const who = (u: string) => names.get(String(u).toLowerCase()) ?? String(u);
+  const person = (u: string, hp: number | undefined, turn: boolean): Combatant => {
+    const s = sheet.get(String(u).toLowerCase());
+    const cur = Number(hp ?? s?.cur ?? 0);
+    const max = Math.max(1, s?.max ?? cur);
+    return { name: who(u), hp: Math.max(0, cur), hpMax: Math.max(max, cur), turn, down: cur <= 0 };
+  };
+  const monster = (r: any, turn: boolean): Combatant => ({
+    name: `${r.monster_name} (CR ${r.monster_cr})`,
+    hp: Math.max(0, Number(r.monster_hp)),
+    hpMax: Math.max(1, Number(r.monster_hp_max)),
+    turn,
+    down: Number(r.monster_hp) <= 0,
+  });
+
+  const fights: Fight[] = [];
+  if (fresh(duel)) {
+    const turn = String(duel.current_turn ?? "").toLowerCase();
+    fights.push({
+      kind: "duel",
+      title: "⚔️ Arena duel",
+      sides: [
+        { label: who(duel.challenger), combatants: [person(duel.challenger, duel.challenger_hp, turn === String(duel.challenger).toLowerCase())] },
+        { label: who(duel.defender), combatants: [person(duel.defender, duel.defender_hp, turn === String(duel.defender).toLowerCase())] },
+      ],
+    });
+  }
+  if (fresh(hunt)) {
+    const monsterTurn = String(hunt.current_turn ?? "").toLowerCase() !== String(hunt.player).toLowerCase();
+    fights.push({
+      kind: "hunt",
+      title: "🐉 Monster hunt",
+      sides: [
+        { label: who(hunt.player), combatants: [person(hunt.player, hunt.player_hp ?? undefined, !monsterTurn)] },
+        { label: String(hunt.monster_name), combatants: [monster(hunt, monsterTurn)] },
+      ],
+    });
+  }
+  if (fresh(partyDuel)) {
+    const side = (members: string[], hp: Record<string, number>, isCurrent: boolean) =>
+      members.map((m, i) => person(m, hp[m] ?? 0, isCurrent && i === partyDuel.current_index));
+    const challengerTurn = String(partyDuel.current_side) === "challenger";
+    fights.push({
+      kind: "partyduel",
+      title: "🛡️ Party duel",
+      sides: [
+        { label: String(partyDuel.challenger_party), combatants: side(partyDuel.challenger_members, partyDuel.challenger_hp, challengerTurn) },
+        { label: String(partyDuel.defender_party), combatants: side(partyDuel.defender_members, partyDuel.defender_hp, !challengerTurn) },
+      ],
+    });
+  }
+  if (fresh(partyHunt)) {
+    const members: string[] = partyHunt.members;
+    fights.push({
+      kind: "partyhunt",
+      title: "🏹 Party hunt",
+      sides: [
+        {
+          label: String(partyHunt.party_name),
+          combatants: members.map((m, i) => person(m, partyHunt.member_hp[m] ?? 0, i === partyHunt.current_index)),
+        },
+        // The monster strikes back after each hero, so it never holds the turn.
+        { label: String(partyHunt.monster_name), combatants: [monster(partyHunt, false)] },
+      ],
+    });
+  }
+  return fights;
+}
+
+async function loadGiveaway(channelId: string): Promise<OverlayData["giveaway"]> {
+  const res = await sqlite.execute(
+    `SELECT g.prize, g.cost, g.max_tickets, g.status, g.winners, g.closed_at,
+       (SELECT COUNT(*) FROM giveaway_entries e WHERE e.broadcaster_id = g.broadcaster_id) AS entrants,
+       (SELECT COALESCE(SUM(tickets),0) FROM giveaway_entries e WHERE e.broadcaster_id = g.broadcaster_id) AS tickets
+     FROM giveaways g WHERE g.broadcaster_id = ?`,
+    [channelId],
+  );
+  const r: any = res.rows[0];
+  if (!r) return null;
+  const open = String(r.status) === "open";
+  // A finished giveaway lingers only long enough to show off its winners.
+  if (!open && Date.now() - Number(r.closed_at ?? 0) > GIVEAWAY_WINNER_SHOW_MS) return null;
+  let winners: string[] = [];
+  try {
+    winners = (JSON.parse(String(r.winners ?? "[]")) as unknown[]).map(String);
+  } catch (_) { /* corrupt JSON — no winners */ }
+  if (winners.length) {
+    const names = await lookupViewerNames(channelId, winners).catch(() => new Map<string, string>());
+    winners = winners.map((w) => names.get(w.toLowerCase()) ?? w);
+  }
+  return {
+    prize: String(r.prize),
+    cost: Number(r.cost) > 0 ? formatCoins(Number(r.cost)) : "free",
+    maxTickets: Number(r.max_tickets),
+    open,
+    entrants: Number(r.entrants ?? 0),
+    tickets: Number(r.tickets ?? 0),
+    winners,
+  };
+}
+
+async function loadGuild(channelId: string, limit: number): Promise<OverlayData["guild"]> {
+  const [counts, top] = await Promise.all([
+    sqlite.execute(
+      `SELECT (SELECT COUNT(*) FROM characters WHERE broadcaster_id = ?) AS characters,
+              (SELECT COUNT(*) FROM parties WHERE broadcaster_id = ?) AS parties`,
+      [channelId, channelId],
+    ),
+    listChannelCharacters(channelId, limit),
+  ]);
+  const names = await lookupViewerNames(channelId, top.map((c) => c.username)).catch(() => new Map<string, string>());
+  return {
+    characters: Number(counts.rows[0]?.characters ?? 0),
+    parties: Number(counts.rows[0]?.parties ?? 0),
+    top: top.map((c) => ({
+      name: names.get(c.username.toLowerCase()) ?? c.username,
+      level: c.level,
+      race: formatRaceName(c.race, c.subrace),
+      cls: c.cls,
+      hp: c.hpCurrent,
+      hpMax: c.hpMax,
+    })),
+  };
+}
+
+/** Gathers the requested panels' data for one channel. A panel whose feature
+ * is switched off comes back null (the overlay hides it). */
+export async function getOverlayData(
+  channel: { id: string; name: string; live: boolean },
+  panels: Set<DataPanel>,
+  opts: { window: string; limit: number },
+): Promise<OverlayData> {
+  const id = channel.id;
+  const [toggles, goldOn, marketOn] = await Promise.all([
+    getCommandGroupToggles(id),
+    panels.has("gold") || panels.has("giveaway") ? isPointsEnabled(id) : Promise.resolve(false),
+    panels.has("merchant") ? isMerchantEnabled(id) : Promise.resolve(false),
+  ]);
+  const on = (group: string) => toggles[group] !== false;
+  const out: OverlayData = { channel, updatedAt: Date.now() };
+  const jobs: Promise<void>[] = [];
+  const job = (p: DataPanel, run: () => Promise<void>) => {
+    if (panels.has(p)) jobs.push(run().catch((e) => { console.error(`overlay ${p}`, e); }));
+  };
+
+  job("raid", async () => { out.raid = on("raid") ? await getRaidRosterStatus(id) : null; });
+  job("battle", async () => { out.battle = await loadFights(id); });
+  job("giveaway", async () => { out.giveaway = on("giveaways") ? await loadGiveaway(id) : null; });
+  job("merchant", async () => {
+    const l = marketOn ? await getMerchantListing(id) : null;
+    out.merchant = l ? { merchant: String(l.merchantName ?? ""), item: String(l.itemDesc ?? ""), price: String(l.priceText ?? ""), postedAt: l.postedAt } : null;
+  });
+  job("jar", async () => {
+    if (!on("jar")) { out.jar = null; return; }
+    const total = await getJarTotal(id);
+    out.jar = { total, text: formatCoins(total) };
+  });
+  job("gold", async () => {
+    if (!goldOn || !on("leaderboard")) { out.gold = null; return; }
+    out.gold = (await getTopBalances(id, opts.limit)).map((r) => ({ name: r.displayName || r.username, balance: r.balance, text: formatCoins(r.balance) }));
+  });
+  job("dice", async () => {
+    if (!on("rollcall")) { out.dice = null; return; }
+    const since = Date.now() - (DICE_WINDOWS[opts.window] ?? DICE_WINDOWS.day);
+    const [n20, n1] = await Promise.all([
+      getDiceLeaderboard(id, "nat20", since, opts.limit),
+      getDiceLeaderboard(id, "nat1", since, opts.limit),
+    ]);
+    const map = (rows: typeof n20) => rows.map((r) => ({ name: r.displayName || r.username, count: r.count }));
+    out.dice = { window: opts.window, nat20: map(n20), nat1: map(n1) };
+  });
+  job("guild", async () => { out.guild = await loadGuild(id, opts.limit); });
+
+  await Promise.all(jobs);
+  return out;
+}
+
+/** Which data panels a display panel needs. */
+export function dataPanelsFor(panel: string): DataPanel[] {
+  if ((DATA_PANELS as readonly string[]).includes(panel)) return [panel as DataPanel];
+  if (panel === "status") return ["raid", "battle", "giveaway", "merchant", "jar"];
+  return [...DATA_PANELS]; // all, rotate
+}
+
+// Several OBS sources (one per panel) poll every few seconds; a short
+// per-isolate cache keeps that from multiplying SQLite reads.
+const CACHE_MS = 2_500;
+const cache = new Map<string, { at: number; data: OverlayData }>();
+
+function parsePanels(raw: string | null): Set<DataPanel> {
+  const wanted = (raw ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const picked = wanted.length ? wanted.flatMap((p) => dataPanelsFor(p)) : [...DATA_PANELS];
+  return new Set(picked);
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" },
+  });
+
+/** Overlay routes; null when the path isn't one of them. */
+export async function handleOverlayRoute(req: Request, url: URL, path: string): Promise<Response | null> {
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data")) return null;
+  const channel = await resolveChannel(url.searchParams.get("channel"));
+
+  if (path === "/overlay/data") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    const panels = parsePanels(url.searchParams.get("panels"));
+    const window = DICE_WINDOWS[url.searchParams.get("window") ?? ""] ? String(url.searchParams.get("window")) : "day";
+    const limit = Math.max(1, Math.min(10, Number(url.searchParams.get("limit")) || 5));
+    const key = `${channel.id}|${[...panels].sort().join(",")}|${window}|${limit}`;
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_MS) return json({ ok: true, ...hit.data, channel });
+    const data = await getOverlayData(channel, panels, { window, limit });
+    cache.set(key, { at: Date.now(), data });
+    if (cache.size > 200) cache.delete(cache.keys().next().value!);
+    return json({ ok: true, ...data });
+  }
+
+  const html = (body: string, status = 200) =>
+    new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  if (!channel) {
+    return html(
+      `<!doctype html><meta charset="utf-8"><title>Overlay unavailable</title><body style="font-family:Georgia,serif;background:#15120f;color:#f4eadb;padding:32px"><h1>Overlay unavailable</h1><p>Add <code>?channel=&lt;your Twitch login&gt;</code> to the URL. The channel must be connected to GuildScribe.</p></body>`,
+      404,
+    );
+  }
+  const channelKey = channel.login || channel.id;
+  if (path === "/overlays") return html(renderOverlayIndexPage(channel.name, channelKey, channel.id, PUBLIC_BASE_URL));
+  const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
+  if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
+  return html(renderOverlayPage(channelKey, panel));
+}
