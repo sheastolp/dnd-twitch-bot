@@ -532,7 +532,8 @@ export function renderDashboardPage(d: DashboardData): string {
     details{scroll-margin-top:16px}
     .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
     .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
-    .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7;columns:3;column-gap:32px}
+    .index ol{margin:8px 0 0;padding-left:0;list-style:none;line-height:1.7;columns:3;column-gap:32px}
+    .index li::before{content:"📜";margin-right:6px;font-size:.9em}
     .index ol>li{break-inside:avoid}
     .index ol>li:has(ul){break-inside:auto}
     .index ul{margin:0 0 4px;padding-left:14px;list-style:none;font-size:.85rem}
@@ -569,13 +570,10 @@ export function renderDashboardPage(d: DashboardData): string {
     .tile-paused{opacity:.6}
     .folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;margin:12px 0}
     details.folder{box-sizing:border-box;background:#1a1511;border:1px solid #684632;border-radius:12px;padding:12px 14px;min-width:0}
-    details.folder[open]{aspect-ratio:1}
-    .board-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;align-items:stretch;margin:22px 0}
-    .board-row{container-type:inline-size}
-    .board-row>details.folder.big[open]{aspect-ratio:auto}
-    @media(min-width:1100px){.board-row{grid-template-columns:repeat(4,minmax(0,1fr))}.board-row>details.folder.big[open]{min-height:calc((100cqw - 54px) / 4)}}
+    .board-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;align-items:start;margin:22px 0}
+    @media(min-width:1100px){.board-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
+    .masonry{grid-auto-rows:4px;row-gap:0}
     details.folder.big.wide{margin:0 0 22px}
-    details.folder.big.wide[open]{aspect-ratio:auto}
     details.folder.big{padding:16px 18px;background:#17130f;border-color:#7a5238}
     details.folder.big>summary{border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
     h2.folder-name{font-size:1.3rem;color:#e6a56e;margin:0}
@@ -645,6 +643,13 @@ export function renderDashboardPage(d: DashboardData): string {
       dlg.querySelector("[data-close]").addEventListener("click",function(){closeDlg(dlg)});
       dlg.addEventListener("close",function(){var t=opener[dlg.id];if(t)t.focus()});
     });
+    // Boxes take only the height their content needs; pack them masonry-style so a short box
+    // doesn't leave a gap beside a tall neighbour (same trick as the Guild Codex cards).
+    var grids=[].slice.call(document.querySelectorAll(".board-row,.folders"));
+    grids.forEach(function(g){var gap=parseFloat(getComputedStyle(g).rowGap)||16;[].forEach.call(g.children,function(c){c.style.marginBottom=gap+"px"});g.classList.add("masonry")});
+    function lay(){grids.forEach(function(g){[].forEach.call(g.children,function(c){c.style.gridRowEnd="span "+Math.ceil((c.getBoundingClientRect().height+parseFloat(c.style.marginBottom))/4)})})}
+    lay();
+    if(window.ResizeObserver){var ro=new ResizeObserver(lay);grids.forEach(function(g){[].forEach.call(g.children,function(c){ro.observe(c)})})}else{window.addEventListener("resize",lay);all.forEach(function(d){d.addEventListener("toggle",lay)})}
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
     goHash();
   })();</script>
