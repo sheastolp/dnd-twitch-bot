@@ -29,7 +29,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **Web dashboard** | `!dashboard` hands out a private link for managing custom commands, triggers, and timed messages from a browser instead of chat syntax |
 | **Passive chat** | Detects plain-chat "goodnight" messages and sends the room off with a themed reply |
 | **Coin & giveaways** | Viewers earn **copper** by chatting while the stream is live, shown as gold, silver and copper (10 cp = 1 sp, 10 sp = 1 gp). `!gold` balance + rank, `!gold top` / `!goldboard` leaderboard, `!gold give` gifting, mod-run `!giveaway` draws with optional paid, weighted tickets, and real coin prices for `!haggle`. **On by default**, toggled per channel with `!gold on/off` or the web dashboard |
-| **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; flavor only, no coin or inventory state |
+| **Market** | An open-stall merchant periodically posts a one-line D&D-flavored sales pitch in chat. **Off by default**, toggled per channel with `!market on`/`off`/`status` *(mod)*; every ware carries a small stat bonus that goes onto the buyer's character sheet when bought with `!haggle` (see **gear.ts**); `!gear [@user]` lists a sheet's gear |
 | **Haggle** | `!haggle <pitch>` bargains with whichever peddler is currently listed from the market — an AI-voiced, sassy, in-character verdict. Rides on the `!market` toggle, three attempts per viewer per listing. It's a real purchase in **coin**: the peddler's listed price, your offer, and the price he agrees to all count, and a deal is paid for on the spot. A refusal costs nothing. `!stall` (open to everyone, read-only) shows the item currently on offer, its price, and how many haggle attempts you have left on it. Free banter if a channel turns gold off |
 
 ---
@@ -46,6 +46,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **config.ts** | Shared runtime config (`PUBLIC_BASE_URL`) |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** — and records the current listing for `!haggle` |
+| **gear.ts** | The peddler's wares and the permanent bonus each grants (ability score, max HP, speed); `applyGear` writes a bought item onto the character sheet, `gearHpBonus` keeps gear HP through level changes |
 | **haggle.ts** | `!haggle <pitch>` — AI-voiced sassy haggling over the merchant's current listing (see `merchant_listings` in db.ts); no API key setup needed, uses Val Town's built-in `std/openai`, same as npcs.ts |
 | **ads.ts** / **ads_db.ts** | `!adcheck` / `!adslogged` — real Twitch commercial-break tracking via the broadcaster's own ad-schedule token (distinct from merchant.ts's flavor-only "ads") |
 | **oracle.ts** | `!oracle <question>` — names a random recent chatter as the "answer" |

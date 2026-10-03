@@ -10,6 +10,7 @@
 import { isMerchantEnabled, setMerchantEnabled } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
+import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS } from "./gear.ts";
 
 const MIN_INTERVAL_MINUTES = Math.max(5, Number(Deno.env.get("MERCHANT_MIN_INTERVAL_MINUTES") ?? "25"));
 const MAX_INTERVAL_MINUTES = Math.max(MIN_INTERVAL_MINUTES, Number(Deno.env.get("MERCHANT_MAX_INTERVAL_MINUTES") ?? "60"));
@@ -90,37 +91,8 @@ const MERCHANT_INTROS: Array<(name: string) => string> = [
   (name) => `${name} arranges the wares by "most impressive" first, "please just buy something" last.`,
 ];
 
-interface MerchantItem {
-  desc: string;
-  price: string;
-}
-
-// Cheap, secondhand, unmistakably D&D-flavored goods — nothing a wealthy
-// merchant would bother stocking.
-const MERCHANT_ITEMS: MerchantItem[] = [
-  { desc: "a dented tin flask that swears it once held dragon's-breath brandy", price: "3 copper" },
-  { desc: "a bundle of chalk sticks for warding sigils, mostly unbroken", price: "2 copper" },
-  { desc: "one (1) lucky rabbit's foot, still faintly twitching", price: "5 copper" },
-  { desc: "a cracked scrying mirror that only ever shows yesterday", price: "1 silver" },
-  { desc: "a moth-eaten cloak that almost passes for 'mysterious'", price: "4 copper" },
-  { desc: "a coil of rope, guaranteed to hold at least one goblin", price: "6 copper" },
-  { desc: "a jar of pickled owlbear whiskers (for luck, allegedly)", price: "8 copper" },
-  { desc: "a half-melted candle that burns a suspicious shade of blue", price: "1 copper" },
-  { desc: "a set of loaded dice, badly loaded — they just roll off the table", price: "2 copper" },
-  { desc: "a rusty holy symbol of a god nobody quite remembers anymore", price: "3 copper" },
-  { desc: "a whittled wooden dagger, purely for show — please don't stab anyone", price: "1 copper" },
-  { desc: "a satchel of trail rations that are 'mostly' still rations", price: "5 copper" },
-  { desc: "a single boot, left foot, very fine make", price: "2 copper" },
-  { desc: "a vial of river water that 'might' be enchanted", price: "4 copper" },
-  { desc: "a scorched spellbook page with half a fireball recipe on it", price: "7 copper" },
-  { desc: "a tarnished brass compass that always points toward the nearest tavern", price: "3 copper" },
-  { desc: "a sack of glass beads, sold in good faith as 'gnomish gemstones'", price: "6 copper" },
-  { desc: "a patchwork healer's kit missing only the important bits", price: "9 copper" },
-  { desc: "a caged cricket claimed to grant wishes if fed enough", price: "2 copper" },
-  { desc: "a hand-me-down shield, already dented — someone else did the work for you", price: "1 silver 2 copper" },
-  { desc: "a coil of faintly glowing string, source unknown, no refunds", price: "5 copper" },
-  { desc: "a stack of 'authentic' dragon scales (dyed lizard, don't tell anyone)", price: "4 copper" },
-];
+// The wares themselves (MERCHANT_ITEMS / LEGENDARY_ITEMS) live in gear.ts,
+// with the stat bonus each one grants when bought (see haggle.ts).
 
 // Self-deprecating, humble-peddler closing lines — the merchant is not
 // wealthy, and knows it.
@@ -147,33 +119,6 @@ const MERCHANT_CLOSERS: string[] = [
   "Step lively — the town guard doesn't love where this cart is parked.",
   "A deal like this doesn't come around twice. Mostly because there was only one.",
   "Not a fortune to be made here, just enough for supper.",
-];
-
-// Rare, mostly-forgotten legendary relics. The peddler found them in a
-// bottomless sack and has no idea what they are, so they're priced like
-// curiosities — a steal for anyone who recognizes them. Prices stay in plain
-// "<n> gold" form so coins.ts's parseFirstPrice (and !haggle) can read them.
-const LEGENDARY_ITEMS: MerchantItem[] = [
-  { desc: "the Apparatus of Kwalish, a lobster-shaped iron submersible, 'only slightly rusted shut'", price: "90 gold" },
-  { desc: "an Iron Flask etched with sigils, humming faintly and rattling whenever you look away", price: "75 gold" },
-  { desc: "a Cubic Gate, a small stone cube with six faces, each one a door to somewhere else", price: "120 gold" },
-  { desc: "the Ring of Three Wishes — the peddler swears it has 'at least two left'", price: "150 gold" },
-  { desc: "Fragarach, the Sword of Answering, which sulks in its sheath until someone lies to it", price: "110 gold" },
-  { desc: "an Anstruth Harp, a bardic instrument of a lost college, still tuned to a forgotten song", price: "85 gold" },
-  { desc: "a Talisman of Pure Good that glows warmly and makes the nearby chickens behave", price: "95 gold" },
-  { desc: "a Talisman of Ultimate Evil, kept in a lead-lined pickle jar for everyone's safety", price: "40 gold" },
-  { desc: "a Mirror of Life Trapping with a crack down one side and a distinct sense of being watched", price: "70 gold" },
-  { desc: "the Cloak of Invisibility, 'sold as seen' (nobody has seen it yet)", price: "100 gold" },
-  { desc: "the Robe of the Archmagi, patched at the elbows and reeking of ozone", price: "130 gold" },
-  { desc: "an Orb of Dragonkind that goes cold whenever a dragon is within a thousand miles", price: "140 gold" },
-  { desc: "the Rod of Seven Parts — six of seven, the peddler is 'still looking for the last one'", price: "60 gold" },
-  { desc: "the Staff of the Magi, a splintered old staff that crackles whenever it hears the word 'counterspell'", price: "125 gold" },
-  { desc: "a Plate Armor of Etherealness that vanishes entirely, the peddler warns, 'if you get excited'", price: "115 gold" },
-  { desc: "the Sword of Kas, a pitch-black blade that whispers rude things about its former owner", price: "80 gold" },
-  { desc: "a Luck Blade with a sheepish grin and exactly one wish remaining", price: "105 gold" },
-  { desc: "an Ioun Stone of Mastery spinning lazily in the air above the table, bothering no one", price: "65 gold" },
-  { desc: "the Hammer of Thunderbolts, a dwarven masterwork the peddler mistook for a 'really good doorstop'", price: "135 gold" },
-  { desc: "the Scroll of Protection from Everything, written in a language that only exists in dreams", price: "55 gold" },
 ];
 
 // The peddler has no clue what's on the table when a relic turns up — that is
@@ -218,7 +163,7 @@ export function rollMerchantOffer(): MerchantOffer {
       merchantName: name,
       itemDesc: relic.desc,
       priceText: relic.price,
-      ad: `🛒 ${pick(LEGENDARY_INTROS)(name)} Legendary find: ${relic.desc} — ${relic.price}. ${pick(LEGENDARY_CLOSERS)}`,
+      ad: `🛒 ${pick(LEGENDARY_INTROS)(name)} Legendary find: ${relic.desc} — ${relic.price} (🎒 ${effectText(relic.effect)}). ${pick(LEGENDARY_CLOSERS)}`,
     };
   }
   const intro = pick(MERCHANT_INTROS)(name);
@@ -228,7 +173,7 @@ export function rollMerchantOffer(): MerchantOffer {
     merchantName: name,
     itemDesc: item.desc,
     priceText: item.price,
-    ad: `🛒 ${intro} Today's find: ${item.desc} — ${item.price}. ${closer}`,
+    ad: `🛒 ${intro} Today's find: ${item.desc} — ${item.price} (🎒 ${effectText(item.effect)}). ${closer}`,
   };
 }
 

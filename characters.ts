@@ -17,6 +17,7 @@ import {
   clearCreationSession,
 } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
+import { gearHpBonus } from "./gear.ts";
 
 export function generateCharacter(username: string): Character {
   const race = pick(Object.keys(races));
@@ -155,7 +156,7 @@ export async function awardMonsterXp(
     const baseHp = Math.max(1, classData.hitDie + modifier(c.scores.CON));
     const oldHpMax = c.hpMax;
     c.level = newLevel;
-    c.hpMax = baseHp + (newLevel - 1) * perLevelHp;
+    c.hpMax = baseHp + (newLevel - 1) * perLevelHp + gearHpBonus(c);
     c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + (c.hpMax - oldHpMax)));
     c.proficiency = Math.floor((newLevel - 1) / 4) + 2;
     leveledTo = newLevel;
@@ -178,7 +179,7 @@ export async function adjustLevel(username: string, delta: number, broadcasterId
   const baseHp = Math.max(1, classData.hitDie + modifier(c.scores.CON));
   const oldHpMax = c.hpMax;
   c.level = newLevel;
-  c.hpMax = baseHp + (newLevel - 1) * perLevelHp;
+  c.hpMax = baseHp + (newLevel - 1) * perLevelHp + gearHpBonus(c);
   c.hpCurrent = Math.max(0, Math.min(c.hpMax, c.hpCurrent + (c.hpMax - oldHpMax)));
   c.proficiency = Math.floor((newLevel - 1) / 4) + 2;
   await saveCharacter(c, broadcasterId);

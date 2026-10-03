@@ -357,7 +357,7 @@ export async function handleBuiltinChatCommand(ctx: {
     if (c) {
       const label = targetUser === chatter ? "" : `@${targetUser} `;
       await sendChatMessage(
-        `@${display} ${label}${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
+        `@${display} ${label}${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)}${c.items?.length ? ` | 🎒 ${c.items.length} gear (!gear)` : ""} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
         broadcasterId,
       );
     } else {

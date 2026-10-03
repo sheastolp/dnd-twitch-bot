@@ -14,9 +14,16 @@
 //     "NO DEAL:", and the DEAL price is what the viewer actually pays.
 // A refusal (or a silly trade demand) costs nothing. The agreed price is
 // clamped between the viewer's offer and the listed price, so a confused
-// model can never charge more than the sticker or less than was asked. The
-// wares themselves stay pure flavor — no inventory or character state.
-// With gold switched off for the channel, haggling is free banter like before.
+// model can never charge more than the sticker or less than was asked.
+//
+// What you buy is real gear: every ware has a small permanent bonus (gear.ts)
+// that's written onto the buyer's character sheet when the sale goes through
+// — e.g. a lucky rabbit's foot is +1 DEX — so it counts in !char, !roll
+// checks, duels, hunts and raids. Buying needs a saved character, and you
+// can't buy the same item twice (a second copy would do nothing).
+// !gear [@user] lists what's on a sheet.
+// With gold switched off for the channel, haggling is free banter like before
+// and nothing is added to the sheet.
 //
 // !stall (below) shows the current item and the asker's remaining attempts.
 //
@@ -32,11 +39,14 @@ import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
 import {
   countListingHaggles,
+  getCharacter,
   getMerchantListing,
   isMerchantEnabled,
   markListingHaggled,
   recordMonitorEvent,
+  saveCharacter,
 } from "./db.ts";
+import { applyGear, effectText, findMerchantItem, ownsGear } from "./gear.ts";
 import { getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { formatCoins, parseFirstPrice } from "./coins.ts";
 
@@ -68,6 +78,8 @@ export interface HaggleResult {
   ok: true;
   reply: string;
   merchantName: string;
+  /** What was being sold — the ware a deal puts on the buyer's sheet. */
+  itemDesc: string;
   /** True if the peddler agreed to a price. */
   deal: boolean;
   /** What the listing was priced at, in copper (null if unreadable). */
@@ -165,7 +177,7 @@ export async function generateHaggleReply(
     }
 
     const agreedCopper = verdict.deal && listedCopper !== null ? settlePrice(verdict, listedCopper, offerCopper) : null;
-    return { ok: true, reply, merchantName: listing.merchantName, deal: verdict.deal, listedCopper, offerCopper, agreedCopper };
+    return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper };
   } catch (e) {
     console.error("generateHaggleReply failed", e);
     await recordMonitorEvent("haggle_generation_error", `${broadcasterId}: ${String(e)}`);
@@ -200,8 +212,10 @@ export async function handleStallCommand(
   const attempts = left > 0
     ? `you have ${left} haggle attempt${left === 1 ? "" : "s"} left on this one — try !haggle <your pitch>.`
     : "you've used up your haggle attempts on this one — wait for the next stall to open.";
+  const item = findMerchantItem(listing.itemDesc);
+  const perk = item ? ` (🎒 ${effectText(item.effect)} on your sheet)` : "";
   await sendChatMessages(
-    `🛒 ${listing.merchantName} is hawking ${listing.itemDesc} — ${listing.priceText}. @${display} ${attempts}`,
+    `🛒 ${listing.merchantName} is hawking ${listing.itemDesc} — ${listing.priceText}${perk}. @${display} ${attempts}`,
     broadcasterId,
   );
   return true;
@@ -217,6 +231,7 @@ export async function handleHaggleCommand(
   // !stall lives here too (same listing + attempt data); delegating from this
   // already-wired handler keeps main.ts from growing.
   if (await handleStallCommand(chatMessage, chatter, display, broadcasterId)) return true;
+  if (await handleGearCommand(chatMessage, chatter, display, broadcasterId)) return true;
   if (!/^!haggle(?:\s|$)/i.test(chatMessage)) return false;
 
   if (!(await isMerchantEnabled(broadcasterId))) {
@@ -242,6 +257,26 @@ export async function handleHaggleCommand(
   if (useCoin) {
     const listing = await getMerchantListing(broadcasterId);
     const listed = listing ? parseFirstPrice(listing.priceText) : null;
+    // The ware goes onto the buyer's character sheet, so they need one —
+    // and a second copy of something they already carry would do nothing.
+    const ware = listing ? findMerchantItem(listing.itemDesc) : null;
+    if (ware) {
+      const sheet = await getCharacter(chatter, broadcasterId);
+      if (!sheet) {
+        await sendChatMessages(
+          `@${display} the peddler squints — "And strap it to what, exactly?" You need a character to carry gear: try !createchar or !newchar first.`,
+          broadcasterId,
+        );
+        return true;
+      }
+      if (ownsGear(sheet, ware)) {
+        await sendChatMessages(
+          `@${display} you already carry ${ware.name} — a second one wouldn't do you any good. Wait for the next stall to open. (!gear)`,
+          broadcasterId,
+        );
+        return true;
+      }
+    }
     if (listing && listed !== null && countListingHaggles(listing, chatter) < HAGGLES_PER_LISTING) {
       const need = lowestPrice(listed, parseFirstPrice(message));
       const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
@@ -276,11 +311,63 @@ export async function handleHaggleCommand(
       const left = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
       const saved = result.listedCopper - price;
       note = ` 🪙 Sold for ${formatCoins(price)}${saved > 0 ? ` (listed ${formatCoins(result.listedCopper)}, you saved ${formatCoins(saved)})` : " (full price)"} — ${formatCoins(left)} left.`;
+      note += await giveGear(chatter, broadcasterId, result.itemDesc);
     } else {
       const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
       note = ` 💸 But the price is ${formatCoins(price)} and you only carry ${formatCoins(have)} — no sale.`;
     }
   }
   await sendChatMessages(`🛒 ${result.merchantName}: ${result.reply}${note}`, broadcasterId);
+  return true;
+}
+
+/** Puts the ware that was just bought onto the buyer's character sheet after a
+ * paid deal. Returns a chat note (" 🎒 ...") or "" if there's nothing to add
+ * (an item not in the catalog, or no character — checked before haggling,
+ * but the sheet could have been reset mid-haggle). */
+async function giveGear(chatter: string, broadcasterId: string, itemDesc: string): Promise<string> {
+  try {
+    const item = findMerchantItem(itemDesc);
+    if (!item) return "";
+    const c = await getCharacter(chatter, broadcasterId);
+    if (!c) return " (No character sheet to carry it, so it's pure flavor.)";
+    if (ownsGear(c, item)) return "";
+    const { changes } = applyGear(c, item);
+    await saveCharacter(c, broadcasterId);
+    return ` 🎒 ${item.name} added to your sheet${changes ? `: ${changes}` : ""}.`;
+  } catch (e) {
+    console.error("giveGear failed", e);
+    await recordMonitorEvent("haggle_gear_error", `${broadcasterId}/${chatter}: ${String(e)}`);
+    return "";
+  }
+}
+
+/** Handles !gear [@user] — lists the peddler gear on a character sheet.
+ * Works whether or not the market is open. Returns true if it matched. */
+export async function handleGearCommand(
+  chatMessage: string,
+  chatter: string,
+  display: string,
+  broadcasterId: string,
+): Promise<boolean> {
+  const m = chatMessage.trim().match(/^!gear(?:\s+@?(\S+))?\s*$/i);
+  if (!m) return false;
+  const target = m[1] ? m[1].toLowerCase().replace(/[,:]+$/, "") : chatter;
+  const self = target === chatter;
+  const c = await getCharacter(target, broadcasterId);
+  if (!c) {
+    await sendChatMessages(
+      self ? `@${display} you don't have a character yet — !createchar or !newchar to make one.` : `@${display} @${target} doesn't have a character in this channel.`,
+      broadcasterId,
+    );
+    return true;
+  }
+  const items = c.items ?? [];
+  await sendChatMessages(
+    items.length
+      ? `🎒 @${display} ${self ? "your" : `@${target}'s`} gear: ${items.join(" · ")}`
+      : `🎒 @${display} ${self ? "you carry" : `@${target} carries`} no gear yet. Buy from the market stall with !haggle (see !stall) — every ware boosts your sheet.`,
+    broadcasterId,
+  );
   return true;
 }
