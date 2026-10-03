@@ -312,15 +312,25 @@ function renderFeaturesSection(d: DashboardData): string {
     featureToggleRow(d, "npcchatter_on", "npcchatter_off", "AI NPC chatter", "NPCs jumping into chat on their own (needs AI NPCs on too)", d.npcChatterEnabled),
   ].join("");
   // One switch per Guild Codex card, under that card's guide section.
-  const bySection = new Map<string, string[]>();
+  const bySection = new Map<string, { rows: string[]; on: number }>();
   for (const [key, def] of Object.entries(COMMAND_GROUPS)) {
-    const rows = bySection.get(def.section) ?? [];
-    rows.push(groupToggleRow(d, key, def.label, d.groupToggles[key] ?? true));
-    bySection.set(def.section, rows);
+    const g = bySection.get(def.section) ?? { rows: [], on: 0 };
+    const enabled = d.groupToggles[key] ?? true;
+    g.rows.push(groupToggleRow(d, key, def.label, enabled));
+    if (enabled) g.on++;
+    bySection.set(def.section, g);
   }
-  const groups = [...bySection]
-    .map(([section, rows]) => `<details class="grp" id="grp-${sectionSlug(section)}" open><summary><h4>${escapeHtml(section)}</h4><span class="count">${rows.length}</span></summary><div class="tiles">${rows.join("")}</div></details>`)
-    .join("");
+  // Each Codex section is a square "folder" tile; clicking it opens a window holding its switch tiles.
+  const groups = `<div class="tiles">${[...bySection]
+    .map(([section, g]) => {
+      const slug = sectionSlug(section);
+      const total = g.rows.length;
+      const state = g.on === total ? "all on" : g.on === 0 ? "all off" : `${g.on}/${total} on`;
+      return `<button type="button" class="tile tile-folder${g.on === 0 ? " tile-paused" : ""}" id="grp-${slug}" data-open="dlg-grp-${slug}" aria-haspopup="dialog">
+        <span class="folder-icon" aria-hidden="true">📁</span><span class="tile-title">${escapeHtml(section)}</span><span class="tile-meta">${total} switch${total === 1 ? "" : "es"} · ${state}</span>
+      </button>${editorDialog(`dlg-grp-${slug}`, `📂 ${escapeHtml(section)}`, `<p class="muted">Click a switch to turn it on or off.</p><div class="tiles">${g.rows.join("")}</div>`, "folder")}`;
+    })
+    .join("")}</div>`;
   return `<details class="sec" id="sec-features" open><summary><h2>Bot & feature switches</h2></summary><p class="muted">Turning off the entire bot above overrides everything else. Changes apply immediately.</p>
     <div class="tiles">${dedicated}</div>
     <h3>Command groups</h3>
@@ -337,8 +347,8 @@ function editorTile(dialogId: string, title: string, meta: string, extraClass = 
 }
 
 /** The editor window a tile expands into: a native modal <dialog> holding one form. */
-function editorDialog(dialogId: string, heading: string, body: string): string {
-  return `<dialog id="${dialogId}" class="editor" aria-label="${escapeHtml(heading.replace(/<[^>]+>/g, ""))}">
+function editorDialog(dialogId: string, heading: string, body: string, extraClass = ""): string {
+  return `<dialog id="${dialogId}" class="editor ${extraClass}" aria-label="${escapeHtml(heading.replace(/<[^>]+>/g, ""))}">
     <div class="editor-head"><h3>${heading}</h3><button type="button" class="x" data-close aria-label="Close">✕</button></div>
     ${body}
   </dialog>`;
@@ -501,9 +511,6 @@ export function renderDashboardPage(d: DashboardData): string {
     details[open]>summary::before{transform:rotate(90deg)}
     summary:hover h2,summary:hover h4{text-decoration:underline;text-decoration-color:#684632}
     summary:focus-visible{outline:2px solid #e6a56e;outline-offset:4px;border-radius:4px}
-    details.grp{margin:10px 0}
-    details.grp>summary h4{margin:0;color:#d6c6b5}
-    details.grp .count{font-size:.75rem;color:#aa9b8d;background:#1c1712;border:1px solid #2a231c;border-radius:999px;padding:1px 8px}
     details{scroll-margin-top:16px}
     .index{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 16px;margin:18px 0}
     .index-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -538,6 +545,11 @@ export function renderDashboardPage(d: DashboardData): string {
     .tile-new{border-style:dashed;background:transparent}
     .tile-new .tile-title{color:#e6a56e;font-weight:400}
     .tile-paused{opacity:.6}
+    .tile-folder{position:relative;border-radius:4px 10px 10px 10px;border-color:#684632;background:linear-gradient(#241c15,#1c1712);margin-top:10px}
+    .tile-folder::before{content:"";position:absolute;top:-10px;left:-1px;width:45%;height:10px;background:#241c15;border:1px solid #684632;border-bottom:0;border-radius:6px 8px 0 0}
+    .tile-folder:hover::before,.tile-folder:focus-visible::before{border-color:#e6a56e;background:#221b15}
+    .folder-icon{font-size:1.6rem;line-height:1}
+    dialog.editor.folder{width:min(760px,94vw)}
     dialog.editor{background:#1c1712;color:#f4eadb;border:1px solid #684632;border-radius:12px;width:min(560px,92vw);max-height:88vh;padding:16px 20px 20px;box-shadow:0 24px 60px #000c}
     dialog.editor::backdrop{background:#000b}
     .editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
@@ -560,17 +572,17 @@ export function renderDashboardPage(d: DashboardData): string {
   ${renderTriggersSection(d)}
   ${renderTimedMessagesSection(d)}
   <script>(function(){
-    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec,details.grp"));
+    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.sec"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
     function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
-    // Open every collapsed section containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
-    function reveal(el){for(var n=el;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true}}
-    function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el){reveal(el);el.scrollIntoView();if(el.hasAttribute("data-open"))setTimeout(function(){el.click()},0)}}
+    // Open every collapsed section / folder window containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
+    function reveal(el){var dl=[];for(var n=el.parentElement;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true;else if(n.tagName==="DIALOG"&&!n.open)dl.unshift(n)}dl.forEach(function(d){openDlg(d,document.querySelector('[data-open="'+d.id+'"]'),true)})}
+    function show(el){reveal(el);if(el.hasAttribute("data-open")){el.scrollIntoView({block:"center"});openDlg(document.getElementById(el.getAttribute("data-open")),el)}else el.scrollIntoView()}
+    function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el)show(el)}
     load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=false});
-    goHash();
     all.forEach(function(d){d.addEventListener("toggle",save)});
     window.addEventListener("hashchange",goHash);
-    document.querySelectorAll(".index a[href^='#']").forEach(function(a){a.addEventListener("click",function(){var el=document.getElementById(a.getAttribute("href").slice(1));if(el)reveal(el)})});
+    document.querySelectorAll(".index a[href^='#']").forEach(function(a){a.addEventListener("click",function(e){var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();try{history.replaceState(null,"","#"+id)}catch(x){}show(el)})});
     // Tiles expand into their editor window; it shrinks back into the tile on close.
     var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
     function fromTile(dlg,tile,reverse){
@@ -581,13 +593,14 @@ export function renderDashboardPage(d: DashboardData): string {
       return dlg.animate(reverse?k.reverse():k,{duration:reverse?160:220,easing:"cubic-bezier(.2,.8,.2,1)"});
     }
     var opener={};
-    document.querySelectorAll("[data-open]").forEach(function(tile){tile.addEventListener("click",function(){
-      var dlg=document.getElementById(tile.getAttribute("data-open"));if(!dlg)return;
+    function openDlg(dlg,tile,quiet){
+      if(!dlg||dlg.open)return;
       opener[dlg.id]=tile;
       if(dlg.showModal)dlg.showModal();else dlg.setAttribute("open","");
-      fromTile(dlg,tile,false);
-      var f=dlg.querySelector("textarea,input:not([type=hidden])");if(f)f.focus();
-    })});
+      if(!quiet)fromTile(dlg,tile,false);
+      var f=dlg.classList.contains("folder")?dlg.querySelector(".tile"):dlg.querySelector("textarea,input:not([type=hidden])");if(f)f.focus();
+    }
+    document.querySelectorAll("[data-open]").forEach(function(tile){tile.addEventListener("click",function(){openDlg(document.getElementById(tile.getAttribute("data-open")),tile)})});
     function closeDlg(dlg){var a=fromTile(dlg,opener[dlg.id],true);if(a)a.onfinish=function(){dlg.close()};else dlg.close()}
     document.querySelectorAll("dialog.editor").forEach(function(dlg){
       dlg.addEventListener("click",function(e){if(e.target!==dlg)return;var r=dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeDlg(dlg)}); // backdrop click
@@ -596,6 +609,7 @@ export function renderDashboardPage(d: DashboardData): string {
       dlg.addEventListener("close",function(){var t=opener[dlg.id];if(t)t.focus()});
     });
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
+    goHash();
   })();</script>
   </body></html>`;
 }
