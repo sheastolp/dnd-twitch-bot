@@ -333,97 +333,130 @@ function renderFeaturesSection(d: DashboardData): string {
     </details>`;
 }
 
+/** A small square tile that opens its editor dialog (see the dashboard script). */
+function editorTile(dialogId: string, title: string, meta: string, extraClass = ""): string {
+  return `<button type="button" class="tile ${extraClass}" data-open="${dialogId}" aria-haspopup="dialog">
+    <span class="tile-title">${title}</span>${meta ? `<span class="tile-meta">${meta}</span>` : ""}
+  </button>`;
+}
+
+/** The editor window a tile expands into: a native modal <dialog> holding one form. */
+function editorDialog(dialogId: string, heading: string, body: string): string {
+  return `<dialog id="${dialogId}" class="editor" aria-label="${escapeHtml(heading.replace(/<[^>]+>/g, ""))}">
+    <div class="editor-head"><h3>${heading}</h3><button type="button" class="x" data-close aria-label="Close">✕</button></div>
+    ${body}
+  </dialog>`;
+}
+
+/** Tiles + their dialogs for one list section; the "new" tile always comes last. */
+function tileSection(tiles: string[], dialogs: string[], emptyText: string): string {
+  const note = tiles.length > 1 ? "" : `<p class="muted">${emptyText}</p>`;
+  return `${note}<div class="tiles">${tiles.join("")}</div>${dialogs.join("")}`;
+}
+
+function snippet(text: string, max = 48): string {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
 function renderCommandsSection(d: DashboardData): string {
-  const rows = d.commands
-    .map((c: any) => {
-      const cooldownSeconds = Math.round(Number(c.cooldown_ms ?? 0) / 1000);
-      return `<form method="post" action="/dashboard/commands" class="row-form">
+  const tiles: string[] = [];
+  const dialogs: string[] = [];
+  d.commands.forEach((c: any, i: number) => {
+    const id = `dlg-cmd-${i}`;
+    const cooldownSeconds = Math.round(Number(c.cooldown_ms ?? 0) / 1000);
+    tiles.push(editorTile(id, `!${escapeHtml(c.name)}`, `used ${Number(c.uses ?? 0)}×`));
+    dialogs.push(editorDialog(id, `<code>!${escapeHtml(c.name)}</code>`, `<form method="post" action="/dashboard/commands" class="row-form">
         ${dashHidden(d.broadcasterId, d.channelKey)}
         <input type="hidden" name="intent" value="save">
         <input type="hidden" name="name" value="${escapeHtml(c.name)}">
-        <div class="row-head"><code>!${escapeHtml(c.name)}</code> <span class="muted">used ${Number(c.uses ?? 0)}×</span></div>
-        <textarea name="response" maxlength="400" rows="2">${escapeHtml(c.response ?? "")}</textarea>
+        <p class="muted">Used ${Number(c.uses ?? 0)}×</p>
+        <label>Response <textarea name="response" maxlength="400" rows="4">${escapeHtml(c.response ?? "")}</textarea></label>
         <div class="row-controls">
           <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="${cooldownSeconds}"></label>
           <button type="submit">Save</button>
           <button type="submit" formaction="/dashboard/commands" name="intent" value="delete" class="danger">Delete</button>
         </div>
-      </form>`;
-    })
-    .join("");
-  return `<details class="sec" id="sec-commands" open><summary><h2>Custom commands</h2></summary><p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>.</p>
-    <div class="rows">${rows || `<p class="muted">No custom commands yet.</p>`}</div>
-    <form method="post" action="/dashboard/commands" class="add-form">
+      </form>`));
+  });
+  tiles.push(editorTile("dlg-cmd-new", "＋ New command", "", "tile-new"));
+  dialogs.push(editorDialog("dlg-cmd-new", "Add a command", `<form method="post" action="/dashboard/commands" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
       <input type="hidden" name="intent" value="add">
-      <h3>Add a command</h3>
       <label>Name <input type="text" name="name" maxlength="25" pattern="[a-zA-Z0-9_-]{2,25}" placeholder="hello" required></label>
-      <textarea name="response" maxlength="400" rows="2" placeholder="Welcome to the guild hall, {user}!" required></textarea>
+      <label>Response <textarea name="response" maxlength="400" rows="4" placeholder="Welcome to the guild hall, {user}!" required></textarea></label>
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="5"></label>
       <button type="submit">Add command</button>
-    </form></details>`;
+    </form>`));
+  return `<details class="sec" id="sec-commands" open><summary><h2>Custom commands</h2></summary><p class="muted">Chat with <code>!&lt;name&gt;</code>. Placeholders: <code>{user}</code> <code>{target}</code> <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No custom commands yet.")}</details>`;
 }
 
 function renderTriggersSection(d: DashboardData): string {
-  const rows = d.triggers
-    .map((t: any) => {
-      const cooldownSeconds = Math.round(Number(t.cooldown_ms ?? 0) / 1000);
-      return `<form method="post" action="/dashboard/triggers" class="row-form">
+  const tiles: string[] = [];
+  const dialogs: string[] = [];
+  d.triggers.forEach((t: any, i: number) => {
+    const id = `dlg-trg-${i}`;
+    const cooldownSeconds = Math.round(Number(t.cooldown_ms ?? 0) / 1000);
+    tiles.push(editorTile(id, `“${escapeHtml(t.keyword)}”`, `used ${Number(t.uses ?? 0)}×`));
+    dialogs.push(editorDialog(id, `Trigger: “${escapeHtml(t.keyword)}”`, `<form method="post" action="/dashboard/triggers" class="row-form">
         ${dashHidden(d.broadcasterId, d.channelKey)}
         <input type="hidden" name="intent" value="save">
         <input type="hidden" name="keyword" value="${escapeHtml(t.keyword)}">
-        <div class="row-head">"${escapeHtml(t.keyword)}" <span class="muted">used ${Number(t.uses ?? 0)}×</span></div>
-        <textarea name="response" maxlength="400" rows="2">${escapeHtml(t.response ?? "")}</textarea>
+        <p class="muted">Used ${Number(t.uses ?? 0)}×</p>
+        <label>Response <textarea name="response" maxlength="400" rows="4">${escapeHtml(t.response ?? "")}</textarea></label>
         <div class="row-controls">
           <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="${cooldownSeconds}"></label>
           <button type="submit">Save</button>
           <button type="submit" formaction="/dashboard/triggers" name="intent" value="delete" class="danger">Delete</button>
         </div>
-      </form>`;
-    })
-    .join("");
-  return `<details class="sec" id="sec-triggers" open><summary><h2>Chat triggers</h2></summary><p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed.</p>
-    <div class="rows">${rows || `<p class="muted">No chat triggers yet.</p>`}</div>
-    <form method="post" action="/dashboard/triggers" class="add-form">
+      </form>`));
+  });
+  tiles.push(editorTile("dlg-trg-new", "＋ New trigger", "", "tile-new"));
+  dialogs.push(editorDialog("dlg-trg-new", "Add a trigger", `<form method="post" action="/dashboard/triggers" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
       <input type="hidden" name="intent" value="add">
-      <h3>Add a trigger</h3>
       <label>Keyword <input type="text" name="keyword" maxlength="40" placeholder="good luck" required></label>
-      <textarea name="response" maxlength="400" rows="2" placeholder="May the dice favor you, {user}!" required></textarea>
+      <label>Response <textarea name="response" maxlength="400" rows="4" placeholder="May the dice favor you, {user}!" required></textarea></label>
       <label>Cooldown (s) <input type="number" name="cooldown_seconds" min="0" max="${d.maxCooldownSeconds}" value="15"></label>
       <button type="submit">Add trigger</button>
-    </form></details>`;
+    </form>`));
+  return `<details class="sec" id="sec-triggers" open><summary><h2>Chat triggers</h2></summary><p class="muted">Fires automatically whenever the keyword appears in chat — no <code>!</code> needed. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No chat triggers yet.")}</details>`;
 }
 
 function renderTimedMessagesSection(d: DashboardData): string {
-  const rows = d.timedMessages
-    .map((m: any) => {
-      const enabled = Number(m.enabled) === 1;
-      return `<form method="post" action="/dashboard/timedmessages" class="row-form">
+  const tiles: string[] = [];
+  const dialogs: string[] = [];
+  d.timedMessages.forEach((m: any) => {
+    const id = `dlg-tm-${escapeHtml(String(m.id))}`;
+    const enabled = Number(m.enabled) === 1;
+    const every = Number(m.interval_minutes ?? 0);
+    tiles.push(editorTile(id, escapeHtml(snippet(m.message)), `every ${every} min · ${enabled ? "active" : "paused"}`, enabled ? "" : "tile-paused"));
+    dialogs.push(editorDialog(id, `Timed message #${escapeHtml(String(m.id))}`, `<form method="post" action="/dashboard/timedmessages" class="row-form">
         ${dashHidden(d.broadcasterId, d.channelKey)}
         <input type="hidden" name="intent" value="save">
         <input type="hidden" name="id" value="${escapeHtml(String(m.id))}">
-        <div class="row-head">#${escapeHtml(String(m.id))} <span class="muted">posted ${Number(m.uses ?? 0)}× — ${enabled ? "active" : "paused"}</span></div>
-        <textarea name="message" maxlength="400" rows="2">${escapeHtml(m.message ?? "")}</textarea>
+        <p class="muted">Posted ${Number(m.uses ?? 0)}× — ${enabled ? "active" : "paused"}</p>
+        <label>Message <textarea name="message" maxlength="400" rows="4">${escapeHtml(m.message ?? "")}</textarea></label>
         <div class="row-controls">
-          <label>Every (min) <input type="number" name="interval_minutes" min="${d.minIntervalMinutes}" max="${d.maxIntervalMinutes}" value="${Number(m.interval_minutes ?? 0)}"></label>
+          <label>Every (min) <input type="number" name="interval_minutes" min="${d.minIntervalMinutes}" max="${d.maxIntervalMinutes}" value="${every}"></label>
           <label class="check"><input type="checkbox" name="enabled" ${enabled ? "checked" : ""}> Active</label>
           <button type="submit">Save</button>
           <button type="submit" formaction="/dashboard/timedmessages" name="intent" value="delete" class="danger">Delete</button>
         </div>
-      </form>`;
-    })
-    .join("");
-  return `<details class="sec" id="sec-timed" open><summary><h2>Timed messages</h2></summary><p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>.</p>
-    <div class="rows">${rows || `<p class="muted">No timed messages yet.</p>`}</div>
-    <form method="post" action="/dashboard/timedmessages" class="add-form">
+      </form>`));
+  });
+  tiles.push(editorTile("dlg-tm-new", "＋ New timed message", "", "tile-new"));
+  dialogs.push(editorDialog("dlg-tm-new", "Add a timed message", `<form method="post" action="/dashboard/timedmessages" class="add-form">
       ${dashHidden(d.broadcasterId, d.channelKey)}
       <input type="hidden" name="intent" value="add">
-      <h3>Add a timed message</h3>
-      <textarea name="message" maxlength="400" rows="2" placeholder="Don't forget to follow the guild! {random:⚔️|🛡️|📜}" required></textarea>
+      <label>Message <textarea name="message" maxlength="400" rows="4" placeholder="Don't forget to follow the guild! {random:⚔️|🛡️|📜}" required></textarea></label>
       <label>Every (min) <input type="number" name="interval_minutes" min="${d.minIntervalMinutes}" max="${d.maxIntervalMinutes}" value="30" required></label>
       <button type="submit">Add timed message</button>
-    </form></details>`;
+    </form>`));
+  return `<details class="sec" id="sec-timed" open><summary><h2>Timed messages</h2></summary><p class="muted">Posted automatically on a rotating interval. Placeholders: <code>{count}</code> <code>{random:a|b|c}</code>. Click a square to edit it.</p>
+    ${tileSection(tiles, dialogs, "No timed messages yet.")}</details>`;
 }
 
 // Shown at GET /dashboard when the dashboard_key is valid but there's no
@@ -481,7 +514,6 @@ export function renderDashboardPage(d: DashboardData): string {
     .index ol{margin:8px 0 0;padding-left:22px;line-height:1.7}
     .index ul{margin:0 0 4px;padding-left:0;list-style:none;display:flex;flex-wrap:wrap;gap:2px 14px;font-size:.85rem}
     button.link{background:none;border:0;padding:0;margin:0;color:#e6a56e;font:inherit;font-size:.85rem;cursor:pointer;text-decoration:underline}
-    .rows{display:flex;flex-direction:column;gap:10px;margin:14px 0}
     .row-form,.add-form{background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:12px 14px}
     .add-form{border-style:dashed}
     .row-head{font-size:.92rem;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
@@ -498,8 +530,27 @@ export function renderDashboardPage(d: DashboardData): string {
     .toggles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
     @media(max-width:900px){.toggles{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media(max-width:560px){.toggles{grid-template-columns:1fr}}
-    .toggle-row{display:flex;align-items:center;gap:12px;background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:10px 14px}
-    .toggle-label{flex:1;font-size:.92rem}
+    .toggle-row{display:grid;grid-template-columns:1fr auto;grid-template-areas:"label label" "pill btn";align-items:center;gap:10px;background:#1c1712;border:1px solid #2a231c;border-radius:8px;padding:10px 14px;min-width:0}
+    .toggle-label{grid-area:label;font-size:.92rem;min-width:0;overflow-wrap:anywhere}
+    .toggle-row>.pill{grid-area:pill;justify-self:start}
+    .toggle-row>form{grid-area:btn;margin:0}
+    .toggle-row button{margin:0;white-space:nowrap}
+    .guide-link{white-space:nowrap}
+    .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin:12px 0}
+    .tile{aspect-ratio:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;text-align:center;background:#1c1712;color:#f4eadb;border:1px solid #453626;border-radius:10px;padding:10px;margin:0;font-family:inherit;font-size:.92rem;cursor:pointer;min-width:0;transition:transform .12s,border-color .12s,background .12s}
+    .tile:hover,.tile:focus-visible{transform:translateY(-2px);border-color:#e6a56e;background:#221b15;outline:none}
+    .tile-title{font-weight:700;color:#f0c39e;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+    .tile-meta{font-size:.75rem;color:#aa9b8d}
+    .tile-new{border-style:dashed;background:transparent}
+    .tile-new .tile-title{color:#e6a56e;font-weight:400}
+    .tile-paused{opacity:.6}
+    dialog.editor{background:#1c1712;color:#f4eadb;border:1px solid #684632;border-radius:12px;width:min(560px,92vw);max-height:88vh;padding:16px 20px 20px;box-shadow:0 24px 60px #000c}
+    dialog.editor::backdrop{background:#000b}
+    .editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid #2a231c;padding-bottom:8px;margin-bottom:6px}
+    .editor-head h3{margin:0;color:#e6a56e}
+    dialog.editor .row-form,dialog.editor .add-form{background:none;border:0;padding:0}
+    button.x{background:none;color:#aa9b8d;font-size:1.1rem;padding:2px 8px;margin:0}
+    button.x:hover{color:#f4eadb}
     .toggle-label small{display:block;color:#aa9b8d;font-weight:400;margin-top:2px}
 .toggle-row:target{border-color:#e6a56e;box-shadow:0 0 0 2px #e6a56e66}
 .toggle-row{scroll-margin-top:24px}
@@ -529,6 +580,30 @@ export function renderDashboardPage(d: DashboardData): string {
     all.forEach(function(d){d.addEventListener("toggle",save)});
     window.addEventListener("hashchange",goHash);
     document.querySelectorAll(".index a[href^='#']").forEach(function(a){a.addEventListener("click",function(){var el=document.getElementById(a.getAttribute("href").slice(1));if(el)reveal(el)})});
+    // Tiles expand into their editor window; it shrinks back into the tile on close.
+    var reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function fromTile(dlg,tile,reverse){
+      if(reduce||!tile||!dlg.animate)return null;
+      var t=tile.getBoundingClientRect(),r=dlg.getBoundingClientRect();
+      var tf="translate("+((t.left+t.width/2)-(r.left+r.width/2))+"px,"+((t.top+t.height/2)-(r.top+r.height/2))+"px) scale("+(t.width/r.width)+","+(t.height/r.height)+")";
+      var k=[{transform:tf,opacity:.3},{transform:"none",opacity:1}];
+      return dlg.animate(reverse?k.reverse():k,{duration:reverse?160:220,easing:"cubic-bezier(.2,.8,.2,1)"});
+    }
+    var opener={};
+    document.querySelectorAll("[data-open]").forEach(function(tile){tile.addEventListener("click",function(){
+      var dlg=document.getElementById(tile.getAttribute("data-open"));if(!dlg)return;
+      opener[dlg.id]=tile;
+      if(dlg.showModal)dlg.showModal();else dlg.setAttribute("open","");
+      fromTile(dlg,tile,false);
+      var f=dlg.querySelector("textarea,input:not([type=hidden])");if(f)f.focus();
+    })});
+    function closeDlg(dlg){var a=fromTile(dlg,opener[dlg.id],true);if(a)a.onfinish=function(){dlg.close()};else dlg.close()}
+    document.querySelectorAll("dialog.editor").forEach(function(dlg){
+      dlg.addEventListener("click",function(e){if(e.target!==dlg)return;var r=dlg.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeDlg(dlg)}); // backdrop click
+      dlg.addEventListener("cancel",function(e){e.preventDefault();closeDlg(dlg)}); // Esc
+      dlg.querySelector("[data-close]").addEventListener("click",function(){closeDlg(dlg)});
+      dlg.addEventListener("close",function(){var t=opener[dlg.id];if(t)t.focus()});
+    });
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
   })();</script>
   </body></html>`;
