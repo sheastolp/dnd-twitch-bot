@@ -553,6 +553,15 @@ export default async function (req: Request): Promise<Response> {
     await invalidateSchemaOnMissingTable(e);
     try { await recordMonitorEvent("unhandled_error", String(e)); } catch (_) {}
     console.error("GuildScribe request failed", e);
+    // An OBS browser source keeps whatever page it first loaded, so a
+    // transient failure on /overlay would stick until someone refreshes it.
+    // Send a blank, transparent page that reloads itself instead.
+    if (req.method === "GET" && new URL(req.url).pathname === "/overlay") {
+      return new Response(
+        `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="5"><title>GuildScribe overlay</title><style>html,body{background:transparent;margin:0}</style></head><body></body></html>`,
+        { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "5" } },
+      );
+    }
     return new Response("Internal server error", { status: 500 });
   }
 }
