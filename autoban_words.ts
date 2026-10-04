@@ -86,7 +86,7 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
-function fold(text: string): string {
+export function fold(text: string): string {
   return text.replace(/[013457@$аеорсухі]/g, (c) => LOOKALIKES[c] ?? c);
 }
 
@@ -329,6 +329,11 @@ async function loadState(broadcasterId: string): Promise<ChannelState> {
   return state;
 }
 
+/** The learning mode, from the chat-path cache. */
+export async function currentLearnMode(broadcasterId: string): Promise<LearnMode> {
+  return (await loadState(broadcasterId)).mode;
+}
+
 export async function isUserIgnored(broadcasterId: string, login: string): Promise<boolean> {
   return (await loadState(broadcasterId)).ignored.has(login.toLowerCase());
 }
@@ -365,6 +370,17 @@ export async function learnFromMessage(broadcasterId: string, chatMessage: strin
   if (state.mode === "off") return;
   // Without a domain, the pitch itself is the key — minus @mentions, which
   // bots vary per target.
+  const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PHRASE_LEN);
+  const keys = domains.length ? domains : pitch.length >= MIN_LEARNED_MESSAGE_LEN ? [pitch] : [];
+  for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
+}
+
+/** A message that matched the ban history in suggest-only mode: queue its
+ * domains (or the pitch itself) as pending suggestions for a mod to review,
+ * whatever its spam score. */
+export async function suggestFromHistory(broadcasterId: string, chatMessage: string, chatterId: string) {
+  const normalized = normalizeText(chatMessage);
+  const domains = extractDomains(normalized);
   const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PHRASE_LEN);
   const keys = domains.length ? domains : pitch.length >= MIN_LEARNED_MESSAGE_LEN ? [pitch] : [];
   for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");

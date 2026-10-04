@@ -28,7 +28,8 @@ import { getBroadcasterAdToken } from "./ads_db.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { banChatUser, sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
-import { ensureAutoBanWordTables, findMatch, isUserIgnored, purgeAutoBanWordData, learnFromBannedMessage, learnFromMessage, recordHit } from "./autoban_words.ts";
+import { describeMatch, ensureAutoBanHistoryTables, findHistoryMatch, purgeAutoBanHistory, recordBan } from "./autoban_history.ts";
+import { currentLearnMode, ensureAutoBanWordTables, findMatch, isUserIgnored, purgeAutoBanWordData, suggestFromHistory, learnFromBannedMessage, learnFromMessage, recordHit } from "./autoban_words.ts";
 
 export const BAN_SCOPE = "moderator:manage:banned_users";
 
@@ -83,6 +84,7 @@ export async function ensureAutoBanTables() {
     )`,
   );
   await ensureAutoBanWordTables();
+  await ensureAutoBanHistoryTables();
 }
 
 export async function isAutoBanEnabled(broadcasterId: string) {
@@ -115,6 +117,7 @@ export async function purgeAutoBanData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM autoban_settings WHERE broadcaster_id = ?", [broadcasterId]);
   enabledCache.delete(broadcasterId);
   await purgeAutoBanWordData(broadcasterId);
+  await purgeAutoBanHistory(broadcasterId);
 }
 
 // ── Token / permission ──
@@ -123,7 +126,7 @@ type BanToken = { token: string } | { problem: "no_token" | "no_scope" };
 
 /** The broadcaster's user token, refreshed if needed, plus a check that it
  * was actually granted the ban scope. */
-async function getBanToken(broadcasterId: string): Promise<BanToken> {
+export async function getBanToken(broadcasterId: string): Promise<BanToken> {
   const token = await getValidAdToken(broadcasterId);
   if (!token) return { problem: "no_token" };
   // Read the row *after* getValidAdToken so a just-refreshed scope is seen.
@@ -174,10 +177,23 @@ export async function maybeAutoBan(
   if (!(await isAutoBanEnabledCached(broadcasterId))) return false;
   if (await isUserIgnored(broadcasterId, chatterLogin)) return false;
   const match = await findMatch(broadcasterId, chatMessage);
+  // No phrase matched: check the ban history (autoban_history.ts) — a repeat
+  // of a banned message, or a bot-farm name with a promo message. Learning
+  // mode decides: auto bans, suggest queues it for review, off skips it.
+  let history: Awaited<ReturnType<typeof findHistoryMatch>> = null;
   if (!match) {
-    await learnFromMessage(broadcasterId, chatMessage, chatterId);
-    return false;
+    const mode = await currentLearnMode(broadcasterId);
+    history = mode === "off" ? null : await findHistoryMatch(broadcasterId, chatMessage, chatterLogin);
+    if (!history) {
+      await learnFromMessage(broadcasterId, chatMessage, chatterId);
+      return false;
+    }
+    if (mode === "suggest") {
+      await suggestFromHistory(broadcasterId, chatMessage, chatterId);
+      return false;
+    }
   }
+  const reason = match ? banReason(match.phrase) : `Auto-ban: ${describeMatch(history!)} (GuildScribe)`;
 
   const auth = await getBanToken(broadcasterId);
   if ("problem" in auth) {
@@ -187,13 +203,15 @@ export async function maybeAutoBan(
   }
 
   // The broadcaster is the moderator of record: the token belongs to them.
-  const result = await banChatUser(auth.token, broadcasterId, broadcasterId, chatterId, banReason(match.phrase));
+  const result = await banChatUser(auth.token, broadcasterId, broadcasterId, chatterId, reason);
 
   if (result.ok) {
     await Promise.all([
-      recordMonitorEvent("autoban", `${broadcasterId}: banned ${chatterId} for "${match.phrase}"`),
-      recordHit(broadcasterId, match.id),
+      recordMonitorEvent("autoban", `${broadcasterId}: banned ${chatterId} — ${match ? `"${match.phrase}"` : describeMatch(history!)}`),
+      match ? recordHit(broadcasterId, match.id) : Promise.resolve(),
       learnFromBannedMessage(broadcasterId, chatMessage, chatterId),
+      // Every ban becomes a reference for the next ones.
+      recordBan(broadcasterId, { userId: chatterId, login: chatterLogin, message: chatMessage, reason, source: match ? "autoban" : "history" }),
     ]);
     const now = Date.now();
     const last = recentlyAnnounced.get(chatterId) ?? 0;

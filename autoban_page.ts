@@ -2,7 +2,8 @@
 // suggestions and ignore list, editable by mods. Auth (dashboard key + live
 // Twitch mod login) is done by the caller; see dashboard.ts.
 
-import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
+import { getBanToken, hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
+import { forgetBan, IMPORT_EVERY_MS, importTwitchBans, listBans } from "./autoban_history.ts";
 import {
   addWord,
   type AutoBanWord,
@@ -50,6 +51,19 @@ export async function applyAutoBanForm(broadcasterId: string, form: FormData): P
       if (mode !== "auto" && mode !== "suggest" && mode !== "off") return null;
       return await setLearnMode(broadcasterId, mode);
     }
+    case "import_bans": {
+      const auth = await getBanToken(broadcasterId);
+      if ("problem" in auth) return { ok: false, error: "GuildScribe needs ban permission to read the ban list — the broadcaster should reconnect at /connect." };
+      const r = await importTwitchBans(broadcasterId, auth.token);
+      return r.ok ? { ok: true, message: `Imported ${r.count} ban${r.count === 1 ? "" : "s"} from Twitch as references.` } : { ok: false, error: `Couldn't read the ban list: ${r.error}.` };
+    }
+    case "forget_ban": {
+      const userId = String(form.get("user_id") ?? "");
+      if (!/^\d+$/.test(userId)) return null;
+      return (await forgetBan(broadcasterId, userId))
+        ? { ok: true, message: "Reference forgotten — new messages won't be compared with that ban." }
+        : { ok: false, error: "That reference no longer exists." };
+    }
     case "autoban_on":
     case "autoban_off":
       await setAutoBanEnabled(broadcasterId, intent === "autoban_on");
@@ -63,12 +77,21 @@ function fmtDate(ms: number | null) {
 }
 
 export async function renderAutoBanPage(d: { broadcasterId: string; broadcasterName: string; key: string; notice?: string; error?: string }): Promise<string> {
-  const [enabled, permitted, words, ignored, mode] = await Promise.all([
+  // Refresh the Twitch ban list now and then (at most every IMPORT_EVERY_MS).
+  if (await hasBanPermission(d.broadcasterId)) {
+    const { syncedAt } = await listBans(d.broadcasterId, 0);
+    if (!syncedAt || Date.now() - syncedAt > IMPORT_EVERY_MS) {
+      const auth = await getBanToken(d.broadcasterId);
+      if (!("problem" in auth)) await importTwitchBans(d.broadcasterId, auth.token).catch(() => {});
+    }
+  }
+  const [enabled, permitted, words, ignored, mode, history] = await Promise.all([
     isAutoBanEnabled(d.broadcasterId),
     hasBanPermission(d.broadcasterId),
     listWords(d.broadcasterId),
     listIgnoredUsers(d.broadcasterId),
     getLearnMode(d.broadcasterId),
+    listBans(d.broadcasterId, 50),
   ]);
   const hidden = `<input type="hidden" name="channel" value="${escapeHtml(d.broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(d.key)}">`;
   const btn = (intent: string, label: string, extra = "", cls = "ghost", confirm = "") =>
@@ -123,6 +146,15 @@ ${addForm}
 ${listed.length
     ? `<div class="table-wrap"><table><thead><tr><th>Phrase</th><th>Source</th><th class="num">Bans</th><th class="num">Last ban</th><th></th></tr></thead><tbody>${wordRows}</tbody></table></div>`
     : `<p class="note">The list is empty — auto-ban won't ban anyone until you add a phrase.</p>`}
+<h2>Ban history</h2>
+<p class="muted">Everyone banned before is a reference for new bans. A message that repeats a banned one (ignoring @mentions, numbers, spacing and look-alike letters), or a numbered account named like a banned one sending a promo-looking message, is ${mode === "auto" ? "<strong>banned</strong>" : mode === "suggest" ? "<strong>queued under Learned spam</strong> for you to review" : "ignored — learning is off, so the history isn't used"}. Auto-bans are recorded with the message; bans your mods made on Twitch are imported (names and reasons only — Twitch doesn't keep the messages).</p>
+<div class="stats"><div class="stat"><b>${history.total}</b>references</div><div class="stat"><b>${history.imported}</b>from Twitch's ban list</div></div>
+<div class="controls">${btn("import_bans", "Import Twitch ban list now", "", "ghost")}<span class="muted small">${history.syncedAt ? `Last imported ${new Date(history.syncedAt).toISOString().slice(0, 16).replace("T", " ")} UTC` : permitted ? "Not imported yet" : "Needs ban permission to import"}</span></div>
+${history.refs.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Banned account</th><th>How</th><th>Message / reason</th><th class="num">When</th><th></th></tr></thead><tbody>${
+      history.refs.map((r) => `<tr><td><span class="who">${escapeHtml(r.login)}</span></td><td>${r.source === "twitch" ? `<span class="badge">Twitch ban</span>` : r.source === "history" ? `<span class="badge learned">history match</span>` : `<span class="badge learned">auto-ban</span>`}</td><td class="small">${r.message ? `“${escapeHtml(r.message)}”` : r.reason ? `<span class="muted">${escapeHtml(r.reason)}</span>` : `<span class="muted">—</span>`}</td><td class="num small">${fmtDate(r.bannedAt)}</td><td class="num actions">${btn("forget_ban", "Forget", `<input type="hidden" name="user_id" value="${escapeHtml(r.userId)}">`)}</td></tr>`).join("")
+    }</tbody></table></div>${history.total > history.refs.length ? `<p class="muted small">Showing the latest ${history.refs.length} of ${history.total}.</p>` : ""}`
+    : `<p class="note">No bans recorded yet.</p>`}
 <h2>Ignored users</h2>
 <p class="muted">Auto-ban never bans these accounts and never learns from their messages — handy for a friend who jokes about "ai viewers" or a partner bot that posts links.</p>
 <form method="post" action="/dashboard/autoban" class="add">${hidden}<input type="hidden" name="intent" value="ignore"><input name="login" placeholder="twitch username" maxlength="26" required pattern="@?[A-Za-z0-9_]{1,25}" aria-label="Username to ignore"><button type="submit" class="ember">Ignore user</button></form>
@@ -131,6 +163,6 @@ ${ignoredList}
 
   return scrollDoc(`${name} — Auto-ban words`, body, {
     width: 1000,
-    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,td form button{padding:5px 12px;font-size:.78rem}.actions{white-space:nowrap}.actions form{margin-left:6px}form.edit{display:flex;gap:6px;margin:0}form.edit input{flex:1;min-width:140px;padding:5px 8px}form.add{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}form.add input{flex:1 1 240px;padding:9px 12px}.controls{align-items:center}.controls select{max-width:100%}.ex{margin-top:4px;word-break:break-word}tr.off td{opacity:.6}.badge.offb{color:var(--bad);background:var(--bad-bg)}button.danger{color:var(--bad)}td{vertical-align:middle}`,
+    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,td form button{padding:5px 12px;font-size:.78rem}.actions{white-space:nowrap}.actions form{margin-left:6px}form.edit{display:flex;gap:6px;margin:0}form.edit input{flex:1;min-width:140px;padding:5px 8px}form.add{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}form.add input{flex:1 1 240px;padding:9px 12px}.controls{align-items:center}.controls select{max-width:100%}.ex{margin-top:4px;word-break:break-word}tr.off td{opacity:.6}.badge.offb{color:var(--bad);background:var(--bad-bg)}button.danger{color:var(--bad)}.badge,td.num.small{white-space:nowrap}td{vertical-align:middle}`,
   });
 }
