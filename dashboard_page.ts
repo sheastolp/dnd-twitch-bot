@@ -6,6 +6,7 @@ import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
 import { DASH_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
+import { folderReqNote, LINKS_CSS, renderLinksSection, reqChips, reqLink, requiredByChips, tileNeedNote, tileReqClass } from "./dashboard_links.ts";
 
 // ── Web dashboard (see dashboard.ts for the !dashboard chat command that
 // hands out the link, and main.ts for the GET/POST /dashboard routes) ──
@@ -57,10 +58,10 @@ function toggleTile(d: DashboardData, key: string, label: string, sub: string, e
   const paren = label.indexOf(" (");
   const short = paren > 0 ? label.slice(0, paren) : label;
   const pill = `<span class="pill ${enabled ? "on" : "off"}">${enabled ? "On" : "Off"}</span>`;
-  return `<button type="button" class="tile${enabled ? "" : " tile-paused"}" id="toggle-${escapeHtml(key)}" data-open="${dlg}" aria-haspopup="dialog">
-      <span class="tile-title">${escapeHtml(short)}${warn ? " ⚠️" : ""}</span>${pill}
+  return `<button type="button" class="tile${enabled ? "" : " tile-paused"}${tileReqClass(key)}" id="toggle-${escapeHtml(key)}" data-open="${dlg}" aria-haspopup="dialog">
+      <span class="tile-title">${escapeHtml(short)}${warn ? " ⚠️" : ""}</span>${pill}${enabled ? tileNeedNote(d, key) : ""}
     </button>${editorDialog(dlg, escapeHtml(label), `<div class="toggle-detail">
-      ${sub ? `<p>${escapeHtml(sub)}</p>` : ""}${warn ? `<p class="warn">${warn}</p>` : ""}
+      ${sub ? `<p>${escapeHtml(sub)}</p>` : ""}${warn ? `<p class="warn">${warn}</p>` : ""}${reqChips(d, key)}${requiredByChips(d, key)}
       <div class="row-controls">${pill}${guideLink(key)}
         <form method="post" action="/dashboard/features" class="push">
           ${dashHidden(d.broadcasterId, d.channelKey)}${hidden}
@@ -108,6 +109,7 @@ function renderDashboardIndex(): string {
       <li><a href="#sec-triggers">Chat triggers</a></li>
       <li><a href="#sec-timed">Timed messages</a></li>
       <li><a href="#sec-groups">Command groups</a><ul>${groupLinks}</ul></li>
+      <li><a href="#sec-links">Linked commands summary</a></li>
     </ol>
   </nav>`;
 }
@@ -128,9 +130,10 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     featureToggleRow(d, "npcchatter_on", "npcchatter_off", "AI NPC chatter", "NPCs jumping into chat on their own (needs AI NPCs on too)", d.npcChatterEnabled),
   ];
   // One switch per Guild Codex card, under that card's guide section.
-  const bySection = new Map<string, { rows: string[]; on: number }>();
+  const bySection = new Map<string, { rows: string[]; on: number; keys: string[] }>();
   for (const [key, def] of Object.entries(COMMAND_GROUPS)) {
-    const g = bySection.get(def.section) ?? { rows: [], on: 0 };
+    const g = bySection.get(def.section) ?? { rows: [], on: 0, keys: [] };
+    g.keys.push(key);
     const enabled = d.groupToggles[key] ?? true;
     g.rows.push(groupToggleRow(d, key, def.label, enabled));
     if (enabled) g.on++;
@@ -140,6 +143,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
   // per-card switches (which only matter while it's on).
   const hoard = bySection.get("Hunt and Hoard");
   if (hoard) {
+    hoard.keys.unshift("hoard");
     hoard.rows = [featureToggleRow(d, "hoard_on", "hoard_off", "Hunt and Hoard", "The whole module — off by default; same as !hoard on/off. The switches beside it only matter while it's on", d.hoardEnabled), ...hoard.rows];
     if (d.hoardEnabled) hoard.on++;
   }
@@ -155,7 +159,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
       const state = g.on === total ? "all on" : g.on === 0 ? "all off" : `${g.on}/${total} on`;
       return `<details class="folder" id="grp-${sectionSlug(section)}" open>
         <summary><span class="folder-name">${escapeHtml(section)}</span><span class="tile-meta">${total} switch${total === 1 ? "" : "es"} · ${state}</span></summary>
-        <div class="tiles mini">${g.rows.join("")}</div>
+        ${folderReqNote(d, g.keys)}<div class="tiles mini">${g.rows.join("")}</div>
       </details>`;
     })
     .join("")}</div>`;
@@ -167,7 +171,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     `<p class="muted">Turning off the entire bot overrides everything else. Changes apply immediately.</p>
     <div class="tiles mini">${dedicated}</div>`),
     groups: bigSquare("sec-groups", "Command groups", `${plural(bySection.size, "group")} · ${groupOn}/${groupTotal} on`,
-    `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need the gold switch on.</p>
+    `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need ${reqLink(d, "points")} — switches with a <span class="gold-swatch">gold border</span> are ones other switches depend on, and each switch's window links to whatever it needs. Not sure which switch a command uses? See the <a href="#sec-links">linked commands summary</a>.</p>
     ${groups}`, true) };
 }
 
@@ -338,7 +342,7 @@ export function renderDashboardPage(d: DashboardData): string {
     : d.notice
     ? `<p class="banner ok">${escapeHtml(d.notice)}</p>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}</style></head><body>
   ${scrollOpen()}
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
@@ -353,6 +357,7 @@ export function renderDashboardPage(d: DashboardData): string {
     ${renderTimedMessagesSection(d)}
   </div>
   ${features.groups}
+  ${renderLinksSection(d, bigSquare)}
   <script>(function(){
     var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.folder"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
@@ -397,6 +402,11 @@ export function renderDashboardPage(d: DashboardData): string {
     function lay(){grids.forEach(function(g){[].forEach.call(g.children,function(c){c.style.gridRowEnd="span "+Math.ceil((c.getBoundingClientRect().height+parseFloat(c.style.marginBottom))/4)})})}
     lay();
     if(window.ResizeObserver){var ro=new ResizeObserver(lay);grids.forEach(function(g){[].forEach.call(g.children,function(c){ro.observe(c)})})}else{window.addEventListener("resize",lay);all.forEach(function(d){d.addEventListener("toggle",lay)})}
+    // Gold "Needs …" links, the summary's switch names, and "Required by" links:
+    // close whatever window is open and open the linked switch instead.
+    document.addEventListener("click",function(e){if(e.defaultPrevented)return;var a=e.target.closest&&e.target.closest("a.req-link,a.sum-link,a.req-inline,a[href='#sec-links']");if(!a)return;var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();document.querySelectorAll("dialog[open]").forEach(function(dl){dl.close()});try{history.replaceState(null,"","#"+id)}catch(x){}show(el);if(el.classList.contains("tile")){el.classList.add("flash");setTimeout(function(){el.classList.remove("flash")},1600)}});
+    var sf=document.querySelector(".sum-filter");
+    if(sf)sf.addEventListener("input",function(){var q=sf.value.trim().toLowerCase(),n=0;document.querySelectorAll("table.sum tbody tr").forEach(function(tr){var hit=!q||tr.getAttribute("data-search").indexOf(q)>=0;tr.hidden=!hit;if(hit)n++});document.querySelector(".sum-empty").hidden=n>0;lay()});
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
     goHash();
   })();</script>

@@ -138,6 +138,78 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
 };
 
+// ── Switches that depend on other switches ──────────────────────────────
+// Dedicated (non-group) switches, by the key their dashboard tile and the
+// guide's /dashboard/go?toggle=<key> links use.
+export const DEDICATED_LABELS: Record<string, string> = {
+  bot: "Entire bot",
+  market: "Open-stall merchant",
+  chronicle: "Chronicle",
+  autoban: "Auto-ban",
+  points: "Gold, leaderboard & giveaways",
+  npc: "AI NPCs",
+  npcchatter: "AI NPC chatter",
+  hoard: "Hunt and Hoard",
+};
+
+/** Chat commands behind each dedicated switch (group switches list theirs in the label). */
+export const DEDICATED_COMMANDS: Record<string, string> = {
+  bot: "!dndbot on, !dndbot off, !dndbot status",
+  market: "!market on/off/status, !stall, !haggle",
+  chronicle: "!chronicle on/off/status",
+  autoban: "!autoban on/off/status",
+  points: "!gold on, !gold off, !gold status",
+  npc: "!npc",
+  npcchatter: "NPCs chatting on their own",
+  hoard: "!hoard on/off/status, !hoard",
+};
+
+/**
+ * Switch → the other switches it can't work without (besides "Entire bot",
+ * which gates everything). Only real code-level gates are listed: e.g. rob.ts,
+ * swearjar.ts and points.ts go silent while gold (isPointsEnabled) is off;
+ * hoard.ts ignores its words while the module is off and its stall can't sell
+ * without gold. The dashboard and the Guild Codex draw their gold-bordered
+ * "Needs …" links from this.
+ */
+export const TOGGLE_REQUIRES: Record<string, string[]> = {
+  chatgold: ["points"],
+  goldcheck: ["points"],
+  goldgive: ["points"],
+  leaderboard: ["points"],
+  giveaways: ["points"],
+  rob: ["points"],
+  jar: ["points"],
+  jarfine: ["points"],
+  jargiveaway: ["points"],
+  npcchatter: ["npc"],
+  hoardhunt: ["hoard"],
+  hoardbounties: ["hoard"],
+  hoardshop: ["hoard", "points"],
+  maptemplates: ["maps"],
+  mapterrain: ["maps"],
+  maptokens: ["maps"],
+};
+
+/** Every switch some other switch depends on. */
+export const REQUIRED_TOGGLES = new Set(Object.values(TOGGLE_REQUIRES).flat());
+
+/** Short display name of any switch: "Gold, leaderboard & giveaways", "Hunting". */
+export function toggleLabel(key: string): string {
+  const label = DEDICATED_LABELS[key] ?? COMMAND_GROUPS[key]?.label ?? key;
+  const paren = label.indexOf(" (");
+  return paren > 0 ? label.slice(0, paren) : label;
+}
+
+/** Short names for the switches others depend on, used on their links. */
+const REQUIRED_SHORT: Record<string, string> = { points: "Gold", hoard: "Hunt and Hoard", npc: "AI NPCs", maps: "Maps", bot: "Entire bot" };
+export const requiredLabel = (key: string) => REQUIRED_SHORT[key] ?? toggleLabel(key);
+
+/** Switches that need `key` (the reverse of TOGGLE_REQUIRES). */
+export function requiredBy(key: string): string[] {
+  return Object.entries(TOGGLE_REQUIRES).filter(([, reqs]) => reqs.includes(key)).map(([k]) => k);
+}
+
 const COMMAND_TO_GROUP: Record<string, string> = Object.fromEntries(
   Object.entries(COMMAND_GROUPS).flatMap(([group, def]) => def.commands.map((c) => [c, group])),
 );
