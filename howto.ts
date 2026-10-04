@@ -101,11 +101,7 @@ export function renderGuideHowtoSection(): string {
     list.map((t) =>
       `<section class="card" id="howto-${t.slug}"><span class="pill">${escapeHtml(t.audience)}</span><h3 style="margin-top:8px">${escapeHtml(t.title)}</h3><p>${escapeHtml(t.summary)}</p><p><a href="/howto/${t.slug}">Read the step-by-step guide →</a></p></section>`
     ).join("");
-  // Collapsed by default; opens when its heading is clicked or a link targets it.
-  const count = HOWTO_SETUP.length + HOWTO_PLAY.length;
-  return `<details class="fold" id="howto"><summary><h2>How-to guides</h2><span class="fold-meta">${count} guides · <span class="fold-hint"></span></span></summary><p>Step-by-step walkthroughs, each on its own page. The sections further down are the full command reference. <a href="/howto">See every guide on one page</a>.</p><h3>Setting up &amp; running your channel</h3><div class="grid">${cards(HOWTO_SETUP)}</div><h3 style="margin-top:22px">Playing &amp; community</h3><div class="grid">${cards(HOWTO_PLAY)}</div></details>
-<script>(function(){var d=document.getElementById("howto");if(!d)return;function go(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el&&d.contains(el)){d.open=true;el.scrollIntoView()}}
-document.querySelectorAll('a[href^="#howto"]').forEach(function(a){a.addEventListener("click",function(){d.open=true})});window.addEventListener("hashchange",go);go()})();</script>`;
+  return `<h2 id="howto">How-to guides</h2><p>Step-by-step walkthroughs, each on its own page. The sections further down are the full command reference. <a href="/howto">See every guide on one page</a>.</p><h3>Setting up &amp; running your channel</h3><div class="grid">${cards(HOWTO_SETUP)}</div><h3 style="margin-top:22px">Playing &amp; community</h3><div class="grid">${cards(HOWTO_PLAY)}</div>`;
 }
 
 /** Web pages worth bookmarking for the broadcaster and moderators. Pages that
