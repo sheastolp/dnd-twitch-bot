@@ -95,8 +95,6 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   bestiary: { section: "Arena, wilds & the company", label: "Bestiary (!bestiary — huntable monsters & what they've learned)", commands: ["bestiary"], parent: "combat" },
   // Chronicle, oracle & NPCs (chronicle and NPCs have their own switches)
   oracle: { section: "Chronicle, oracle & NPCs", label: "Oracle (!oracle)", commands: ["oracle"], parent: "dice" },
-  ads: { section: "Chronicle, oracle & NPCs", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
-  adalerts: { section: "Chronicle, oracle & NPCs", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
   // Gold, leaderboard & giveaways (needs the gold switch on as well)
   chatgold: { section: "Gold, leaderboard & giveaways", label: "Earning gold (copper for chatting)", commands: [] },
   goldcheck: { section: "Gold, leaderboard & giveaways", label: "Your purse (!gold, !gold @user)", commands: [] },
@@ -122,6 +120,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   maptokens: { section: "Battle maps", label: "Place & move characters (!map addchar/move/removechar)", commands: [], parent: "maps" },
   // Onboarding and support
   botcheck: { section: "Onboarding and support", label: "Bot viewer check (!botcheck)", commands: ["botcheck"] },
+  ads: { section: "Onboarding and support", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
+  adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
   // Everything else
   misc: { section: "Other", label: "Misc (!hug, !logs, !connections)", commands: ["hug", "logs", "connections"] },
 };
