@@ -125,7 +125,7 @@ export async function renderAutoBanPage(d: { broadcasterId: string; broadcasterN
 ${!permitted ? `<p class="banner error">GuildScribe doesn't have ban permission for this channel yet — the broadcaster needs to <a href="/connect">reconnect</a> once and approve it.</p>` : ""}
 ${!enabled ? `<p class="note">Auto-ban is off, so nothing below is enforced and nothing is learned until it's turned on.</p>` : ""}`;
 
-  const addForm = `<form method="post" action="/dashboard/autoban" class="add">${hidden}<input type="hidden" name="intent" value="add"><input name="phrase" placeholder='e.g. "best viewers" or "streamboo.com"' maxlength="${MAX_PHRASE_LEN}" required aria-label="New phrase"><button type="submit" class="ember">Add phrase</button></form>`;
+  const addForm = `<form method="post" action="/dashboard/autoban" class="add">${hidden}<input type="hidden" name="intent" value="add"><input name="phrase" placeholder='e.g. "best viewers", "streamboo.com" or /cheap\\s+(viewers|followers)/' maxlength="${MAX_PHRASE_LEN}" required aria-label="New phrase"><button type="submit" class="ember">Add phrase</button></form>`;
 
   const ignoredList = ignored.length
     ? `<ul class="list">${ignored.map((r) => `<li><span class="who">${escapeHtml(r.login)}</span><span class="muted small">since ${fmtDate(r.addedAt)}</span><span style="margin-left:auto">${btn("unignore", "Remove", `<input type="hidden" name="login" value="${escapeHtml(r.login)}">`)}</span></li>`).join("")}</ul>`
@@ -133,7 +133,7 @@ ${!enabled ? `<p class="note">Auto-ban is off, so nothing below is enforced and 
 
   const body = `<header class="dash-top"><div><span class="pill">Moderation · Auto-ban words</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>Anyone who isn't a moderator, the broadcaster or on the ignore list and says one of the <strong>active</strong> phrases below is <strong>permanently banned</strong>. Matching ignores case, extra spaces, look-alike characters (<code>v1ewers</code>) and spelled-out domains (<code>grow dot com</code>, <code>grow . com</code>).</p>
+<p>Anyone who isn't a moderator, the broadcaster or on the ignore list and says one of the <strong>active</strong> phrases below is <strong>permanently banned</strong>. Matching sees through the usual spelling dodges: case, accents and fancy Unicode letters, look-alikes (<code>v1ewers</code>, <code>$ub$</code>, <code>Al viewers</code>, Cyrillic letters, <code>vv</code> for w), stretched letters (<code>viiiewers</code>), letters broken up (<code>v.i.e.w.e.r.s</code>, <code>aiviewers</code>) and spelled-out domains (<code>grow dot com</code>, <code>grow . com</code>). A phrase still has to be whole words, so “ai” never matches “aint”.</p>
 ${status}
 <h2>Learned spam — awaiting review</h2>
 <p class="muted">Messages that read like viewer/follower ads (a link plus "viewers", "grow your stream" and the like). Not enforced yet. ${mode === "auto" ? `In automatic mode a pattern starts being banned once ${LEARN_PROMOTE_CHATTERS} different chatters send it.` : mode === "suggest" ? "Suggest-only mode: nothing here is banned until you approve it." : "Learning is off, so nothing new will appear."} Domains in messages that get banned are learned straight away. <strong>Not spam</strong> keeps a pattern from being learned again.</p>
@@ -142,6 +142,7 @@ ${pending.length
     : `<p class="note">Nothing waiting.</p>`}
 <h2>Auto-ban phrases</h2>
 ${addForm}
+<p class="muted small"><strong>Regex:</strong> write a phrase between slashes, like <code>/v[i1]ew(er|bot)s?/</code>, to use a regular expression (always case-insensitive, checked against the cleaned-up message and a copy with look-alikes swapped back). It's refused if it's broken, matches everyday chat, or nests repeats like <code>(a+)+</code>. Plain phrases already cover the spelling dodges above, so you rarely need one.</p>
 <p class="muted small">${words.length} / ${MAX_PHRASES} entries. Edit a phrase in place and press Save. A phrase that's turned off is kept (and never re-learned) but not enforced.</p>
 ${listed.length
     ? `<div class="table-wrap"><table><thead><tr><th>Phrase</th><th>Source</th><th class="num">Bans</th><th class="num">Last ban</th><th></th></tr></thead><tbody>${wordRows}</tbody></table></div>`

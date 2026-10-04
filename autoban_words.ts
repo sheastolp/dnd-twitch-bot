@@ -10,10 +10,22 @@
 //   autoban_ignored  logins auto-ban never touches (and never learns from)
 //   autoban_learn    per-channel learning mode: auto | suggest | off
 //
-// Matching runs on a normalized copy of the message so the usual evasions
-// collapse to one form: case, zero-width characters, a few look-alike
-// letters, and spaced-out or spelled-out domains ("grow . com",
-// "grow dot com", "grow(.)com" all become "grow.com").
+// Matching runs on a normalized copy of the message (case, accents,
+// zero-width/invisible characters, fullwidth and "fancy" Unicode letters,
+// spaced-out or spelled-out domains — "grow . com", "grow dot com" and
+// "grow(.)com" all become "grow.com"). Each plain phrase is then compiled
+// into a loose pattern that also catches the usual spelling dodges:
+//   look-alikes   v1ewers, f0ll0wers, $ub$, víewers, Cyrillic/Greek letters,
+//                 Al viewers (l for I), rn for m, vv for w, ph for f, |< for k
+//   stretched     viiieeewers, folllowers
+//   broken up     v.i.e.w.e.r.s, f o l l o w e r s, view_ers, aiviewers
+// It still has to stand as whole words, so "aint" never matches "ai".
+//
+// Regex entries. A phrase written as /pattern/ (optionally /pattern/flags) is
+// a regular expression instead, always case-insensitive, tested against the
+// normalized message and its look-alike-folded form. It's checked when saved:
+// it must compile, must not match an empty or everyday message, and must not
+// nest repeats like (a+)+ or use back-references, which could stall the bot.
 //
 // Learning. Spam bots rotate their wording and usernames but keep their
 // domain and their pitch, so two signals feed the list:
@@ -48,7 +60,9 @@ export interface AutoBanWord {
 
 export const DEFAULT_PHRASES = ["ai viewers"];
 export const MAX_PHRASES = 300;
-export const MAX_PHRASE_LEN = 120;
+export const MAX_PHRASE_LEN = 200;
+// Learned whole-message patterns are cut to this length.
+const MAX_PITCH_LEN = 120;
 const MIN_PHRASE_LEN = 3;
 export const LEARN_PROMOTE_CHATTERS = 2;
 const MAX_EXAMPLE_LEN = 200;
@@ -65,18 +79,37 @@ const SAFE_DOMAINS = new Set([
 
 // ── Normalization ──
 
+// One-character look-alikes, folded by fold() (used by the ban history and
+// for regex entries). Ambiguous ones pick the likelier letter.
 const LOOKALIKES: Record<string, string> = {
-  "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s",
-  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", // Cyrillic
+  "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "9": "g", "@": "a", "$": "s", "!": "i", "|": "i",
+  "€": "e", "£": "l", "¢": "c", "ß": "b", "ø": "o",
+  // Cyrillic
+  "а": "a", "в": "b", "е": "e", "ё": "e", "з": "e", "к": "k", "м": "m", "н": "h", "һ": "h", "о": "o", "р": "p", "с": "c", "т": "t",
+  "у": "y", "х": "x", "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "ү": "y", "ӏ": "l", "г": "r", "п": "n", "ш": "w",
+  // Greek
+  "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+  "ω": "w", "μ": "u", "σ": "o",
+  // Small capitals (NFKD leaves these alone)
+  "ᴀ": "a", "ʙ": "b", "ᴄ": "c", "ᴅ": "d", "ᴇ": "e", "ғ": "f", "ɢ": "g", "ʜ": "h", "ɪ": "i", "ᴊ": "j", "ᴋ": "k", "ʟ": "l",
+  "ᴍ": "m", "ɴ": "n", "ᴏ": "o", "ᴘ": "p", "ǫ": "q", "ʀ": "r", "ꜱ": "s", "ᴛ": "t", "ᴜ": "u", "ᴠ": "v", "ᴡ": "w", "ʏ": "y",
+  "ᴢ": "z",
 };
+const classEscape = (c: string) => c.replace(/[\\\]^-]/g, "\\$&");
+const LOOKALIKE_RE = new RegExp(`[${Object.keys(LOOKALIKES).map(classEscape).join("")}]`, "g");
 
-/** Lowercase, strip zero-width/combining marks, collapse whitespace and
+// Invisible characters spammers wedge into words: zero-width and joiner
+// marks, soft hyphen, combining marks (after NFKD this strips accents too),
+// bidi controls, word joiners, Hangul fillers, variation selectors, tags.
+const INVISIBLE_RE = /[­͏̀-ͯ؜ᅟᅠ឴឵᠋-᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]|\udb40[\udc00-\udc7f]/g;
+
+/** Lowercase, strip invisible/combining marks, collapse whitespace and
  * rejoin obfuscated domains. Digits are kept (domains and real words use
  * them); lookalikes are folded only in the separate `folded` form. */
 export function normalizeText(text: string): string {
   return text
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f\u200b-\u200f\u2060\ufeff]/g, "")
+    .replace(INVISIBLE_RE, "")
     .toLowerCase()
     // "grow dot com", "grow (dot) com", "grow [.] com", "grow . com" → "grow.com".
     // A bare ". " is left alone so sentence breaks ("thanks all. com...") don't
@@ -87,26 +120,192 @@ export function normalizeText(text: string): string {
 }
 
 export function fold(text: string): string {
-  return text.replace(/[013457@$аеорсухі]/g, (c) => LOOKALIKES[c] ?? c);
+  return text.replace(LOOKALIKE_RE, (c) => LOOKALIKES[c] ?? c);
 }
 
-function escapeRe(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// ── Phrase → loose pattern ──
+
+// What each letter may be written as: the letter itself, single-character
+// look-alikes, and a few multi-character ones. i and l share 1 | ! (and each
+// other: "Al viewers").
+const LETTER_FORMS: Record<string, { chars: string; seqs?: string[] }> = {
+  a: { chars: "a4@аαᴀ", seqs: ["/\\"] },
+  b: { chars: "b86вßβʙ", seqs: ["|3"] },
+  c: { chars: "c(<¢сᴄ" },
+  d: { chars: "dԁᴅ", seqs: ["|)"] },
+  e: { chars: "e3€еёзεᴇ" },
+  f: { chars: "fƒғ", seqs: ["ph"] },
+  g: { chars: "g96ɢ" },
+  h: { chars: "h#нһʜ", seqs: ["|-|"] },
+  i: { chars: "i1!|lіїιɪ" },
+  j: { chars: "jјᴊ" },
+  k: { chars: "kкκᴋ", seqs: ["|<"] },
+  l: { chars: "l1|!iӏʟ£" },
+  m: { chars: "mмᴍ", seqs: ["rn", "|v|"] },
+  n: { chars: "nпηɴ", seqs: ["|\\|"] },
+  o: { chars: "o0оοσᴏø°", seqs: ["()"] },
+  p: { chars: "pрρᴘ" },
+  q: { chars: "qǫ" },
+  r: { chars: "rгʀ" },
+  s: { chars: "s5$ѕꜱ" },
+  t: { chars: "t7+тτᴛ" },
+  u: { chars: "uυμᴜ" },
+  v: { chars: "vνᴠ", seqs: ["\\/"] },
+  w: { chars: "wшωᴡ", seqs: ["vv", "\\/\\/"] },
+  x: { chars: "xхχ×" },
+  y: { chars: "yуүʏ" },
+  z: { chars: "z2ᴢ" },
+};
+// Up to two junk characters between the letters of a word ("v.i.e.w", "f o l").
+const IN_WORD_GAP = 2;
+// Up to four (or none) between words, or for punctuation in the phrase
+// ("ai viewers" ↔ "aiviewers", "grow.com" ↔ "grow com").
+const BETWEEN_GAP = 4;
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+export interface LoosePattern {
+  units: Array<{ chars: string; seqs: string[] }>; // one per phrase letter; each may repeat
+  gaps: number[]; // junk allowed after units[k]
+}
+
+/** Compiles a plain phrase into letter units: look-alikes, stretched letters,
+ * junk between letters, flexible gaps between words. */
+export function loosePattern(phrase: string): LoosePattern {
+  const units: LoosePattern["units"] = [];
+  const gaps: number[] = [];
+  for (const tok of phrase.match(/[\p{L}\p{N}]+|[^\p{L}\p{N}]+/gu) ?? []) {
+    if (!WORD_CHAR.test(tok)) {
+      if (units.length) gaps[units.length - 1] = BETWEEN_GAP;
+      continue;
+    }
+    for (const ch of tok) {
+      if (units.length && gaps[units.length - 1] == null) gaps[units.length - 1] = IN_WORD_GAP;
+      const f = LETTER_FORMS[ch];
+      units.push({ chars: f ? f.chars : ch, seqs: f?.seqs ?? [] });
+    }
+  }
+  gaps.length = Math.max(0, units.length - 1);
+  return { units, gaps };
+}
+
+/** Whether the text contains the pattern as whole words. Follows every
+ * possible reading at once (a set of states per text position) instead of
+ * backtracking, so it stays linear however the look-alikes overlap — a
+ * chatter can't stall the bot with something like "1|!1|!1|!…". */
+export function looseMatch(text: string, pat: LoosePattern): boolean {
+  const U = pat.units.length;
+  if (!U) return false;
+  const chars = [...text];
+  const n = chars.length;
+  const isWord = (i: number) => i >= 0 && i < n && WORD_CHAR.test(chars[i]);
+  // States: 2k = needs unit k; 2k+1 = has matched unit k at least once;
+  // 2U + 8k + j = in the gap after unit k, j junk characters skipped.
+  const at: Array<Set<number>> = Array.from({ length: n + 1 }, () => new Set());
+  const push = (i: number, st: number) => {
+    if (at[i].has(st)) return;
+    at[i].add(st);
+    if (st < 2 * U) {
+      if (st % 2 === 1 && st >> 1 < U - 1) push(i, 2 * U + 8 * (st >> 1)); // move on to the gap
+    } else push(i, 2 * (((st - 2 * U) >> 3) + 1)); // the gap may end here
+  };
+  for (let i = 0; i <= n; i++) {
+    if (i < n && !isWord(i - 1)) push(i, 0);
+    for (const st of at[i]) {
+      if (st < 2 * U) {
+        const k = st >> 1;
+        if (st % 2 === 1 && k === U - 1 && !isWord(i)) return true;
+        if (i >= n) continue;
+        const u = pat.units[k];
+        if (u.chars.includes(chars[i])) push(i + 1, 2 * k + 1);
+        for (const seq of u.seqs) {
+          if (i + seq.length <= n && chars.slice(i, i + seq.length).join("") === seq) push(i + seq.length, 2 * k + 1);
+        }
+      } else if (i < n && !isWord(i) && ((st - 2 * U) & 7) < pat.gaps[(st - 2 * U) >> 3]) {
+        push(i + 1, st + 1);
+      }
+    }
+    at[i].clear();
+  }
+  return false;
+}
+
+// ── Regex entries ──
+
+const REGEX_ENTRY_RE = /^\/(.+)\/([a-z]*)$/s;
+export const isRegexEntry = (phrase: string) => REGEX_ENTRY_RE.test(phrase);
+
+// Everyday chat a regex entry must leave alone.
+const BENIGN_SAMPLES = [
+  "", "a", "hi", "gg", "lol", "ok", "hello everyone", "hey chat how is everyone doing today",
+  "nice roll!", "that was a great stream, thanks", "!char", "!roll d20", "can i join the party?",
+  "what game is this", "good night all <3",
+];
+
+/** Compiles a /pattern/flags entry, or says why it's unusable. */
+function compileRegexEntry(phrase: string): RegExp | string {
+  const m = phrase.match(REGEX_ENTRY_RE);
+  if (!m) return "A regex is written between slashes, like /v[i1]ewers?/.";
+  const [, src, rawFlags] = m;
+  if (/[^imsu]/.test(rawFlags)) return "Regex flags can only be i, m, s or u.";
+  // Nested repeats like (a+)+ or (\w*)* can take forever on some messages.
+  if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,)/.test(src)) {
+    return "That regex repeats a repeat, like (a+)+, which could stall the bot. Simplify it.";
+  }
+  if (/\\[1-9]|\\k</.test(src.replace(/\\\\/g, ""))) return "Back-references aren't allowed in auto-ban regexes.";
+  let re: RegExp;
+  try {
+    re = new RegExp(src, [...new Set(rawFlags + "i")].join(""));
+  } catch (e) {
+    return `That regex doesn't compile: ${(e as Error).message}`;
+  }
+  const hit = BENIGN_SAMPLES.find((t) => re.test(t));
+  if (hit !== undefined) return `That regex is too broad: it matches ${hit ? `"${hit}"` : "an empty message"}.`;
+  return re;
 }
 
 /** Normalizes a mod-entered phrase the same way messages are, so "AI  Viewers"
- * and "ai viewers" are one entry. Null if unusable. */
-export function sanitizePhrase(raw: string): string | null {
-  const p = normalizeText(String(raw ?? "")).slice(0, MAX_PHRASE_LEN).trim();
-  if (p.length < MIN_PHRASE_LEN) return null;
-  return p;
+ * and "ai viewers" are one entry. A /regex/ entry is kept as typed, once it
+ * passes the safety checks. */
+export function checkPhrase(raw: string): { phrase: string } | { error: string } {
+  const trimmed = String(raw ?? "").trim();
+  if (/^\/.+\/[a-z]*$/s.test(trimmed)) {
+    if (trimmed.length > MAX_PHRASE_LEN) return { error: `A regex can be at most ${MAX_PHRASE_LEN} characters.` };
+    const re = compileRegexEntry(trimmed);
+    return typeof re === "string" ? { error: re } : { phrase: trimmed };
+  }
+  const p = normalizeText(trimmed).slice(0, MAX_PHRASE_LEN).trim();
+  if (p.length < MIN_PHRASE_LEN) return { error: `A phrase needs at least ${MIN_PHRASE_LEN} characters.` };
+  return { phrase: p };
 }
 
-/** Whether the (already normalized) message contains the phrase as whole
- * words — checked against the plain and lookalike-folded forms. */
-function phraseMatches(normalized: string, phrase: string): boolean {
-  const re = (p: string) => new RegExp(`(?:^|[^a-z0-9])${escapeRe(p).replace(/ /g, "\\s*")}(?:$|[^a-z0-9])`);
-  return re(phrase).test(normalized) || re(fold(phrase)).test(fold(normalized));
+export function sanitizePhrase(raw: string): string | null {
+  const r = checkPhrase(raw);
+  return "phrase" in r ? r.phrase : null;
+}
+
+// Compiled matchers, shared across channels (the same phrases recur).
+type Matcher = (normalized: string, folded: string) => boolean;
+const matcherCache = new Map<string, Matcher | null>();
+
+function matcherFor(phrase: string): Matcher | null {
+  let m = matcherCache.get(phrase);
+  if (m !== undefined) return m;
+  if (isRegexEntry(phrase)) {
+    const re = compileRegexEntry(phrase);
+    m = typeof re === "string" ? null : (n, f) => re.test(n) || re.test(f);
+  } else {
+    const pat = loosePattern(phrase);
+    m = (n) => looseMatch(n, pat);
+  }
+  if (matcherCache.size > 2000) matcherCache.clear();
+  matcherCache.set(phrase, m);
+  return m;
+}
+
+/** Whether the (already normalized) message trips the phrase. */
+export function phraseMatches(normalized: string, phrase: string, folded = fold(normalized)): boolean {
+  const m = matcherFor(phrase);
+  return m ? m(normalized, folded) : false;
 }
 
 // ── Spam heuristic (used only for learning, never to ban on its own) ──
@@ -227,8 +426,9 @@ export async function getLearnMode(broadcasterId: string): Promise<LearnMode> {
 export type EditResult = { ok: true; message: string } | { ok: false; error: string };
 
 export async function addWord(broadcasterId: string, raw: string): Promise<EditResult> {
-  const phrase = sanitizePhrase(raw);
-  if (!phrase) return { ok: false, error: `A phrase needs at least ${MIN_PHRASE_LEN} characters.` };
+  const checked = checkPhrase(raw);
+  if ("error" in checked) return { ok: false, error: checked.error };
+  const phrase = checked.phrase;
   await ensureSeeded(broadcasterId);
   const count = await sqlite.execute("SELECT COUNT(*) AS n FROM autoban_words WHERE broadcaster_id = ?", [broadcasterId]);
   const existing = await sqlite.execute("SELECT id FROM autoban_words WHERE broadcaster_id = ? AND phrase = ?", [broadcasterId, phrase]);
@@ -247,8 +447,9 @@ export async function addWord(broadcasterId: string, raw: string): Promise<EditR
 }
 
 export async function editWord(broadcasterId: string, id: number, raw: string): Promise<EditResult> {
-  const phrase = sanitizePhrase(raw);
-  if (!phrase) return { ok: false, error: `A phrase needs at least ${MIN_PHRASE_LEN} characters.` };
+  const checked = checkPhrase(raw);
+  if ("error" in checked) return { ok: false, error: checked.error };
+  const phrase = checked.phrase;
   const clash = await sqlite.execute("SELECT id FROM autoban_words WHERE broadcaster_id = ? AND phrase = ? AND id != ?", [broadcasterId, phrase, id]);
   if (clash.rows.length) return { ok: false, error: `"${phrase}" is already on the list.` };
   const res = await sqlite.execute("UPDATE autoban_words SET phrase = ? WHERE broadcaster_id = ? AND id = ?", [phrase, broadcasterId, id]);
@@ -343,7 +544,8 @@ export async function findMatch(broadcasterId: string, chatMessage: string): Pro
   const state = await loadState(broadcasterId);
   if (!state.active.length) return null;
   const normalized = normalizeText(chatMessage);
-  return state.active.find((w) => phraseMatches(normalized, w.phrase)) ?? null;
+  const folded = fold(normalized);
+  return state.active.find((w) => phraseMatches(normalized, w.phrase, folded)) ?? null;
 }
 
 export async function recordHit(broadcasterId: string, id: number) {
@@ -370,7 +572,7 @@ export async function learnFromMessage(broadcasterId: string, chatMessage: strin
   if (state.mode === "off") return;
   // Without a domain, the pitch itself is the key — minus @mentions, which
   // bots vary per target.
-  const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PHRASE_LEN);
+  const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PITCH_LEN);
   const keys = domains.length ? domains : pitch.length >= MIN_LEARNED_MESSAGE_LEN ? [pitch] : [];
   for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
 }
@@ -381,7 +583,7 @@ export async function learnFromMessage(broadcasterId: string, chatMessage: strin
 export async function suggestFromHistory(broadcasterId: string, chatMessage: string, chatterId: string) {
   const normalized = normalizeText(chatMessage);
   const domains = extractDomains(normalized);
-  const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PHRASE_LEN);
+  const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PITCH_LEN);
   const keys = domains.length ? domains : pitch.length >= MIN_LEARNED_MESSAGE_LEN ? [pitch] : [];
   for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
 }
