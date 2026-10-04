@@ -75,6 +75,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
 | **types.ts** | Shared types |
+| **sqlite.ts** | Val Town's `std/sqlite` with a short retry (2 tries, 250/800 ms) on transient service errors — rate limits and overload, which the libSQL client surfaces as `TypeError: resp.body?.cancel is not a function`. SQL errors are never retried. Every module imports `sqlite` from here |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration |
 | **narration.ts** / **dice.ts** / **flavor.ts** / **flavor_events.ts** | Duel narration lines, `!roll` dice expressions, fate/oracle/hug/shmash flavor, and sub/raid thank-yous + goodnight replies |

@@ -34,7 +34,7 @@
 // was requested get a one-line "broadcaster, please reconnect" reply from
 // !followage until they revisit /connect; !watchtime needs no permission.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { env, getAppToken, sendChatMessage } from "./twitch.ts";

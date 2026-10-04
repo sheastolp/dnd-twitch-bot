@@ -20,7 +20,7 @@
 // scope get a "broadcaster, please reconnect" reply instead.
 // Adapted from the standalone "Bot Viewer Detector" val.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getAppToken, env, sendChatMessage } from "./twitch.ts";
 import { fetchChatters } from "./watchtime.ts";
 import { escapeHtml, isBotAccount } from "./utils.ts";

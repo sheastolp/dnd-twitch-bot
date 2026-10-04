@@ -7,7 +7,7 @@
 //   hoard_stall     the merchant stall's offers (JSON) + when it last turned over
 //   hoard_board     the bounty board's postings (JSON) + when it was posted
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { LEGENDARY_ITEMS, MERCHANT_ITEMS, findMerchantItem, type MerchantItem } from "./gear.ts";
 import { parseFirstPrice } from "./coins.ts";
 import { xpForMonsterCr } from "./characters.ts";

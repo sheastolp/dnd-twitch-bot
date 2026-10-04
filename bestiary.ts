@@ -29,7 +29,7 @@
 //   !bestiary forget <name>      mod: remove + block a learned monster
 //   !bestiary reset <name|all>   mod: clear adaptation back to tier 0
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { lookup5e } from "./lookups.ts";
 import { sendChatMessage } from "./twitch.ts";

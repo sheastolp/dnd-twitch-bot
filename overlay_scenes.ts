@@ -104,7 +104,7 @@ if(!preview)document.querySelectorAll("[data-hint]").forEach(e=>e.remove());
 const gl=document.getElementById("gatelabel");if(gl&&Q.get("gate"))gl.textContent=Q.get("gate");
 const boardEl=document.getElementById("board");
 if(boardEl){if(Q.get("board")==="0")boardEl.remove();else{const cyc=Number(Q.get("cycle"));
-  boardEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=rotate&align=center&cycle="+(Number.isFinite(cyc)&&cyc>=4?Math.min(cyc,120):15)+(preview?"&always=1":"");
+  boardEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=rotate&align=center&refresh=10&cycle="+(Number.isFinite(cyc)&&cyc>=4?Math.min(cyc,120):15)+(preview?"&always=1":"");
   // Same origin, so peek in: hide the "notices appear here" line while a panel is up.
   const boardEmpty=boardEl.parentElement.querySelector(".empty");
   setInterval(()=>{try{const r=boardEl.contentDocument&&boardEl.contentDocument.getElementById("root");boardEmpty.hidden=!!(r&&r.children.length)}catch(e){}},1500)}}

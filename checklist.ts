@@ -15,7 +15,7 @@
 // !checklist clear           remove every item (mod/broadcaster)
 // !checklist on|off|status   go-live reminder switch (mod/broadcaster)
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, isChannelEnabled, isCommandGroupEnabled, isMerchantEnabled, listCustomTriggers, listTimedMessages, recordMonitorEvent } from "./db.ts";
 import { isChronicleEnabled, isNpcEnabled } from "./social_db.ts";
 import { isPointsEnabled } from "./points_db.ts";

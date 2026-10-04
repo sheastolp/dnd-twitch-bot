@@ -3,7 +3,7 @@
 // row is the whole session, so there is nothing to clean up but the row itself.
 // Every row is scoped by broadcaster_id and usernames are stored lowercase.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export interface AutohuntSession {
   broadcaster_id: string;

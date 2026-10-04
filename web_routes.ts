@@ -6,7 +6,7 @@
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";

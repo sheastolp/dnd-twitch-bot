@@ -183,7 +183,13 @@ function render(d){
 }
 
 let latest=null;
+// OBS keeps browser sources running in scenes that aren't showing; it tells
+// the page through these events, so don't poll while nobody can see it.
+let obsActive=true,obsVisible=true;
+addEventListener("obsSourceActiveChanged",e=>{obsActive=!!(e.detail&&e.detail.active);if(obsActive)tick()});
+addEventListener("obsSourceVisibleChanged",e=>{obsVisible=!!(e.detail&&e.detail.visible);if(obsVisible)tick()});
 async function tick(){
+  if(!obsActive&&!obsVisible)return;
   try{const r=await fetch(dataUrl,{cache:"no-store"});const d=await r.json();if(d&&d.ok){latest=d;render(d)}}catch(e){/* keep the last frame on a network blip */}
 }
 tick();setInterval(tick,refresh);

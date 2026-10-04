@@ -13,7 +13,7 @@
 // and the page says so, but the link itself is kept for the next reply.
 
 import { scrollDoc } from "./scroll_theme.ts";
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 
 const REPLY_PAGE_TTL_MS = 24 * 60 * 60 * 1000;

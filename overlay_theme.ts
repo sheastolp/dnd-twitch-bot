@@ -202,7 +202,16 @@ const sizeQ=Number(Q.get("size"));badge.style.setProperty("--size",(Number.isFin
 if(Q.get("dim")==="0")badge.classList.add("nodim");
 const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));
 if(Q.get("status")==="0")document.getElementById("status").remove();
-else document.getElementById("status").src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right"+(preview?"&always=1":"");
+else document.getElementById("status").src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10"+(preview?"&always=1":"");
+// OBS keeps every scene's browser sources running; the embedded panels (status
+// strip, Guild Board) can't hear OBS's events, so park them while this scene
+// isn't showing and bring them back when it is.
+let obsActive=true,obsVisible=true;
+function obsPark(){const off=!obsActive&&!obsVisible;for(const f of document.querySelectorAll("iframe[src],iframe[data-parked]")){
+  if(off&&f.getAttribute("src")&&f.getAttribute("src")!=="about:blank"){f.dataset.parked=f.getAttribute("src");f.src="about:blank"}
+  else if(!off&&f.dataset.parked){f.src=f.dataset.parked;delete f.dataset.parked}}}
+addEventListener("obsSourceActiveChanged",e=>{obsActive=!!(e.detail&&e.detail.active);obsPark()});
+addEventListener("obsSourceVisibleChanged",e=>{obsVisible=!!(e.detail&&e.detail.visible);obsPark()});
 
 const list=document.getElementById("msgs");
 function h(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e}

@@ -2,7 +2,7 @@
 // Split out of db.ts (which re-exports everything here) to keep every file
 // well under Val Town's per-file size ceiling.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import {
   DEFAULT_CUSTOM_COMMAND_COOLDOWN_MS,
   DEFAULT_CUSTOM_TRIGGER_COOLDOWN_MS,

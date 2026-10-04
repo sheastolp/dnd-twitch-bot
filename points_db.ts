@@ -5,7 +5,7 @@
 // scoped by broadcaster_id, usernames are stored lowercase, and "no row"
 // means the default (here: points ON — a mod can switch it off).
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export async function ensurePointsTables() {
   // Per-channel on/off switch for the whole points + giveaway system.

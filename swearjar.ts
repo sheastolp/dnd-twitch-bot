@@ -35,7 +35,7 @@
 // Edit SWEAR_BASES below to tune the list (it includes UK/Irish slang such as
 // "bloody", "bugger", "wanker" and "bollocks" — delete any you don't want charged).
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 import { formatCoins, MAX_COPPER, parseCoins } from "./coins.ts";

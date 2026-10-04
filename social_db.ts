@@ -3,7 +3,7 @@
 // rather than growing that file further. Mirrors db.ts's own conventions
 // (INSERT OR REPLACE, broadcaster_id-keyed rows).
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export async function ensureSocialTables() {
   // Chronicle: randomly quotes a plain chat message back with a D&D-flavored

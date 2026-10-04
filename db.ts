@@ -1,6 +1,6 @@
 // SQLite persistence layer
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import type { Character } from "./types.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 

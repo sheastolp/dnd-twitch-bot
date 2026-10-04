@@ -26,7 +26,7 @@
 // full XP and a share of a hoard RAID_LOOT_MULTIPLIER times a normal drop.
 // Heroes always start a raid at full HP, so a wipe costs nothing but time.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";

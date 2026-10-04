@@ -17,7 +17,7 @@
 // message, so nobody has to reconnect. Dashboard switch: "adalerts" (on by
 // default), in the same Codex card as !adcheck.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { getBroadcaster, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent, saveExtraEventSubSubscription } from "./db.ts";

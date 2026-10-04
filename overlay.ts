@@ -16,7 +16,7 @@
 // setup link in chat.
 
 import { scrollDoc } from "./scroll_theme.ts";
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, getBroadcasterByLogin, getCommandGroupToggles, getDuel, getMonsterDuel, getPartyDuel, getPartyMonsterDuel, isMerchantEnabled, getMerchantListing, listChannelCharacters } from "./db.ts";
 import { isPointsEnabled, getTopBalances } from "./points_db.ts";
 import { getDiceLeaderboard } from "./social_db.ts";
@@ -311,10 +311,13 @@ export function dataPanelsFor(panel: string): DataPanel[] {
   return [...DATA_PANELS]; // all, rotate
 }
 
-// Several OBS sources (one per panel) poll every few seconds; a short
-// per-isolate cache keeps that from multiplying SQLite reads.
-const CACHE_MS = 2_500;
+// Several OBS sources (one per panel, plus the theme's embedded strip and
+// Guild Board) poll every few seconds; a short per-isolate cache, and sharing
+// one in-flight load between identical requests, keep that from multiplying
+// SQLite reads.
+const CACHE_MS = 4_000;
 const cache = new Map<string, { at: number; data: OverlayData }>();
+const inflight = new Map<string, Promise<OverlayData>>();
 
 function parsePanels(raw: string | null): Set<DataPanel> {
   const wanted = (raw ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -341,7 +344,12 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const key = `${channel.id}|${[...panels].sort().join(",")}|${window}|${limit}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_MS) return json({ ok: true, ...hit.data, channel });
-    const data = await getOverlayData(channel, panels, { window, limit });
+    let load = inflight.get(key);
+    if (!load) {
+      load = getOverlayData(channel, panels, { window, limit }).finally(() => inflight.delete(key));
+      inflight.set(key, load);
+    }
+    const data = await load;
     cache.set(key, { at: Date.now(), data });
     if (cache.size > 200) cache.delete(cache.keys().next().value!);
     return json({ ok: true, ...data });

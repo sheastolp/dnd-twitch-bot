@@ -11,7 +11,7 @@
 //     effect is "shield" or "lock:<feature>". Rows simply expire; nothing has
 //     to tick or clean them up except an occasional lazy sweep on grant.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 /** No single viewer can have more than this much of one effect stacked up. */
 export const MAX_EFFECT_MS = 120 * 60 * 1000;

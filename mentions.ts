@@ -5,7 +5,7 @@
 // chat parts, so the count isn't reset by part breaks. Bare (un-@'d) names are
 // never touched.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export const MAX_TAGS = 2;
 

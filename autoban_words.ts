@@ -40,7 +40,7 @@
 //      fresh accounts is). In "suggest" mode it waits for a mod to approve
 //      it on the dashboard page.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export type WordSource = "default" | "manual" | "learned";
 export type WordStatus = "active" | "pending" | "off";

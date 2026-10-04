@@ -2,7 +2,7 @@
 // Town's per-file size cap) rather than growing that file further. Mirrors
 // db.ts's own conventions (INSERT OR REPLACE, broadcaster_id-keyed rows).
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 export async function ensureAdTables() {
   // The broadcaster's own OAuth token for real Twitch ad-schedule reads

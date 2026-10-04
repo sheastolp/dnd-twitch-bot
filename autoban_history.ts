@@ -24,7 +24,7 @@
 // "auto" bans, "suggest" queues the message for a mod to review, "off" skips
 // the history entirely. Mods can forget individual references on the page.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { env } from "./twitch.ts";
 import { fold, normalizeText, spamScore } from "./autoban_words.ts";
 

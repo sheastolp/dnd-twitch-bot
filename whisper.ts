@@ -21,7 +21,7 @@
 
 import { scrollDoc } from "./scroll_theme.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 // Any reply that would take more than one chat message is summarized.
 export const LONG_REPLY_PARTS = 2;

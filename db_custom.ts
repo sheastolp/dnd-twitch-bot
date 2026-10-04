@@ -3,7 +3,7 @@
 // Split out of db.ts (which re-exports everything here) to keep every file
 // well under Val Town's per-file size ceiling.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 
 // Channel-wide default cooldowns for custom commands/triggers (mods can
 // override per-command/per-trigger with !dndbot cooldown / !trigger cooldown).

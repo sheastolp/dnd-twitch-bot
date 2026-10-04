@@ -16,7 +16,7 @@
 // at least the cooldown too (see autohunt.ts), so a long cooldown slows an
 // autohunt down rather than being bypassed by it.
 
-import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
+import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
 
 export const MAX_HUNT_COOLDOWN_SECONDS = 3600;
