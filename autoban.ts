@@ -1,7 +1,13 @@
 // Auto-ban for "ai viewers" spam — the fake-viewer-service bots that drop
 // "get ai viewers for your stream" style ads into chat. When a non-mod
-// chatter's message contains the phrase, the bot permanently bans them and
-// posts a short D&D-flavored "I just banned another one for you" line.
+// chatter's message contains a phrase on the channel's auto-ban list, the bot
+// permanently bans them and posts a short D&D-flavored "I just banned another
+// one for you" line.
+//
+// The list is per channel and starts with "ai viewers"; mods edit it, and the
+// ignore list, on /dashboard/autoban (autoban_page.ts). It also learns: domains
+// in banned messages, and promo pitches sent by several chatters, are added
+// on their own (see autoban_words.ts).
 //
 // Off by default per channel (toggle: !autoban on|off|status; on/off are
 // broadcaster or mod) because a permanent ban is not something to switch on for
@@ -22,14 +28,11 @@ import { getBroadcasterAdToken } from "./ads_db.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { banChatUser, sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
+import { ensureAutoBanWordTables, findMatch, isUserIgnored, purgeAutoBanWordData, learnFromBannedMessage, learnFromMessage, recordHit } from "./autoban_words.ts";
 
 export const BAN_SCOPE = "moderator:manage:banned_users";
 
-// "ai viewers", any casing / spacing. Word-bounded so it doesn't match
-// inside a longer word.
-const AI_VIEWERS_RE = /\bai\s+viewers\b/i;
-
-const BAN_REASON = 'Auto-ban: "ai viewers" spam (GuildScribe)';
+const banReason = (phrase: string) => `Auto-ban: "${phrase.slice(0, 60)}" spam (GuildScribe)`;
 
 // Several spam messages can land before the first ban does; only announce
 // once per chatter in a short window.
@@ -79,6 +82,7 @@ export async function ensureAutoBanTables() {
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
     )`,
   );
+  await ensureAutoBanWordTables();
 }
 
 export async function isAutoBanEnabled(broadcasterId: string) {
@@ -91,11 +95,26 @@ export async function setAutoBanEnabled(broadcasterId: string, enabled: boolean)
     "INSERT OR REPLACE INTO autoban_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
     [broadcasterId, enabled ? 1 : 0, Date.now()],
   );
+  enabledCache.delete(broadcasterId);
+}
+
+// The chat hook now reads the flag on every message (the list match needs it
+// first), so it's cached briefly; toggling clears the entry.
+const ENABLED_TTL_MS = 30_000;
+const enabledCache = new Map<string, { enabled: boolean; at: number }>();
+async function isAutoBanEnabledCached(broadcasterId: string) {
+  const hit = enabledCache.get(broadcasterId);
+  if (hit && Date.now() - hit.at < ENABLED_TTL_MS) return hit.enabled;
+  const enabled = await isAutoBanEnabled(broadcasterId);
+  enabledCache.set(broadcasterId, { enabled, at: Date.now() });
+  return enabled;
 }
 
 /** Wipes the channel's auto-ban setting — called from !dndbot leave purge. */
 export async function purgeAutoBanData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM autoban_settings WHERE broadcaster_id = ?", [broadcasterId]);
+  enabledCache.delete(broadcasterId);
+  await purgeAutoBanWordData(broadcasterId);
 }
 
 // ── Token / permission ──
@@ -133,9 +152,10 @@ async function sendPermissionHint(broadcasterId: string, baseUrl: string) {
 
 // ── Chat hook ──
 
-/** Bans a non-mod chatter who says "ai viewers". Cheap for normal chat: the
- * phrase check runs first, so no DB or network work happens unless it hits.
- * Returns true if the message was consumed (a ban was issued, or the chatter
+/** Bans a non-mod chatter whose message matches the channel's auto-ban list.
+ * The on/off flag and the list are cached briefly (autoban_words.ts), so normal
+ * chat costs no network work beyond that. Messages that don't match but read
+ * like promo spam feed the learner. Returns true if the message was consumed (a ban was issued, or the chatter
  * was already unbannable) so the caller can skip further processing of a
  * spammer's message; false means carry on as normal. Works whether or not
  * the channel is live; the announcement is only posted while live, matching
@@ -143,15 +163,21 @@ async function sendPermissionHint(broadcasterId: string, baseUrl: string) {
 export async function maybeAutoBan(
   chatMessage: string,
   display: string,
+  chatterLogin: string,
   chatterId: string,
   broadcasterId: string,
   isModerator: boolean,
   isLive: boolean,
   baseUrl: string,
 ): Promise<boolean> {
-  if (!AI_VIEWERS_RE.test(chatMessage)) return false;
   if (isModerator || !chatterId || chatterId === broadcasterId) return false;
-  if (!(await isAutoBanEnabled(broadcasterId))) return false;
+  if (!(await isAutoBanEnabledCached(broadcasterId))) return false;
+  if (await isUserIgnored(broadcasterId, chatterLogin)) return false;
+  const match = await findMatch(broadcasterId, chatMessage);
+  if (!match) {
+    await learnFromMessage(broadcasterId, chatMessage, chatterId);
+    return false;
+  }
 
   const auth = await getBanToken(broadcasterId);
   if ("problem" in auth) {
@@ -161,10 +187,14 @@ export async function maybeAutoBan(
   }
 
   // The broadcaster is the moderator of record: the token belongs to them.
-  const result = await banChatUser(auth.token, broadcasterId, broadcasterId, chatterId, BAN_REASON);
+  const result = await banChatUser(auth.token, broadcasterId, broadcasterId, chatterId, banReason(match.phrase));
 
   if (result.ok) {
-    await recordMonitorEvent("autoban", `${broadcasterId}: banned ${chatterId}`);
+    await Promise.all([
+      recordMonitorEvent("autoban", `${broadcasterId}: banned ${chatterId} for "${match.phrase}"`),
+      recordHit(broadcasterId, match.id),
+      learnFromBannedMessage(broadcasterId, chatMessage, chatterId),
+    ]);
     const now = Date.now();
     const last = recentlyAnnounced.get(chatterId) ?? 0;
     recentlyAnnounced.set(chatterId, now);
@@ -214,8 +244,8 @@ export async function handleAutoBanCommand(
     const enabled = await isAutoBanEnabled(broadcasterId);
     await sendChatMessage(
       `@${display} Auto-ban is ${
-        enabled ? 'on — anyone who is not a mod saying "ai viewers" is permanently banned' : "off in this channel"
-      }. Mods can toggle with !autoban on or !autoban off.`,
+        enabled ? "on — anyone who is not a mod using a phrase on the channel's auto-ban list is permanently banned" : "off in this channel"
+      }. Mods can toggle with !autoban on or !autoban off, and edit the list from !dashboard.`,
       broadcasterId,
     );
     return true;
@@ -241,7 +271,7 @@ export async function handleAutoBanCommand(
     );
   } else {
     await sendChatMessage(
-      `@${display} Auto-ban is on. Anyone who is not a mod saying "ai viewers" gets a permanent ban.`,
+      `@${display} Auto-ban is on. Anyone who is not a mod using a phrase on the auto-ban list (starts with "ai viewers"; edit it from !dashboard) gets a permanent ban.`,
       broadcasterId,
     );
   }

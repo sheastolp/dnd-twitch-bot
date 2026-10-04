@@ -76,7 +76,7 @@ function featureToggleRow(d: DashboardData, intentOn: string, intentOff: string,
 
 function autoBanToggleRow(d: DashboardData): string {
   const enabled = d.autoBanEnabled;
-  const sub = 'Permanently bans non-mods who say "ai viewers" — same as !autoban on/off';
+  const sub = 'Permanently bans non-mods who use a phrase on the auto-ban list (starts with "ai viewers") — same as !autoban on/off. Edit the list and ignored users under 🔨 Auto-ban words';
   const warn = !d.autoBanPermitted
     ? `⚠️ Ban permission not granted yet — the broadcaster needs to <a href="/connect">reconnect</a> and approve it, or nothing will be banned.`
     : "";
@@ -335,7 +335,7 @@ export function renderDashboardPage(d: DashboardData): string {
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
-  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
+  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban words</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
   ${renderDashboardIndex()}
   <div class="board-row">

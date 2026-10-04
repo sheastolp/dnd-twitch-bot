@@ -302,7 +302,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // is offline; the announcement itself stays quiet while offline. Off by
     // default per channel (!autoban on). Mods/broadcaster are exempt.
     if (
-      await maybeAutoBan(chatMessage, display, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
+      await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
     ) return new Response("OK");
 
     // Stay quiet in chat while the channel is offline — but let mod+ (the

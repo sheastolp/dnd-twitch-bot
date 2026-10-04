@@ -57,6 +57,7 @@ import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban
 import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
+import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -631,4 +632,29 @@ export async function handleBotCheckForm(form: FormData, baseUrl: string, cookie
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (notice) params.set("notice", notice);
   return redirectTo(`${baseUrl}/dashboard/botcheck?${params.toString()}`);
+}
+
+// ── Auto-ban word list page (autoban_page.ts), behind the same key + login ──
+
+export async function handleAutoBanPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderAutoBanPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleAutoBanForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyAutoBanForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.ok ? result.message : result.error);
+  return redirectTo(`${baseUrl}/dashboard/autoban?${params.toString()}`);
 }
