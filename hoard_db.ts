@@ -118,17 +118,22 @@ export function findPackPotion(p: HoardPlayer, needle: string): Potion | undefin
 
 // ── Merchant stall ──
 
+// Every ware sells exactly once: buying it marks the slot soldTo (claimOffer,
+// atomic) and the slot stays empty until the whole stall turns over.
 export type StallOffer =
-  | { kind: "potion"; key: string; merchant: string }
-  | { kind: "gear"; desc: string; merchant: string };
+  | { kind: "potion"; key: string; merchant: string; soldTo?: string }
+  | { kind: "gear"; desc: string; merchant: string; soldTo?: string };
 
-/** An offer with its catalog entry and price resolved (null if the catalog
- * no longer has it). */
+const offerId = (o: StallOffer) => (o.kind === "potion" ? `p:${o.key}` : `g:${o.desc}`);
+
+/** An offer with its catalog entry and price resolved (null if it's sold or
+ * the catalog no longer has it). */
 export type ResolvedOffer =
   | { kind: "potion"; potion: Potion; name: string; price: number; merchant: string; pitch: string }
   | { kind: "gear"; gear: MerchantItem; name: string; price: number; merchant: string; pitch: string; legendary: boolean };
 
 export function resolveOffer(o: StallOffer): ResolvedOffer | null {
+  if (o.soldTo) return null;
   if (o.kind === "potion") {
     const potion = POTIONS.find((p) => p.key === o.key);
     return potion ? { kind: "potion", potion, name: potion.name, price: potion.price, merchant: o.merchant, pitch: potion.desc } : null;
@@ -146,7 +151,7 @@ export function resolveOffer(o: StallOffer): ResolvedOffer | null {
   };
 }
 
-export function rollOffer(exclude: StallOffer[] = []): StallOffer {
+function rollOffer(exclude: StallOffer[] = []): StallOffer {
   const taken = new Set(exclude.map((o) => (o.kind === "potion" ? o.key : o.desc)));
   for (let i = 0; i < 20; i++) {
     const merchant = pick(MERCHANT_NAMES);
@@ -164,27 +169,53 @@ function rollStall(): StallOffer[] {
   return out;
 }
 
-/** The current stall, turning it over first if it's stale. */
-export async function getStall(broadcasterId: string): Promise<StallOffer[]> {
+/** The current stall and how long until it turns over, turning it over
+ * first if it's stale. */
+export async function getStallState(broadcasterId: string): Promise<{ offers: StallOffer[]; turnsOverInMs: number }> {
   const res = await sqlite.execute("SELECT offers, restocked_at FROM hoard_stall WHERE broadcaster_id = ?", [broadcasterId]);
   const r = res.rows[0];
   const offers = parseJson<StallOffer[]>(r?.offers, []);
-  if (r && Array.isArray(offers) && offers.length === STALL_SLOTS && Date.now() - Number(r.restocked_at) < STALL_REFRESH_MS) return offers;
+  const age = Date.now() - Number(r?.restocked_at ?? 0);
+  if (r && Array.isArray(offers) && offers.length === STALL_SLOTS && age < STALL_REFRESH_MS) {
+    return { offers, turnsOverInMs: STALL_REFRESH_MS - age };
+  }
   const fresh = rollStall();
-  await saveStall(broadcasterId, fresh, true);
-  return fresh;
+  await sqlite.execute("INSERT OR REPLACE INTO hoard_stall (broadcaster_id, offers, restocked_at) VALUES (?,?,?)", [
+    broadcasterId,
+    JSON.stringify(fresh),
+    Date.now(),
+  ]);
+  return { offers: fresh, turnsOverInMs: STALL_REFRESH_MS };
 }
 
-export async function saveStall(broadcasterId: string, offers: StallOffer[], restocked = false) {
-  if (restocked) {
-    await sqlite.execute("INSERT OR REPLACE INTO hoard_stall (broadcaster_id, offers, restocked_at) VALUES (?,?,?)", [
-      broadcasterId,
+export async function getStall(broadcasterId: string): Promise<StallOffer[]> {
+  return (await getStallState(broadcasterId)).offers;
+}
+
+/**
+ * Marks slot `index` sold to `username` — but only if it still holds the same
+ * unsold ware `expected` (compare-and-swap on the stored JSON, so two buyers
+ * can never both get it, and a turnover in between voids the claim). Returns
+ * who got it: `username` on success, the earlier buyer's name if it was
+ * already sold, or null if the slot changed (the stall turned over).
+ */
+export async function claimOffer(broadcasterId: string, index: number, expected: StallOffer, username: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const res = await sqlite.execute("SELECT offers FROM hoard_stall WHERE broadcaster_id = ?", [broadcasterId]);
+    const raw = String(res.rows[0]?.offers ?? "");
+    const offers = parseJson<StallOffer[]>(raw, []);
+    const cur = offers[index];
+    if (!cur || offerId(cur) !== offerId(expected)) return null;
+    if (cur.soldTo) return cur.soldTo;
+    offers[index] = { ...cur, soldTo: username };
+    const upd = await sqlite.execute("UPDATE hoard_stall SET offers = ? WHERE broadcaster_id = ? AND offers = ?", [
       JSON.stringify(offers),
-      Date.now(),
+      broadcasterId,
+      raw,
     ]);
-  } else {
-    await sqlite.execute("UPDATE hoard_stall SET offers = ? WHERE broadcaster_id = ?", [JSON.stringify(offers), broadcasterId]);
+    if (upd.rowsAffected > 0) return username;
   }
+  return null;
 }
 
 // ── Bounty board ──

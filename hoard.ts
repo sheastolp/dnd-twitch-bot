@@ -18,8 +18,9 @@
 //     fight (!hunt, !dndduel solo/party hunts, !autohunt, raids) starts at the
 //     hero's current HP and leaves them where it ended — never below 1 (see
 //     hoard_combat.ts). Heal with !rest (to 80%), potions, or 3 HP every 15 min.
-//   - A merchant stall: three offers of potions and peddler gear, turning
-//     over every 20 minutes, bought with coin.
+//   - A merchant stall: three offers of potions and peddler gear, bought with
+//     coin. Each ware sells once (first buyer wins); sold slots stay empty
+//     until the whole stall turns over every 20 minutes.
 //   - A pack of potions: !inv, !use, !sell, !drop.
 //   - A bounty board: three "slay N of X" postings drawn from the bestiary's
 //     easy end. Every monster kill counts (creditBounty is called from the
@@ -36,7 +37,7 @@
 //   !rest                    recover to 80% HP
 //   !bounties | !quests      the bounty board and your progress
 //   !shop | !merchant [#|name]  the stall, or one ware's details and lore
-//   !buy <#|name>            buy from the stall
+//   !buy <#|name|1 3|all>    buy one, several or every ware (each sells once)
 //   !inv | !inventory        your potions and gear
 //   !use <potion>            drink a potion
 //   !sell <potion> | !drop <potion>
@@ -49,7 +50,7 @@ import { summonMonster, recordMonsterOutcome, tierTag } from "./bestiary.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
-import { claimHunt } from "./huntcooldown.ts";
+import { claimHunt, waitText } from "./huntcooldown.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { duelNarration } from "./narration.ts";
 import { withArticle } from "./combat_shared.ts";
@@ -66,14 +67,15 @@ import {
   getBoard,
   getPlayer,
   getStall,
+  getStallState,
+  claimOffer,
+  type StallOffer,
   type HoardPlayer,
   isHoardEnabled,
   resolveOffer,
   type ResolvedOffer,
   rerollBounty,
-  rollOffer,
   savePlayer,
-  saveStall,
   setHoardEnabled,
 } from "./hoard_db.ts";
 import {
@@ -349,7 +351,8 @@ export async function handleHoardCommand(
 
     case "shop":
     case "merchant": {
-      const offers = (await getStall(broadcasterId)).map(resolveOffer);
+      const { offers: stall, turnsOverInMs } = await getStallState(broadcasterId);
+      const offers = stall.map(resolveOffer);
       if (arg) {
         const i = findOffer(offers, arg);
         if (i >= 0) {
@@ -366,43 +369,106 @@ export async function handleHoardCommand(
         await say(`nothing on the stall matches "${arg}". !shop to see today's wares.`);
         return true;
       }
-      const list = offers.map((o, i) => (o ? offerLine(o, i) : `#${i + 1} (sold out)`)).join(" | ");
-      await say(`🛒 Today's wares: ${list}. !buy <#> to purchase, !shop <#> for details.${goldOn ? "" : " (Gold is off in this channel, so the stall can't sell.)"}`);
+      const list = offers.map((o, i) => (o ? offerLine(o, i) : `#${i + 1} — sold${stall[i].soldTo ? ` to ${stall[i].soldTo}` : " out"}`)).join(" | ");
+      const left = offers.filter(Boolean).length;
+      await say(`🛒 Today's wares: ${list}. ${left ? "!buy <#>, several (!buy 1 3) or !buy all; !shop <#> for details. " : ""}Each ware sells once — the stall turns over in ${waitText(turnsOverInMs)}.${goldOn ? "" : " (Gold is off in this channel, so the stall can't sell.)"}`);
       return true;
     }
 
     case "buy": {
-      const stall = await getStall(broadcasterId);
+      const { offers: stall, turnsOverInMs } = await getStallState(broadcasterId);
       const offers = stall.map(resolveOffer);
-      if (!arg) return say(`buy which one? ${offers.map((o, i) => (o ? offerLine(o, i) : "")).filter(Boolean).join(" | ")}`).then(() => true);
-      if (!goldOn) return say(goldOff).then(() => true);
-      const i = findOffer(offers, arg);
-      if (i < 0) return say(`no ware on the stall matches "${arg}". !shop to see what's on offer.`).then(() => true);
-      const o = offers[i]!;
-      if (o.kind === "gear") {
-        if (!c) return say(`gear goes on a character sheet — ${noHero}`).then(() => true);
-        if (ownsGear(c, o.gear)) return say(`you already carry the ${o.name}; a second one would do nothing.`).then(() => true);
-      } else if ((p.potions[o.potion.key] ?? 0) >= MAX_POTION_STACK) {
-        return say(`your pack can't hold more than ${MAX_POTION_STACK} of those.`).then(() => true);
-      }
-      if (!(await trySpend(broadcasterId, chatter, o.price))) {
-        const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
-        await say(`the ${o.name} costs ${formatCoins(o.price)} and your purse holds ${formatCoins(have)}. !hunt pays better than standing still.`);
+      const restock = `The stall turns over in ${waitText(turnsOverInMs)}.`;
+      if (!arg) {
+        const list = offers.map((o, i) => (o ? offerLine(o, i) : "")).filter(Boolean).join(" | ");
+        await say(list ? `buy which? ${list} — !buy <#>, several (!buy 1 3) or !buy all.` : `the stall is sold out. ${restock}`);
         return true;
       }
-      let detail: string;
-      if (o.kind === "gear") {
-        const { applied, changes } = applyGear(c!, o.gear);
-        await saveCharacter(c!, broadcasterId);
-        detail = `It's on your sheet now: ${effectText(applied) || "a fine curio"}${changes ? ` (${changes})` : ""}.`;
+      if (!goldOn) return say(goldOff).then(() => true);
+
+      // "all" | "1 3" | "1,3" | "#2" → slot numbers; anything else is one ware's name.
+      const nums = arg.split(/[\s,]+/).map((t) => t.replace(/^#/, ""));
+      let picks: number[];
+      if (/^all$/i.test(arg)) {
+        picks = stall.map((_, i) => i).filter((i) => !stall[i].soldTo);
+        if (!picks.length) return say(`the stall is sold out. ${restock}`).then(() => true);
+      } else if (nums.every((t) => /^\d+$/.test(t))) {
+        picks = [...new Set(nums.map((t) => Number(t) - 1))];
+        const bad = picks.filter((i) => i < 0 || i >= stall.length);
+        if (bad.length) return say(`the stall only has slots 1–${stall.length}. !shop to see them.`).then(() => true);
       } else {
-        p.potions[o.potion.key] = (p.potions[o.potion.key] ?? 0) + 1;
-        await savePlayer(broadcasterId, chatter, p);
-        detail = `Into the pack it goes — !use ${o.potion.name} when you need it.`;
+        const i = findOffer(offers, arg);
+        if (i < 0) {
+          const sold = stall.findIndex((o) => o.soldTo && resolveOffer({ ...o, soldTo: undefined })?.name.toLowerCase().includes(arg.toLowerCase()));
+          await say(sold >= 0 ? `the ${resolveOffer({ ...stall[sold], soldTo: undefined })!.name} already sold to ${stall[sold].soldTo}. ${restock}` : `no ware on the stall matches "${arg}". !shop to see what's on offer.`);
+          return true;
+        }
+        picks = [i];
       }
-      stall[i] = rollOffer(stall.filter((_, j) => j !== i));
-      await saveStall(broadcasterId, stall);
-      await say(`🛒 the ${o.name} changes hands — bought from ${o.merchant} for ${formatCoins(o.price)}. ${detail} A fresh ware fills the slot. ${await nextStep(broadcasterId, chatter, c, p)}`);
+
+      const bought: Array<{ o: ResolvedOffer; detail: string }> = [];
+      const skipped: string[] = [];
+      let gearChanged = false;
+      let packChanged = false;
+      for (const i of picks) {
+        const slot: StallOffer = stall[i];
+        const label = `#${i + 1}`;
+        if (slot.soldTo) {
+          skipped.push(`${label} already sold to ${slot.soldTo}`);
+          continue;
+        }
+        const o = offers[i];
+        if (!o) {
+          skipped.push(`${label} is no longer stocked`);
+          continue;
+        }
+        if (o.kind === "gear" && !c) {
+          skipped.push(`${o.name} (gear needs a character — !createchar)`);
+          continue;
+        }
+        if (o.kind === "gear" && ownsGear(c!, o.gear)) {
+          skipped.push(`${o.name} (you already carry one)`);
+          continue;
+        }
+        if (o.kind === "potion" && (p.potions[o.potion.key] ?? 0) >= MAX_POTION_STACK) {
+          skipped.push(`${o.name} (pack holds ${MAX_POTION_STACK} max)`);
+          continue;
+        }
+        if (!(await trySpend(broadcasterId, chatter, o.price))) {
+          skipped.push(`${o.name} (${formatCoins(o.price)} — not enough coin)`);
+          continue;
+        }
+        // Pay first, then claim; if someone else got there first, refund.
+        const winner = await claimOffer(broadcasterId, i, slot, chatter);
+        if (winner !== chatter) {
+          await adjustBalance(broadcasterId, chatter, display, o.price);
+          skipped.push(winner ? `${o.name} (${winner} bought it first)` : `${o.name} (the stall just turned over)`);
+          continue;
+        }
+        if (o.kind === "gear") {
+          const { applied, changes } = applyGear(c!, o.gear);
+          gearChanged = true;
+          bought.push({ o, detail: `on your sheet: ${effectText(applied) || "a fine curio"}${changes ? ` (${changes})` : ""}` });
+        } else {
+          p.potions[o.potion.key] = (p.potions[o.potion.key] ?? 0) + 1;
+          packChanged = true;
+          bought.push({ o, detail: `into the pack — !use ${o.potion.name} when you need it` });
+        }
+      }
+      if (gearChanged) await saveCharacter(c!, broadcasterId);
+      if (packChanged) await savePlayer(broadcasterId, chatter, p);
+
+      const skipText = skipped.length ? ` Skipped: ${skipped.join("; ")}.` : "";
+      if (!bought.length) {
+        const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
+        await say(`nothing bought.${skipText} Your purse holds ${formatCoins(have)}.`);
+        return true;
+      }
+      const total = bought.reduce((t, b) => t + b.o.price, 0);
+      const head = bought.length === 1
+        ? `🛒 the ${bought[0].o.name} changes hands — bought from ${bought[0].o.merchant} for ${formatCoins(total)}, ${bought[0].detail}.`
+        : `🛒 you buy ${bought.length} wares for ${formatCoins(total)}: ${bought.map((b) => `${b.o.name} (${b.detail})`).join("; ")}.`;
+      await say(`${head}${skipText} Each ware sells once; ${restock} ${await nextStep(broadcasterId, chatter, c, p)}`);
       return true;
     }
 
