@@ -12,7 +12,14 @@
 // URL extras (all optional): &fade=<seconds> before a chat line fades (default
 // 30, 0 = never), &title=<text> instead of the channel name, &logo=<image URL>
 // in place of the d20 badge (its ribbon goes too unless &ribbon=1), &hide=<login,login> chatters to leave out (bots),
-// &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip.
+// &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip,
+// &mic=<part of the mic's name> to pick which microphone lights the emblem
+// (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
+// and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
+//
+// The emblem reacts to the mic: dim while you're quiet, brightening and
+// glowing as you talk. If the mic can't be opened (no permission, no device)
+// the emblem just stays at full brightness.
 
 import { escapeHtml } from "./utils.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
@@ -129,6 +136,8 @@ const STYLE = `
 .badge{position:absolute;left:22px;top:796px;width:250px;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 6px 10px #5a3a0f55)}
 .badge svg,.badge img{width:200px;height:200px;object-fit:contain}
 .badge img{width:240px;height:240px}
+/* Mic-reactive emblem: --lvl runs 0 (silence) to 1 (loud), set every frame by the client. */
+#badge.mic{filter:brightness(calc(.42 + var(--lvl,0) * .78)) saturate(calc(.7 + var(--lvl,0) * .5)) drop-shadow(0 0 calc(var(--lvl,0) * 26px) #ffd76acc)}
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
@@ -207,6 +216,37 @@ function connect(){if(!CFG.login){note("Chat needs the channel's Twitch login.")
   ws.onclose=()=>{setTimeout(connect,backoff);backoff=Math.min(backoff*2,30000)};
   ws.onerror=()=>{try{ws.close()}catch(e){}}}
 connect();
+
+// ── Mic-reactive emblem ──
+const micQ=(Q.get("mic")||"").trim();
+const dbNum=(k,d)=>{const v=Number(Q.get(k));return Q.get(k)!=null&&Number.isFinite(v)&&v<0?v:d};
+const floor=dbNum("micfloor",-55), peak=Math.max(floor+5,dbNum("micpeak",-18));
+async function micStream(){
+  const open=id=>navigator.mediaDevices.getUserMedia({audio:{deviceId:id?{exact:id}:undefined,echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  if(!micQ)return open();
+  // Labels only show up once mic permission is granted, so open the default first, then look for the named one.
+  const first=await open();const want=micQ.toLowerCase();
+  const dev=(await navigator.mediaDevices.enumerateDevices()).find(d=>d.kind==="audioinput"&&d.label.toLowerCase().includes(want));
+  if(!dev)return first;
+  first.getTracks().forEach(t=>t.stop());return open(dev.deviceId)}
+async function startMic(){
+  if(micQ.toLowerCase()==="off"||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
+  const badge=document.getElementById("badge");
+  let stream;try{stream=await micStream()}catch(e){return}
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const an=ctx.createAnalyser();an.fftSize=1024;ctx.createMediaStreamSource(stream).connect(an);
+  const buf=new Float32Array(an.fftSize);let lvl=0;
+  badge.classList.add("mic");
+  (function frame(){
+    if(ctx.state==="suspended")ctx.resume().catch(()=>{});
+    an.getFloatTimeDomainData(buf);let sum=0;for(let i=0;i<buf.length;i++)sum+=buf[i]*buf[i];
+    const db=20*Math.log10(Math.sqrt(sum/buf.length)+1e-9);
+    const target=Math.max(0,Math.min(1,(db-floor)/(peak-floor)));
+    // Snap up fast when you speak, ease back down slowly so it doesn't flicker between words.
+    lvl+=(target-lvl)*(target>lvl?0.45:0.06);
+    badge.style.setProperty("--lvl",lvl.toFixed(3));
+    requestAnimationFrame(frame)})()}
+startMic();
 `;
 
 export function renderThemePage(channelKey: string, login: string, name: string): string {
