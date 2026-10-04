@@ -5,6 +5,7 @@
 // when no route matched, so main.ts carries on to the EventSub webhook.
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
+import { subscribeToAdBreaks } from "./adalerts.ts";
 import { sqlite } from "https://esm.town/v/std/sqlite/main.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
@@ -212,6 +213,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
         await markStreamStatusSubscribed(user.id, await fetchIsChannelLiveNow(user.id));
       } catch (e) {
         await recordMonitorEvent("eventsub_stream_status_subscription_failed", `${user.id}: ${String(e)}`);
+      }
+      // Best-effort: ad-break start alerts (adalerts.ts). Needs
+      // channel:read:ads, requested above; adalerts.ts retries lazily.
+      try {
+        await subscribeToAdBreaks(user.id, url.origin);
+      } catch (e) {
+        await recordMonitorEvent("eventsub_ad_break_subscription_failed", `${user.id}: ${String(e)}`);
       }
       // Best-effort: channel-point rewards that shield/hex players (see
       // redemptions.ts). Needs channel:read:redemptions, requested above.

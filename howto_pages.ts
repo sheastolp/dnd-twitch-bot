@@ -82,7 +82,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
       `Add your own to-dos once: <code>!checklist add turn on alerts</code>, <code>!checklist add post in Discord</code>. <code>!checklist</code> shows the list and <code>!checklist remove &lt;n&gt;</code> drops one.`,
       `When you go live, GuildScribe whispers you that checklist plus a one-line summary of which features are on (gold, market, chronicle, NPCs, auto-ban, swear jar, raid quest, timed messages, triggers). If it can't whisper, it posts once in chat.`,
       `At the same moment the bot posts this stream's <strong>raid quest</strong> (if the raid switch is on). See <a href="/howto/raid">Run the raid quest</a>.`,
-      `During the stream, <code>!adcheck</code> tells you when your last ad break ran (from Twitch's real ad schedule) so you can plan the next one.`,
+      `During the stream, GuildScribe warns chat a few minutes before Twitch's next scheduled ad break and posts a short notice when one starts (dashboard switch: <em>Ad-break alerts</em>). <code>!adcheck</code> (mods) shows when the last ad ran and when the next one is due, so you can plan around it.`,
     ],
     tips: [
       `<code>!checklist off</code> stops the go-live reminder but keeps your items.`,

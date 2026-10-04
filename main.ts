@@ -28,6 +28,7 @@ import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
+import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
@@ -87,6 +88,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAdTables,
   ensureAutoBanTables,
   ensureBotDetectTables,
+  ensureAdAlertTables,
   ensureSocialTables,
   ensurePointsTables,
   ensureSwearJarTables,
@@ -245,6 +247,12 @@ async function handleRequest(req: Request): Promise<Response> {
       return new Response("OK");
     }
 
+    // A real Twitch ad break just started (adalerts.ts): log it and tell chat.
+    if (subscriptionType === "channel.ad_break.begin") {
+      try { await onAdBreakBegin(body.event); } catch (e) { await recordMonitorEvent("ad_break_event_error", String(e)); }
+      return new Response("OK");
+    }
+
     if (subscriptionType === "channel.channel_points_custom_reward_redemption.add") {
       try { await handleRedemptionEvent(body.event); } catch (e) { await recordMonitorEvent("redemption_error", String(e)); }
       return new Response("OK");
@@ -363,6 +371,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
         await purgeBotDetectData(broadcasterId);
+        await purgeAdAlertData(broadcasterId);
         await purgePointsData(broadcasterId);
         await purgeSwearJarData(broadcasterId);
         await purgeRedemptionData(broadcasterId);
@@ -409,6 +418,8 @@ async function handleRequest(req: Request): Promise<Response> {
     defer(maybeLaunchRaidSafe(broadcasterId)); // due raid musters launch on any chat message
     // Watch-time clock (see watchtime.ts): every message while live, commands included.
     if (Number(connection.is_live) === 1) defer(trackWatchtime(broadcasterId, chatter, display));
+    // Ad-break heads-up (adalerts.ts): at most one schedule check a minute per channel.
+    if (Number(connection.is_live) === 1) defer(maybeAdHeadsUp(broadcasterId, baseUrl));
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.

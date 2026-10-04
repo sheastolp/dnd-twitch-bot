@@ -534,6 +534,12 @@ export async function createRedemptionEventSubscription(broadcasterId: string, c
   );
 }
 
+// Real ad breaks starting (manual or automatic) — powers adalerts.ts. Needs
+// the broadcaster's channel:read:ads grant, the same one !adcheck uses.
+export async function createAdBreakEventSubscription(broadcasterId: string, callbackUrl: string) {
+  return createEventSubSubscription("channel.ad_break.begin", "1", { broadcaster_user_id: broadcasterId }, callbackUrl);
+}
+
 export async function createRaidEventSubscription(broadcasterId: string, callbackUrl: string) {
   return createEventSubSubscription(
     "channel.raid",
