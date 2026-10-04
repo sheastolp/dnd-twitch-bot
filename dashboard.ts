@@ -56,6 +56,7 @@ import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, i
 import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
 import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
+import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -336,8 +337,13 @@ export async function handleDashboardCallback(
 // notice/error — a plain POST/redirect/GET flow that needs no client-side JS.
 
 async function authFromForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<{ channelId: string; key: string } | Response> {
-  const channelId = String(form.get("channel") ?? "");
-  const key = String(form.get("key") ?? "");
+  return await authorizeDashboard(String(form.get("channel") ?? ""), String(form.get("key") ?? ""), baseUrl, cookieHeader);
+}
+
+/** The dashboard's two-layer check (key + live mod session) for any page or
+ * form under /dashboard: the authorized channel, or the response to send
+ * instead (400/401, or a bounce through Twitch login). */
+export async function authorizeDashboard(channelId: string, key: string, baseUrl: string, cookieHeader: string | null): Promise<{ channelId: string; key: string } | Response> {
   if (!channelId || !/^\d+$/.test(channelId) || !key) {
     return new Response("Missing channel or key.", { status: 400 });
   }
@@ -600,4 +606,29 @@ export async function handleDashboardGo(toggle: string | null, cookieHeader: str
     "Open your dashboard",
     `<h1>Open your dashboard first</h1><p>Dashboard switches belong to a channel, so type <code>!dashboard</code> in your Twitch chat (mods and the broadcaster only), open the link, and log in with Twitch. After that, the guide's switch links jump straight to the right switch for the next 12 hours.</p><p><a href="/guide">Back to the Guild Codex</a></p>`,
   );
+}
+
+// ── Bot viewer check page (botdetect.ts), behind the same key + login ──
+
+export async function handleBotCheckPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderBotCheckPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    fresh: url.searchParams.get("fresh") === "1",
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleBotCheckForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const notice = await applyBotCheckForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (notice) params.set("notice", notice);
+  return redirectTo(`${baseUrl}/dashboard/botcheck?${params.toString()}`);
 }

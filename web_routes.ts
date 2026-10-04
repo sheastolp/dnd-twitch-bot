@@ -13,7 +13,7 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo } from "./dashboard.ts";
+import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm } from "./dashboard.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
@@ -325,6 +325,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       error: url.searchParams.get("error") ?? undefined,
     });
   }
+  if (req.method === "GET" && path === "/dashboard/botcheck") {
+    // Bot viewer check (botdetect.ts) — same key + mod-login gate as /dashboard.
+    return await handleBotCheckPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/go") {
     // Guide cards' "Dashboard switch" links (see handleDashboardGo).
     return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), url.origin);
@@ -514,6 +518,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/timedmessages") {
     return await handleDashboardTimedMessagesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/botcheck") {
+    return await handleBotCheckForm(await req.formData(), url.origin, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/features") {
     return await handleDashboardFeaturesForm(await req.formData(), url.origin, req.headers.get("Cookie"));

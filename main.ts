@@ -27,6 +27,7 @@ import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
+import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
@@ -85,6 +86,7 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
 const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAdTables,
   ensureAutoBanTables,
+  ensureBotDetectTables,
   ensureSocialTables,
   ensurePointsTables,
   ensureSwearJarTables,
@@ -360,6 +362,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
+        await purgeBotDetectData(broadcasterId);
         await purgePointsData(broadcasterId);
         await purgeSwearJarData(broadcasterId);
         await purgeRedemptionData(broadcasterId);
@@ -487,6 +490,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+    if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
     if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (
       await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)

@@ -203,7 +203,7 @@ type Chatter = { login: string; display: string; id: string };
 
 /** Everyone in the channel's chat list. "no_permission" if the broadcaster
  * hasn't granted moderator:read:chatters yet; throws on other failures. */
-async function fetchChatters(broadcasterId: string): Promise<Chatter[] | "no_permission"> {
+export async function fetchChatters(broadcasterId: string): Promise<Chatter[] | "no_permission"> {
   const token = await getValidAdToken(broadcasterId);
   if (!token) return "no_permission";
   const row = await getBroadcasterAdToken(broadcasterId);

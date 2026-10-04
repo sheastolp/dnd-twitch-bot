@@ -119,6 +119,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   maptemplates: { section: "Battle maps", label: "Map templates (!map templates)", commands: [], parent: "maps" },
   mapterrain: { section: "Battle maps", label: "Edit the terrain (!map terrains/fill/paint)", commands: [], parent: "maps" },
   maptokens: { section: "Battle maps", label: "Place & move characters (!map addchar/move/removechar)", commands: [], parent: "maps" },
+  // Onboarding and support
+  botcheck: { section: "Onboarding and support", label: "Bot viewer check (!botcheck)", commands: ["botcheck"] },
   // Everything else
   misc: { section: "Other", label: "Misc (!hug, !logs, !connections)", commands: ["hug", "logs", "connections"] },
 };

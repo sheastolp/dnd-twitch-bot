@@ -115,7 +115,7 @@ input{width:min(100%,280px)}`;
 export const DASH_CSS = `.scroll{--scroll-w:1200px}
 .scroll.gate{--scroll-w:540px;margin-top:60px;text-align:center}
 .dash-head{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;padding-bottom:18px;border-bottom:1px solid var(--rule)}
-.dash-head h1{margin:8px 0 4px}.dash-head p{margin:0;max-width:680px}
+.head-links{display:flex;gap:10px;flex-wrap:wrap}.dash-head h1{margin:8px 0 4px}.dash-head p{margin:0;max-width:680px}
 h2{margin:0;padding:0;border:0;font-size:1.25rem}h2::before{content:none}
 h3{margin:14px 0 8px}
 .muted{font-size:.9rem}

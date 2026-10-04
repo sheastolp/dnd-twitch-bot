@@ -325,7 +325,7 @@ export function renderDashboardPage(d: DashboardData): string {
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
-  <a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></header>
+  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
   ${renderDashboardIndex()}
   <div class="board-row">
