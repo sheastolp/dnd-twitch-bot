@@ -123,7 +123,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   ads: { section: "Onboarding and support", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
   adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
   // Everything else
-  misc: { section: "Other", label: "Misc (!hug, !logs, !connections)", commands: ["hug", "logs", "connections"] },
+  hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
+  logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
+  connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
 };
 
 const COMMAND_TO_GROUP: Record<string, string> = Object.fromEntries(

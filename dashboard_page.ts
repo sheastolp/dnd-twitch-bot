@@ -41,7 +41,7 @@ function dashHidden(broadcasterId: string, key: string): string {
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
 export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "misc"]);
+const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "hug", "logs", "connections"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
@@ -115,12 +115,17 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
   const dedicated = [
     featureToggleRow(d, "bot_on", "bot_off", "Entire bot", "Master switch — same as !dndbot on/off in chat", d.botEnabled),
     featureToggleRow(d, "market_on", "market_off", "Open-stall merchant", "Random flavor ads in chat — same as !market on/off", d.marketEnabled),
-    featureToggleRow(d, "chronicle_on", "chronicle_off", "Chronicle", "Occasional quote-backs of chat — same as !chronicle on/off", d.chronicleEnabled),
     autoBanToggleRow(d),
     featureToggleRow(d, "points_on", "points_off", "Gold, leaderboard & giveaways", "Viewers earn copper by chatting and from monster loot on hunts (10 cp = 1 sp, 10 sp = 1 gp); !gold, !gold top, !giveaway, !rob, and real coin prices for !haggle — same as !gold on/off", d.pointsEnabled),
+  ].join("");
+  // Chronicle and the AI NPCs have their own dedicated switches, but they
+  // live in the "Chronicle, oracle & NPCs" folder beside !oracle, matching
+  // the Codex section their cards are in.
+  const chronicleTile = featureToggleRow(d, "chronicle_on", "chronicle_off", "Chronicle", "Occasional quote-backs of chat — same as !chronicle on/off", d.chronicleEnabled);
+  const npcTiles = [
     featureToggleRow(d, "npc_on", "npc_off", "AI NPCs", "Lets viewers talk to AI-voiced NPCs with !npc talk", d.npcEnabled),
     featureToggleRow(d, "npcchatter_on", "npcchatter_off", "AI NPC chatter", "NPCs jumping into chat on their own (needs AI NPCs on too)", d.npcChatterEnabled),
-  ].join("");
+  ];
   // One switch per Guild Codex card, under that card's guide section.
   const bySection = new Map<string, { rows: string[]; on: number }>();
   for (const [key, def] of Object.entries(COMMAND_GROUPS)) {
@@ -129,6 +134,11 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     g.rows.push(groupToggleRow(d, key, def.label, enabled));
     if (enabled) g.on++;
     bySection.set(def.section, g);
+  }
+  const social = bySection.get("Chronicle, oracle & NPCs");
+  if (social) {
+    social.rows = [chronicleTile, ...social.rows, ...npcTiles];
+    social.on += [d.chronicleEnabled, d.npcEnabled, d.npcChatterEnabled].filter(Boolean).length;
   }
   // Each Codex section is a large collapsible square holding its switch tiles inline.
   const groups = `<div class="folders">${[...bySection]
@@ -141,7 +151,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
       </details>`;
     })
     .join("")}</div>`;
-  const flags = [d.botEnabled, d.marketEnabled, d.chronicleEnabled, d.autoBanEnabled, d.pointsEnabled, d.npcEnabled, d.npcChatterEnabled];
+  const flags = [d.botEnabled, d.marketEnabled, d.autoBanEnabled, d.pointsEnabled];
   const flagsOn = flags.filter(Boolean).length;
   const groupTotal = [...bySection.values()].reduce((n, g) => n + g.rows.length, 0);
   const groupOn = [...bySection.values()].reduce((n, g) => n + g.on, 0);
