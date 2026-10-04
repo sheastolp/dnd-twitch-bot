@@ -92,5 +92,5 @@ export async function restIfLow(broadcasterId: string, c: Character, wounds: boo
 export function woundNote(hp: number, hpMax: number, wounds: boolean): string {
   if (!wounds) return "";
   const left = Math.max(1, Math.min(hpMax, hp));
-  return ` 🩸 Wounds carry over: ${left}/${hpMax} HP${left <= Math.ceil(hpMax * LOW_HP_FRACTION) ? " — !rest or !use a potion" : ""}.`;
+  return ` 🩸 Wounds carry over: ${left}/${hpMax} HP.`;
 }

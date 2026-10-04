@@ -105,11 +105,9 @@ const rollHeal = ([n, sides, flat]: [number, number, number]) => {
 
 async function nextStep(broadcasterId: string, username: string, c: Character | null, p: HoardPlayer): Promise<string> {
   if (!c) return "Next: !createchar to roll up a hero.";
+  // No hint at low HP — the player decides how to recover.
+  if (c.hpCurrent <= 1 || isLowHp(c)) return "";
   const potion = findPackPotion(p, "");
-  if (c.hpCurrent <= 1 || isLowHp(c)) {
-    const how = c.hpCurrent <= 1 ? "you are barely standing" : "patch up before your next fight";
-    return potion ? `Next: !use ${potion.name} or !rest — ${how}.` : `Next: !rest — ${how}.`;
-  }
   if (await isPointsEnabled(broadcasterId)) {
     const [bal, stall] = await Promise.all([getBalance(broadcasterId, username), getStall(broadcasterId)]);
     const coin = bal?.balance ?? 0;
