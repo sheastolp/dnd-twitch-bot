@@ -5,7 +5,8 @@
 //
 //   GET /overlays?channel=<id|login>                 setup page: every overlay URL + live previews
 //   GET /overlay?channel=<id|login>&panel=<name>     one overlay (the OBS browser source)
-//   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts)
+//   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts);
+//                                                    &scene=game|brb|chat picks the layout (overlay_scenes.ts)
 //   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
@@ -359,7 +360,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
   if (panel === "theme") {
     const live = await liveChannelName(channel);
-    return html(renderThemePage(channelKey, live.login, live.name));
+    return html(renderThemePage(channelKey, live.login, live.name, (url.searchParams.get("scene") ?? "game").toLowerCase()));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));

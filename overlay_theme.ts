@@ -5,6 +5,10 @@
 // down the right (messages fade out after a while), a d20 emblem (name
 // banner optional) in the bottom-left, and the status strip in the bottom-right.
 //
+// Scenes (&scene=game|brb|chat, see overlay_scenes.ts) swap the middle of
+// the sheet: gameplay, "be right back" and "just chatting" layouts with their
+// own windows, a Dungeon Gate for pop-up overlays, and a card.
+//
 // Chat comes straight from Twitch's IRC websocket as an anonymous read-only
 // guest (no token, nothing stored server-side). Everything viewer-supplied goes
 // in through textContent, never innerHTML.
@@ -33,9 +37,7 @@
 
 import { escapeHtml } from "./utils.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
-
-/** The game window on the 1920×1080 canvas — where the game capture goes (16:9). */
-export const THEME_HOLE = { x: 64, y: 112, w: 1440, h: 810 } as const;
+import { SCENES, SCENE_CLIENT, SCENE_CSS, sceneHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
 
 const W = 1920, H = 1080;
 
@@ -49,14 +51,13 @@ function rng(seed: number) {
   };
 }
 
-/** A torn-paper outline just inside the game window. Three scales of tear: a
+/** A torn-paper outline just inside a window. Three scales of tear: a
  * slow wander (the line of the rip), a small jitter every few pixels (the
  * ragged edge), and the odd bite or flap where the paper caught. The paper
  * always overlaps the capture (min inset 5 px, more than the fibre roughening
  * in ROUGH can pull it back), so the frame never shows a gap at the edge. */
-function tornPath(): string {
-  const { x, y, w, h } = THEME_HOLE;
-  const r = rng(20);
+function tornPath({ x, y, w, h }: Rect, seed: number): string {
+  const r = rng(seed);
   let wander = 9, drift = 0, bite = 0, biteLen = 0, biteAt = 0;
   const step = () => {
     drift = drift * 0.9 + (r() - 0.5) * 1.1;
@@ -78,17 +79,29 @@ function tornPath(): string {
   return `M${pts.join("L")}Z`;
 }
 
-const HOLE = tornPath();
-// The outer edge runs off-canvas so the fibre roughening never frays the screen border.
-const PAPER = `M-40 -40H${W + 40}V${H + 40}H-40Z${HOLE}`;
 const svgUrl = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-// The paper's shape, used as a mask: opaque everywhere except the torn window.
 // Fibre roughening: fine noise pushes the cut edge around by a few pixels, so
 // it frays instead of running in straight segments. The mask and every edge
 // stroke below use this exact filter (same seed and region), so they line up.
 const ROUGH = (id: string, q: string) =>
   `<filter id=${q}${id}${q} filterUnits=${q}userSpaceOnUse${q} x=${q}-40${q} y=${q}-40${q} width=${q}${W + 80}${q} height=${q}${H + 80}${q}><feTurbulence type=${q}fractalNoise${q} baseFrequency=${q}0.11${q} numOctaves=${q}3${q} seed=${q}4${q} result=${q}n${q}/><feDisplacementMap in=${q}SourceGraphic${q} in2=${q}n${q} scale=${q}7${q} xChannelSelector=${q}R${q} yChannelSelector=${q}G${q}/></filter>`;
-const PAPER_MASK = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><defs>${ROUGH("r", "'")}</defs><path fill-rule='evenodd' d='${PAPER}' filter='url(#r)'/></svg>`);
+
+/** A scene's cut-outs: every window torn out of one sheet (the outer edge runs
+ * off-canvas so the fibre roughening never frays the screen border), and the
+ * paper's shape as a mask — opaque everywhere except the torn windows. */
+type Sheet = { holes: string; paper: string; mask: string };
+const sheets = new Map<string, Sheet>();
+function sheetFor(key: string, scene: SceneDef): Sheet {
+  let sheet = sheets.get(key);
+  if (!sheet) {
+    const holes = scene.windows.map((w, i) => tornPath(w, 20 + i * 17)).join("");
+    const paper = `M-40 -40H${W + 40}V${H + 40}H-40Z${holes}`;
+    const mask = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><defs>${ROUGH("r", "'")}</defs><path fill-rule='evenodd' d='${paper}' filter='url(#r)'/></svg>`);
+    sheet = { holes, paper, mask };
+    sheets.set(key, sheet);
+  }
+  return sheet;
+}
 // Fine fibre grain and soft stains, brown at low alpha.
 const GRAIN = svgUrl(
   `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' seed='5' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.32  0 0 0 0 0.1  0 0 0 0.3 -0.08'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`,
@@ -121,7 +134,7 @@ const STYLE = `
     radial-gradient(ellipse at 100% 0%,#f9e27c 0,transparent 45%),
     radial-gradient(ellipse at 96% 100%,#f4d870 0,transparent 50%),
     linear-gradient(115deg,#fffaf0 0%,#fdf3cf 40%,#f8e7a0 75%,#f3d97c 100%);
-  -webkit-mask:${PAPER_MASK} 0 0/${W}px ${H}px no-repeat;mask:${PAPER_MASK} 0 0/${W}px ${H}px no-repeat}
+  -webkit-mask:var(--sheet) 0 0/${W}px ${H}px no-repeat;mask:var(--sheet) 0 0/${W}px ${H}px no-repeat}
 .edges{position:absolute;inset:0;pointer-events:none}
 /* The Codex's scroll rollers, top and bottom; the paper darkens as it curls onto them. */
 .curl{position:absolute;left:0;right:0;height:70px;pointer-events:none;background:linear-gradient(180deg,#5a3a1640,#5a3a1614 40%,transparent)}
@@ -156,11 +169,11 @@ const STYLE = `
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
-.rule{position:absolute;left:290px;right:16px;top:${THEME_HOLE.y + THEME_HOLE.h + 30}px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
+.rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
 .status{position:absolute;right:12px;bottom:46px;width:1200px;height:70px;border:0;background:transparent}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.55;box-shadow:0 0 4px #e9191640}}
-`;
+${SCENE_CSS}`;
 
 // The client: fits the stage to the window, then runs the chat. Plain ES2017, no build step.
 const CLIENT = `
@@ -273,9 +286,12 @@ async function startMic(){
     if(talkUrl){const on=badge.classList.contains("talking");if(!on&&lvl>=talkAt)badge.classList.add("talking");else if(on&&lvl<talkAt*0.6)badge.classList.remove("talking")}
     requestAnimationFrame(frame)})()}
 startMic();
-`;
+${SCENE_CLIENT}`;
 
-export function renderThemePage(channelKey: string, login: string, name: string): string {
+export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game"): string {
+  if (!(sceneKey in SCENES)) sceneKey = "game";
+  const scene = SCENES[sceneKey];
+  const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
   const cfg = { channel: channelKey, login: login.toLowerCase(), name };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
@@ -295,12 +311,12 @@ export function renderThemePage(channelKey: string, login: string, name: string)
 <path d="${HOLE}" stroke="#5e3a10" stroke-width="3.2" opacity=".8" filter="url(#rough)"/></g>
 <path d="${HOLE}" stroke="#fffbea" stroke-width="2.6" opacity=".95" filter="url(#fibres)"/>
 </g></svg>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(name)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
-<style>${STYLE}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
+<style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><i class="gem"></i><span id="title"></span></div>
 <section class="chat"><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
-<div class="rule"></div><iframe class="status" id="status" title="status" scrolling="no"></iframe>
+${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}<iframe class="status" id="status" title="status" scrolling="no"></iframe>
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;
