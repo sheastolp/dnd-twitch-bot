@@ -5,6 +5,7 @@
 //
 //   GET /overlays?channel=<id|login>                 setup page: every overlay URL + live previews
 //   GET /overlay?channel=<id|login>&panel=<name>     one overlay (the OBS browser source)
+//   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts)
 //   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
@@ -24,6 +25,7 @@ import { lookupViewerNames } from "./mentions.ts";
 import { formatCoins } from "./coins.ts";
 import { formatRaceName } from "./utils.ts";
 import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
+import { renderThemePage } from "./overlay_theme.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 
@@ -325,6 +327,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   const channelKey = channel.login || channel.id;
   if (path === "/overlays") return html(renderOverlayIndexPage(channel.name, channelKey, channel.id, PUBLIC_BASE_URL));
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
+  if (panel === "theme") return html(renderThemePage(channelKey, channel.login, channel.name));
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));
 }

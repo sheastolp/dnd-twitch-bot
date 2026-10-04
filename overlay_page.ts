@@ -9,6 +9,7 @@ import { scrollDoc } from "./scroll_theme.ts";
 
 /** Every overlay panel: what it shows and a sensible OBS browser-source size. */
 export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; width: number; height: number }> = {
+  theme: { label: "Full stream theme", blurb: "Your whole layout in one source: a parchment sheet with a torn-edged window for your game, your title across the top, Tavern Talk chat down the right (lines fade after 30 s — change with &fade=<seconds>, 0 keeps them), a d20 badge with your name bottom-left, and the status strip bottom-right. Put it above your game capture, and size the capture to X 64, Y 112, 1440 × 810 on a 1920 × 1080 canvas (X 43, Y 75, 960 × 540 on 1280 × 720). Extras: &logo=<image URL> for your own badge, &title=<text>, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands, &status=0 to drop the strip.", width: 1920, height: 1080 },
   status: { label: "Status bar", blurb: "One slim strip: live dot, raid boss HP, fight in progress, giveaway, the peddler's ware and the swear jar. Made for the top or bottom edge of the screen.", width: 1920, height: 70 },
   raid: { label: "Raid boss", blurb: "This stream's raid boss with its HP bar, the muster/cooldown state, and the top damage dealers.", width: 520, height: 300 },
   battle: { label: "Battle tracker", blurb: "Whatever fight is under way — arena duel, monster hunt, party duel or party hunt — with live HP bars and whose turn it is. Hidden when nobody is fighting.", width: 560, height: 420 },
@@ -204,8 +205,11 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
   const base = `${baseUrl}/overlay?channel=${encodeURIComponent(channelKey)}`;
   const cards = Object.entries(OVERLAY_PANELS).map(([key, p]) => {
     const link = `${base}&panel=${key}`;
-    const previewH = Math.min(p.height, 360);
-    return `<section class="ov" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p><label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label><div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="height:${previewH}px"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
+    // The full theme scales itself to fit, so its preview is just a 16:9 box.
+    const full = key === "theme";
+    const previewH = full ? 0 : Math.min(p.height, 360);
+    const opts = full ? "" : `<label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label>`;
+    return `<section class="ov${full ? " full" : ""}" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p>${opts}<div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="${full ? "aspect-ratio:16/9" : `height:${previewH}px`}"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
   }).join("");
   return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
 <span class="pill">Stream overlays</span><h1>OBS overlays</h1><p class="intro">${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
@@ -219,6 +223,7 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button[da
     width: 1140,
     css: `.intro{font-style:italic;font-size:1.15rem;margin-top:0}.note ol{margin:6px 0 0;padding-left:1.3em}.note li{margin:3px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
+.ov.full{grid-column:1/-1}
 .ov{background:linear-gradient(180deg,#e4dcc2,#dccfaa);border:1px solid var(--edge);border-radius:6px;padding:16px 18px;min-width:0;box-shadow:0 3px 10px #6b44182b}
 .ov h2{margin:0;padding:0;border:0;font-size:1.1rem}.ov h2::before{content:none}
 .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
