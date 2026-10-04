@@ -13,6 +13,23 @@ export const SCROLL_HEAD =
 export const scrollOpen = (cls = "") => `<main class="scroll${cls ? ` ${cls}` : ""}"><div class="sheet">`;
 export const scrollClose = `</div></main>`;
 
+// ── Paper textures, all inline SVG (no extra requests) ──
+const svgUrl = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+// Crumpled-paper relief: low-frequency noise lit from the top-left reads as
+// wrinkles and gentle waves; remapped around mid-grey and blended overlay so
+// it shades ridges and troughs without dulling the paper's colour.
+const WRINKLES = svgUrl(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='720' height='720'><filter id='w' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.0035 0.009' numOctaves='5' seed='7' stitchTiles='stitch'/><feDiffuseLighting lighting-color='#fff' surfaceScale='5' diffuseConstant='1'><feDistantLight azimuth='225' elevation='55'/></feDiffuseLighting><feComponentTransfer><feFuncR type='linear' slope='1.5' intercept='-0.73'/><feFuncG type='linear' slope='1.5' intercept='-0.73'/><feFuncB type='linear' slope='1.5' intercept='-0.73'/></feComponentTransfer></filter><rect width='100%' height='100%' filter='url(#w)'/></svg>`,
+);
+// Fine fibre grain, brown at low alpha.
+const GRAIN = svgUrl(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.36  0 0 0 0 0.24  0 0 0 0 0.1  0 0 0 0.42 -0.1'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`,
+);
+// Torn left/right edges, tiled down the sheet and used as a mask.
+const TORN_L = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='300'><path d='M16 0L2.8 0L2.7 5.2L1.7 9.3L2.7 13.5L1.4 16.6L0.4 21.0L0.9 26.4L0.4 28.9L0.4 31.1L0.4 33.2L0.5 38.2L1.0 41.9L2.6 44.9L3.2 49.8L2.6 52.6L2.2 57.3L3.7 60.7L2.8 62.7L4.3 66.3L4.7 68.6L3.4 71.5L4.2 76.9L3.1 79.8L5.1 83.7L7.2 86.4L8.9 88.8L7.4 91.3L5.3 94.0L4.1 99.4L5.2 102.5L6 105.8L6 108.2L6 111.1L4.6 114.1L3.8 118.2L3.7 121.5L3.9 125.2L2.8 127.8L2.0 132.7L3.4 137.3L4.6 142.6L3.5 146.1L5.3 150.5L7.3 155.4L6.3 158.4L3.2 163.0L0.8 165.8L1.0 170.7L0.5 175.9L3.6 178.8L5.7 181.8L5.6 187.2L3.6 189.7L1.3 192.9L2.6 196.7L2.5 201.9L1.0 205.0L0.4 207.3L0.4 209.7L0.4 213.0L0.4 217.6L0.4 220.8L1.5 223.1L1.7 225.2L3.1 227.2L4.8 229.5L6.3 232.4L6.2 235.6L4.4 240.0L1.9 243.6L1.8 247.5L0.4 249.8L1.3 252.2L2.6 255.9L2.9 258.4L2.4 263.0L1.6 266.8L2.0 269.6L1.1 274.3L2.4 277.0L1.9 279.5L0.5 281.7L0.4 286.5L1.5 291.8L2.0 295.6L2.8 300L16 300Z'/></svg>`);
+const TORN_R = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='300'><path transform='translate(16 0) scale(-1 1)' d='M16 0L3.2 0L2.5 5.0L2.2 8.2L2.0 10.5L3.6 13.7L3.4 17.9L2.3 21.4L3.3 24.9L3.8 27.6L2.9 31.3L3.0 36.1L3.2 40.7L3.6 44.1L5.0 46.5L3.9 49.0L3.6 51.2L3.5 55.5L2.9 59.8L4.4 64.3L3.4 69.6L1.9 75.0L0.7 80.2L2.2 85.4L3.1 90.0L3.5 92.0L3.7 97.3L6.8 100.6L8.9 105.2L5.1 107.2L1.7 111.8L1.1 116.1L2.3 118.8L1.4 124.1L0.4 126.1L0.4 129.0L1.7 134.4L0.6 138.4L0.4 140.8L0.4 145.6L0.4 148.1L0.4 151.5L0.6 154.2L4.7 159.0L7.4 164.1L4.7 167.3L0.6 172.6L1.7 176.8L0.4 181.2L0.4 184.0L0.4 189.0L0.4 193.8L0.4 196.3L1.8 199.9L1.2 203.8L0.4 206.5L0.6 210.5L1.6 212.8L0.8 217.9L4.5 221.0L7.6 225.2L7.1 230.2L4.5 234.8L1.2 237.2L2.1 240.2L0.9 244.1L1.0 248.5L0.4 251.6L1.7 256.3L1.8 259.7L3.2 262.4L3.2 265.6L2.4 269.6L1.5 272.4L0.6 275.2L0.4 280.7L1.4 285.6L3.6 289.6L6.5 291.9L6.9 294.3L3.9 297.4L3.2 300L16 300Z'/></svg>`);
+const TORN_MASK = `${TORN_L} left top/16px 300px repeat-y,${TORN_R} right 0 top 137px/16px 300px repeat-y,linear-gradient(#000 0 0) center/calc(100% - 30px) 100% no-repeat`;
+
 export const SCROLL_CSS = `:root{color-scheme:light;
 --desk:#140d08;--wood-1:#2a190d;--wood-2:#5b3a20;--wood-3:#a8703f;
 --parch:#e0d5b6;--parch-2:#d9caa2;--parch-3:#cebb8b;--edge:#b48f58;--rule:#b99b63;
@@ -30,11 +47,25 @@ linear-gradient(90deg,var(--wood-1) 0 30px,#0000 30px calc(100% - 30px),var(--wo
 linear-gradient(180deg,var(--wood-1) 0,var(--wood-2) 22%,var(--wood-3) 42%,#b9895b 50%,var(--wood-2) 72%,var(--wood-1) 100%);
 box-shadow:0 8px 14px #000a,inset 0 0 0 1px #0006}
 .scroll::before{top:-15px}.scroll::after{bottom:-15px}
-.sheet{position:relative;padding:58px clamp(20px,5vw,64px) 54px;
-background:radial-gradient(ellipse at 18% 12%,#ebe6d1 0,#0000 50%),radial-gradient(ellipse at 88% 78%,#d4be8d 0,#0000 46%),radial-gradient(ellipse at 40% 60%,#e4dbbf 0,#0000 60%),linear-gradient(180deg,#d6c598 0,var(--parch) 4%,var(--parch) 96%,#d6c598 100%);
-box-shadow:inset 0 0 70px #9a6b2c55,inset 0 0 12px #6b44183d,0 24px 60px #000c}
-.sheet::before,.sheet::after{content:"";position:absolute;top:0;bottom:0;width:10px;background:linear-gradient(90deg,#8a63305a,#0000)}
-.sheet::before{left:0}.sheet::after{right:0;transform:scaleX(-1)}
+.sheet{position:relative;padding:58px clamp(26px,5vw,68px) 54px;
+background:
+linear-gradient(180deg,#5a3a1638 0,#0000 26px,#0000 calc(100% - 26px),#5a3a1640 100%),
+linear-gradient(180deg,#0000 calc(31% - 7px),#6b441816 31%,#fff8e036 calc(31% + 1px),#0000 calc(31% + 9px),#0000 calc(64% - 6px),#6b441814 64%,#fff8e030 calc(64% + 1px),#0000 calc(64% + 8px)),
+linear-gradient(97deg,#0000 calc(58% - 5px),#6b44180f 58%,#fff8e026 calc(58% + 1px),#0000 calc(58% + 7px)),
+linear-gradient(180deg,#0000 0,#fff6dc1c 6%,#0000 11%,#6b44180c 17%,#0000 23%,#fff6dc18 30%,#0000 37%,#6b44180e 45%,#0000 52%,#fff6dc16 60%,#0000 68%,#6b44180c 76%,#0000 83%,#fff6dc14 90%,#0000 100%),
+radial-gradient(ellipse 140px 90px at 82% 14%,#8a5a2422 0,#8a5a240c 60%,#0000 72%),
+radial-gradient(ellipse 60px 48px at 9% 47%,#7a4a1c1e 0,#7a4a1c0a 55%,#0000 70%),
+radial-gradient(ellipse 210px 130px at 30% 88%,#8a5a241a 0,#0000 70%),
+radial-gradient(circle 5px at 71% 38%,#6b44182e 0,#0000 100%),radial-gradient(circle 3px at 23% 21%,#6b441833 0,#0000 100%),radial-gradient(circle 4px at 54% 79%,#6b441829 0,#0000 100%),
+${GRAIN},
+${WRINKLES},
+radial-gradient(ellipse at 18% 12%,#e6d6ad 0,#0000 50%),radial-gradient(ellipse at 88% 78%,#cfb27a 0,#0000 46%),radial-gradient(ellipse at 40% 60%,#dfcda0 0,#0000 60%),
+linear-gradient(180deg,#c3a56a 0,#d8c18e 5%,#d8c18e 95%,#c3a56a 100%);
+background-size:auto,auto,auto,auto,auto,auto,auto,auto,auto,auto,220px 220px,720px 720px,auto,auto,auto,auto;
+background-blend-mode:normal,normal,normal,soft-light,normal,normal,normal,normal,normal,normal,normal,overlay,normal,normal,normal,normal;
+box-shadow:inset 0 0 80px #8a5a2466,inset 0 0 22px #6b44184d,inset 0 0 3px #5a3a1680;
+-webkit-mask:${TORN_MASK};mask:${TORN_MASK}}
+.scroll{box-shadow:0 26px 60px -10px #000d}
 h1,h2,h3,h4{font-family:var(--display);font-weight:700;letter-spacing:.02em;color:var(--seal-dk);line-height:1.15}
 h1{font-size:clamp(2rem,5vw,3rem);margin:0 0 10px;color:var(--ink)}
 h2{font-size:1.4rem;margin:40px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule);scroll-margin-top:20px}
@@ -61,7 +92,7 @@ input:focus,textarea:focus{outline:2px solid #8f421066;border-color:var(--seal)}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:#92a470}
 .banner.error{background:var(--bad-bg);color:var(--bad);border-color:#c98f78}
 .colophon{margin-top:36px;padding-top:14px;border-top:1px solid var(--rule);text-align:center;font-size:.92rem}
-@media(max-width:640px){body{padding:30px 16px 44px;font-size:1rem}.scroll::before,.scroll::after{left:-8px;right:-8px;height:24px}.scroll::before{top:-12px}.scroll::after{bottom:-12px}.sheet{padding:44px 18px 40px}}
+@media(max-width:640px){body{padding:30px 16px 44px;font-size:1rem}.scroll::before,.scroll::after{left:-8px;right:-8px;height:24px}.scroll::before{top:-12px}.scroll::after{bottom:-12px}.sheet{padding:44px 22px 40px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}`;
 
 /** Extra rules for the Guild Codex (GET /guide). */
@@ -175,7 +206,7 @@ details.folder>summary::before{order:-1}
 .folder-name{flex:1;font:700 1rem var(--display);color:var(--seal-dk)}
 .tiles.mini{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 0}
 .tiles.mini .tile{padding:8px}.tiles.mini .tile-title{font-size:.72rem}
-dialog.editor{background:var(--parch);color:var(--ink);border:1px solid var(--edge);border-top:12px solid var(--wood-2);border-bottom:12px solid var(--wood-2);border-radius:8px;width:min(560px,92vw);max-height:88vh;padding:16px 22px 22px;box-shadow:inset 0 0 50px #9a6b2c40,0 24px 60px #000c}
+dialog.editor{background:${GRAIN} 0 0/220px 220px,${WRINKLES} 0 0/720px 720px,var(--parch);background-blend-mode:normal,overlay,normal;color:var(--ink);border:1px solid var(--edge);border-top:12px solid var(--wood-2);border-bottom:12px solid var(--wood-2);border-radius:8px;width:min(560px,92vw);max-height:88vh;padding:16px 22px 22px;box-shadow:inset 0 0 50px #9a6b2c40,0 24px 60px #000c}
 dialog.editor::backdrop{background:#140d08cc}
 .editor-head{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:6px}
 .editor-head h3{margin:0}
