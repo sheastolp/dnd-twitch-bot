@@ -30,6 +30,45 @@ const TORN_L = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height
 const TORN_R = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='300'><path transform='translate(16 0) scale(-1 1)' d='M16 0L3.2 0L2.5 5.0L2.2 8.2L2.0 10.5L3.6 13.7L3.4 17.9L2.3 21.4L3.3 24.9L3.8 27.6L2.9 31.3L3.0 36.1L3.2 40.7L3.6 44.1L5.0 46.5L3.9 49.0L3.6 51.2L3.5 55.5L2.9 59.8L4.4 64.3L3.4 69.6L1.9 75.0L0.7 80.2L2.2 85.4L3.1 90.0L3.5 92.0L3.7 97.3L6.8 100.6L8.9 105.2L5.1 107.2L1.7 111.8L1.1 116.1L2.3 118.8L1.4 124.1L0.4 126.1L0.4 129.0L1.7 134.4L0.6 138.4L0.4 140.8L0.4 145.6L0.4 148.1L0.4 151.5L0.6 154.2L4.7 159.0L7.4 164.1L4.7 167.3L0.6 172.6L1.7 176.8L0.4 181.2L0.4 184.0L0.4 189.0L0.4 193.8L0.4 196.3L1.8 199.9L1.2 203.8L0.4 206.5L0.6 210.5L1.6 212.8L0.8 217.9L4.5 221.0L7.6 225.2L7.1 230.2L4.5 234.8L1.2 237.2L2.1 240.2L0.9 244.1L1.0 248.5L0.4 251.6L1.7 256.3L1.8 259.7L3.2 262.4L3.2 265.6L2.4 269.6L1.5 272.4L0.6 275.2L0.4 280.7L1.4 285.6L3.6 289.6L6.5 291.9L6.9 294.3L3.9 297.4L3.2 300L16 300Z'/></svg>`);
 const TORN_MASK = `${TORN_L} left top/16px 300px repeat-y,${TORN_R} right 0 top 137px/16px 300px repeat-y,linear-gradient(#000 0 0) center/calc(100% - 30px) 100% no-repeat`;
 
+// Roller finial (left end; mirrored for the right): dowel stub, brass
+// ferrule, turned neck and a lathe-turned knob with a highlight and groove.
+const FINIAL_SVG = (flip: boolean) =>
+  `<svg xmlns='http://www.w3.org/2000/svg' width='52' height='48' viewBox='0 0 52 48'><defs>` +
+  `<linearGradient id='wd' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#2a170b'/><stop offset='.3' stop-color='#6e4423'/><stop offset='.45' stop-color='#b07a47'/><stop offset='.55' stop-color='#8a5a30'/><stop offset='1' stop-color='#24140a'/></linearGradient>` +
+  `<linearGradient id='br' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='#5a3f12'/><stop offset='.32' stop-color='#c9a24a'/><stop offset='.46' stop-color='#f3dc8e'/><stop offset='.62' stop-color='#a8822f'/><stop offset='1' stop-color='#3f2c0b'/></linearGradient>` +
+  `<radialGradient id='kb' cx='.42' cy='.32' r='.75'><stop offset='0' stop-color='#d39a63'/><stop offset='.28' stop-color='#9a6435'/><stop offset='.7' stop-color='#5a3418'/><stop offset='1' stop-color='#1e1007'/></radialGradient>` +
+  `</defs><g${flip ? " transform='translate(52 0) scale(-1 1)'" : ""}>` +
+  `<rect x='32' y='15' width='20' height='18' fill='url(#wd)'/>` +
+  `<rect x='27' y='10' width='7' height='28' rx='1.5' fill='url(#br)'/><rect x='27' y='10' width='7' height='28' rx='1.5' fill='none' stroke='#2b1d06' stroke-width='.6' opacity='.7'/>` +
+  `<line x1='30.5' y1='10.5' x2='30.5' y2='37.5' stroke='#fff3c4' stroke-width='.5' opacity='.45'/>` +
+  `<rect x='21' y='16' width='7' height='16' fill='url(#wd)'/><rect x='23.5' y='14.5' width='2.4' height='19' rx='1' fill='url(#wd)' stroke='#1e1007' stroke-width='.4'/>` +
+  `<ellipse cx='13' cy='24' rx='11' ry='14.5' fill='url(#kb)'/>` +
+  `<ellipse cx='13' cy='24' rx='6.5' ry='14' fill='none' stroke='#1e1007' stroke-width='.7' opacity='.55'/>` +
+  `<ellipse cx='10' cy='16' rx='4' ry='3' fill='#f2c99a' opacity='.35'/>` +
+  `<ellipse cx='2.6' cy='24' rx='2.6' ry='6.5' fill='url(#br)' stroke='#2b1d06' stroke-width='.5'/>` +
+  `</g></svg>`;
+const FINIAL_L = svgUrl(FINIAL_SVG(false));
+const FINIAL_R = svgUrl(FINIAL_SVG(true));
+// End of the rolled parchment: the spiral of paper layers seen edge-on.
+const ROLL_END = svgUrl(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='12' height='36' viewBox='0 0 12 36'><defs><radialGradient id='e' cx='.5' cy='.5' r='.5'><stop offset='0' stop-color='#5a3c1a'/><stop offset='.25' stop-color='#b39060'/><stop offset='1' stop-color='#dcc597'/></radialGradient></defs>` +
+  `<ellipse cx='6' cy='18' rx='6' ry='18' fill='url(#e)'/>` +
+  [15.5, 13, 10.5, 8, 5.5].map((ry, i) => `<ellipse cx='6' cy='18' rx='${(ry / 18 * 6).toFixed(2)}' ry='${ry}' fill='none' stroke='#6e5230' stroke-width='.55' opacity='${(0.75 - i * 0.08).toFixed(2)}'/>`).join("") +
+  `<ellipse cx='6' cy='18' rx='1' ry='3' fill='#2a170b'/><ellipse cx='6' cy='18' rx='6' ry='18' fill='none' stroke='#4e3417' stroke-width='.6'/></svg>`,
+);
+// The rolled-up parchment between the finials: a shaded cylinder, faint
+// wrap lines, spiral rings at each end of the roll, and the bare dowel.
+const ROLLER_BG = [
+  `${FINIAL_L} left center/52px 48px no-repeat`,
+  `${FINIAL_R} right center/52px 48px no-repeat`,
+  `${ROLL_END} 40px 50%/12px 36px no-repeat`,
+  `${ROLL_END} right 40px top 50%/12px 36px no-repeat`,
+  `${GRAIN} center/calc(100% - 92px) 36px no-repeat`,
+  `repeating-linear-gradient(97deg,#0000 0 31px,#5a3a1626 31px 32px,#0000 32px 58px,#fff4d618 58px 59px,#0000 59px 83px) center/calc(100% - 92px) 36px no-repeat`,
+  `linear-gradient(180deg,#4e3417 0,#8f6d40 10%,#c4a774 26%,#dcc597 40%,#e9d7ac 47%,#d2b783 58%,#a68654 76%,#6f5230 90%,#432d15 100%) center/calc(100% - 92px) 36px no-repeat`,
+  `linear-gradient(180deg,#24140a 0,#6e4423 30%,#b07a47 45%,#8a5a30 55%,#24140a 100%) center/calc(100% - 60px) 18px no-repeat`,
+].join(",");
+
 export const SCROLL_CSS = `:root{color-scheme:light;
 --desk:#140d08;--wood-1:#2a190d;--wood-2:#5b3a20;--wood-3:#a8703f;
 --parch:#e0d5b6;--parch-2:#d9caa2;--parch-3:#cebb8b;--edge:#b48f58;--rule:#b99b63;
@@ -38,18 +77,14 @@ export const SCROLL_CSS = `:root{color-scheme:light;
 --display:Cinzel,"Trajan Pro",Georgia,serif;--body:"EB Garamond",Garamond,Georgia,serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;min-height:100vh;padding:44px 28px 64px;color:var(--ink);font:400 1.08rem/1.6 var(--body);
+body{margin:0;min-height:100vh;padding:48px 34px 68px;color:var(--ink);font:400 1.08rem/1.6 var(--body);
 background:radial-gradient(ellipse at 50% 0,#3a2414 0,transparent 60%),radial-gradient(ellipse at 50% 100%,#2a170b 0,transparent 55%),repeating-linear-gradient(92deg,#ebebe403 0 2px,#0000 2px 7px),var(--desk);background-attachment:fixed}
 .scroll{position:relative;max-width:var(--scroll-w,820px);margin:0 auto}
-.scroll::before,.scroll::after{content:"";position:absolute;left:-22px;right:-22px;height:30px;border-radius:15px;z-index:2;pointer-events:none;
-background:radial-gradient(circle at 15px 50%,#6b4423 0 6px,#0000 7px),radial-gradient(circle at calc(100% - 15px) 50%,#6b4423 0 6px,#0000 7px),
-linear-gradient(90deg,var(--wood-1) 0 30px,#0000 30px calc(100% - 30px),var(--wood-1) calc(100% - 30px)),
-linear-gradient(180deg,var(--wood-1) 0,var(--wood-2) 22%,var(--wood-3) 42%,#b9895b 50%,var(--wood-2) 72%,var(--wood-1) 100%);
-box-shadow:0 8px 14px #000a,inset 0 0 0 1px #0006}
-.scroll::before{top:-15px}.scroll::after{bottom:-15px}
+.scroll::before,.scroll::after{content:"";position:absolute;left:-30px;right:-30px;height:48px;z-index:2;pointer-events:none;background:${ROLLER_BG};filter:drop-shadow(0 7px 7px #000a)}
+.scroll::before{top:-26px}.scroll::after{bottom:-26px}
 .sheet{position:relative;padding:58px clamp(26px,5vw,68px) 54px;
 background:
-linear-gradient(180deg,#5a3a1638 0,#0000 26px,#0000 calc(100% - 26px),#5a3a1640 100%),
+linear-gradient(180deg,#3a22104d 0,#5a3a1626 22px,#0000 40px,#0000 calc(100% - 40px),#5a3a1626 calc(100% - 22px),#3a221055 100%),
 linear-gradient(180deg,#0000 calc(31% - 7px),#6b441816 31%,#fff8e036 calc(31% + 1px),#0000 calc(31% + 9px),#0000 calc(64% - 6px),#6b441814 64%,#fff8e030 calc(64% + 1px),#0000 calc(64% + 8px)),
 linear-gradient(97deg,#0000 calc(58% - 5px),#6b44180f 58%,#fff8e026 calc(58% + 1px),#0000 calc(58% + 7px)),
 linear-gradient(180deg,#0000 0,#fff6dc1c 6%,#0000 11%,#6b44180c 17%,#0000 23%,#fff6dc18 30%,#0000 37%,#6b44180e 45%,#0000 52%,#fff6dc16 60%,#0000 68%,#6b44180c 76%,#0000 83%,#fff6dc14 90%,#0000 100%),
@@ -92,7 +127,7 @@ input:focus,textarea:focus{outline:2px solid #8f421066;border-color:var(--seal)}
 .banner.ok{background:var(--ok-bg);color:var(--ok);border-color:#92a470}
 .banner.error{background:var(--bad-bg);color:var(--bad);border-color:#c98f78}
 .colophon{margin-top:36px;padding-top:14px;border-top:1px solid var(--rule);text-align:center;font-size:.92rem}
-@media(max-width:640px){body{padding:30px 16px 44px;font-size:1rem}.scroll::before,.scroll::after{left:-8px;right:-8px;height:24px}.scroll::before{top:-12px}.scroll::after{bottom:-12px}.sheet{padding:44px 22px 40px}}
+@media(max-width:640px){body{padding:30px 16px 44px;font-size:1rem}.scroll::before,.scroll::after{left:-12px;right:-12px;height:40px;background-size:44px 40px,44px 40px,10px 30px,10px 30px,calc(100% - 76px) 30px,calc(100% - 76px) 30px,calc(100% - 76px) 30px,calc(100% - 50px) 15px;background-position:left center,right center,34px 50%,right 34px top 50%,center,center,center,center}.scroll::before{top:-22px}.scroll::after{bottom:-22px}.sheet{padding:44px 22px 40px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}`;
 
 /** Extra rules for the Guild Codex (GET /guide). */
