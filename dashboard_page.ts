@@ -6,7 +6,7 @@ import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
 import { DASH_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
-import { folderReqNote, LINKS_CSS, renderLinksSection, reqChips, reqLink, requiredByChips, tileNeedNote, tileReqClass } from "./dashboard_links.ts";
+import { folderReqNote, LINKS_CSS, reqChips, reqLink, requiredByChips, tileNeedNote, tileReqClass } from "./dashboard_links.ts";
 
 // ── Web dashboard (see dashboard.ts for the !dashboard chat command that
 // hands out the link, and main.ts for the GET/POST /dashboard routes) ──
@@ -109,7 +109,6 @@ function renderDashboardIndex(): string {
       <li><a href="#sec-triggers">Chat triggers</a></li>
       <li><a href="#sec-timed">Timed messages</a></li>
       <li><a href="#sec-groups">Command groups</a><ul>${groupLinks}</ul></li>
-      <li><a href="#sec-links">Linked commands summary</a></li>
     </ol>
   </nav>`;
 }
@@ -171,7 +170,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     `<p class="muted">Turning off the entire bot overrides everything else. Changes apply immediately.</p>
     <div class="tiles mini">${dedicated}</div>`),
     groups: bigSquare("sec-groups", "Command groups", `${plural(bySection.size, "group")} · ${groupOn}/${groupTotal} on`,
-    `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need ${reqLink(d, "points")} — switches with a <span class="gold-swatch">gold border</span> are ones other switches depend on, and each switch's window links to whatever it needs. Not sure which switch a command uses? See the <a href="#sec-links">linked commands summary</a>.</p>
+    `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need ${reqLink(d, "points")} — switches with a <span class="gold-swatch">gold border</span> are ones other switches depend on, and each switch's window links to whatever it needs.</p>
     ${groups}`, true) };
 }
 
@@ -357,7 +356,6 @@ export function renderDashboardPage(d: DashboardData): string {
     ${renderTimedMessagesSection(d)}
   </div>
   ${features.groups}
-  ${renderLinksSection(d, bigSquare)}
   <script>(function(){
     var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.folder"));
     function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
@@ -402,11 +400,9 @@ export function renderDashboardPage(d: DashboardData): string {
     function lay(){grids.forEach(function(g){[].forEach.call(g.children,function(c){c.style.gridRowEnd="span "+Math.ceil((c.getBoundingClientRect().height+parseFloat(c.style.marginBottom))/4)})})}
     lay();
     if(window.ResizeObserver){var ro=new ResizeObserver(lay);grids.forEach(function(g){[].forEach.call(g.children,function(c){ro.observe(c)})})}else{window.addEventListener("resize",lay);all.forEach(function(d){d.addEventListener("toggle",lay)})}
-    // Gold "Needs …" links, the summary's switch names, and "Required by" links:
+    // Gold "Needs …" and "Required by" links:
     // close whatever window is open and open the linked switch instead.
-    document.addEventListener("click",function(e){if(e.defaultPrevented)return;var a=e.target.closest&&e.target.closest("a.req-link,a.sum-link,a.req-inline,a[href='#sec-links']");if(!a)return;var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();document.querySelectorAll("dialog[open]").forEach(function(dl){dl.close()});try{history.replaceState(null,"","#"+id)}catch(x){}show(el);if(el.classList.contains("tile")){el.classList.add("flash");setTimeout(function(){el.classList.remove("flash")},1600)}});
-    var sf=document.querySelector(".sum-filter");
-    if(sf)sf.addEventListener("input",function(){var q=sf.value.trim().toLowerCase(),n=0;document.querySelectorAll("table.sum tbody tr").forEach(function(tr){var hit=!q||tr.getAttribute("data-search").indexOf(q)>=0;tr.hidden=!hit;if(hit)n++});document.querySelector(".sum-empty").hidden=n>0;lay()});
+    document.addEventListener("click",function(e){if(e.defaultPrevented)return;var a=e.target.closest&&e.target.closest("a.req-link");if(!a)return;var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();document.querySelectorAll("dialog[open]").forEach(function(dl){dl.close()});try{history.replaceState(null,"","#"+id)}catch(x){}show(el);if(el.classList.contains("tile")){el.classList.add("flash");setTimeout(function(){el.classList.remove("flash")},1600)}});
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
     goHash();
   })();</script>

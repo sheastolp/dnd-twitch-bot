@@ -152,18 +152,6 @@ export const DEDICATED_LABELS: Record<string, string> = {
   hoard: "Hunt and Hoard",
 };
 
-/** Chat commands behind each dedicated switch (group switches list theirs in the label). */
-export const DEDICATED_COMMANDS: Record<string, string> = {
-  bot: "!dndbot on, !dndbot off, !dndbot status",
-  market: "!market on/off/status, !stall, !haggle",
-  chronicle: "!chronicle on/off/status",
-  autoban: "!autoban on/off/status",
-  points: "!gold on, !gold off, !gold status",
-  npc: "!npc",
-  npcchatter: "NPCs chatting on their own",
-  hoard: "!hoard on/off/status, !hoard",
-};
-
 /**
  * Switch → the other switches it can't work without (besides "Entire bot",
  * which gates everything). Only real code-level gates are listed: e.g. rob.ts,
