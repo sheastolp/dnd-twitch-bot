@@ -10,12 +10,22 @@
 // in through textContent, never innerHTML.
 //
 // URL extras (all optional): &fade=<seconds> before a chat line fades (default
-// 30, 0 = never), &title=<text> instead of the channel name, &logo=<image URL>
-// in place of the d20 badge (its ribbon goes too unless &ribbon=1), &hide=<login,login> chatters to leave out (bots),
+// 30, 0 = never), &title=<text> instead of the channel name (which otherwise
+// comes from Twitch, CamelCase split into words; &split=0 keeps it as-is),
+// &hide=<login,login> chatters to leave out (bots),
 // &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip,
 // &mic=<part of the mic's name> to pick which microphone lights the emblem
 // (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
+//
+// Emblem: &emblem=<image URL> (or the older &logo=) replaces the d20 with your
+// own badge or PNGtuber; add &talk=<image URL> and it swaps to that image
+// while you talk (with a little bounce; &bounce=0 to keep it still) — a
+// PNGtuber. &talkat=<0–1> sets how loud counts as talking (default .3),
+// &size=<px> the emblem's size (default 200 d20 / 240 image, up to 520; it
+// grows upward from the bottom-left corner), &ribbon=0/1 hides/shows the name
+// ribbon (default: shown with the d20, hidden with your own image), &dim=0
+// keeps it at full brightness while quiet.
 //
 // The emblem reacts to the mic: dim while you're quiet, brightening and
 // glowing as you talk. If the mic can't be opened (no permission, no device)
@@ -133,11 +143,16 @@ const STYLE = `
 .msg img{height:1.35em;vertical-align:-.3em;margin:0 1px}
 .msg.out{opacity:0;transform:translateX(24px)}
 .msg.note{color:#a98235;font-style:italic;font-size:18px;text-align:center}
-.badge{position:absolute;left:22px;top:796px;width:250px;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 6px 10px #5a3a0f55)}
-.badge svg,.badge img{width:200px;height:200px;object-fit:contain}
-.badge img{width:240px;height:240px}
+.badge{position:absolute;left:22px;bottom:74px;width:250px;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 6px 10px #5a3a0f55)}
+.badge.custom{width:auto;min-width:250px}
+#badge{position:relative;width:var(--size,200px);height:var(--size,200px);transform-origin:50% 100%}
+#badge svg,#badge img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#badge .talk{visibility:hidden}#badge.talking .talk{visibility:visible}#badge.talking .idle{visibility:hidden}
+#badge.bounce.talking{animation:bob .32s ease-in-out infinite alternate}
 /* Mic-reactive emblem: --lvl runs 0 (silence) to 1 (loud), set every frame by the client. */
 #badge.mic{filter:brightness(calc(.42 + var(--lvl,0) * .78)) saturate(calc(.7 + var(--lvl,0) * .5)) drop-shadow(0 0 calc(var(--lvl,0) * 26px) #ffd76acc)}
+#badge.mic.nodim{filter:drop-shadow(0 0 calc(var(--lvl,0) * 26px) #ffd76acc)}
+@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-8px)}}
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
@@ -157,12 +172,22 @@ const preview=Q.get("always")==="1";
 const fadeQ=Q.get("fade");const fade=fadeQ!=null&&Number.isFinite(Number(fadeQ))?Math.max(0,Math.min(3600,Number(fadeQ))):30;
 const hidden=new Set((Q.get("hide")||"").toLowerCase().split(",").map(s=>s.trim().replace(/^@/,"")).filter(Boolean));
 const hideCmds=Q.get("hidecmds")==="1";
-const title=Q.get("title")||CFG.name;
+// The channel's current Twitch display name; StonedSheamus -> "Stoned Sheamus" unless &split=0.
+const autoTitle=Q.get("split")==="0"?CFG.name:CFG.name.replace(/_+/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g,"$1 $2").trim();
+const title=Q.get("title")||autoTitle;
 document.getElementById("title").textContent=title;
 document.getElementById("chatsub").textContent="words from "+CFG.name+"'s common room";
 const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.fontSize=Math.max(12,Math.min(22,330/Math.max(1,title.length)))+"px";
-const logo=Q.get("logo");
-if(logo){try{const u=new URL(logo);if(u.protocol==="https:"||u.protocol==="http:"){const b=document.getElementById("badge");const img=document.createElement("img");img.alt="";img.src=u.href;b.replaceChildren(img);if(Q.get("ribbon")!=="1")rib.remove()}}catch(e){}}
+// The emblem: the d20, or your own image (+ an optional talking image for a PNGtuber).
+const badge=document.getElementById("badge");
+const imgUrl=k=>{try{const u=new URL(Q.get(k)||"");return u.protocol==="https:"||u.protocol==="http:"?u.href:null}catch(e){return null}};
+const idleUrl=imgUrl("emblem")||imgUrl("logo"), talkUrl=imgUrl("talk");
+if(idleUrl){const img=h("img","idle");img.alt="";img.src=idleUrl;badge.replaceChildren(img);badge.parentElement.classList.add("custom");
+  if(talkUrl){const t=h("img","talk");t.alt="";t.src=talkUrl;badge.append(t);if(Q.get("bounce")!=="0")badge.classList.add("bounce")}}
+if(Q.get("ribbon")==="0"||(idleUrl&&Q.get("ribbon")!=="1"))rib.remove();
+const sizeQ=Number(Q.get("size"));badge.style.setProperty("--size",(Number.isFinite(sizeQ)&&sizeQ>0?Math.max(80,Math.min(520,sizeQ)):idleUrl?240:200)+"px");
+if(Q.get("dim")==="0")badge.classList.add("nodim");
+const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));
 if(Q.get("status")==="0")document.getElementById("status").remove();
 else document.getElementById("status").src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right"+(preview?"&always=1":"");
 
@@ -231,7 +256,6 @@ async function micStream(){
   first.getTracks().forEach(t=>t.stop());return open(dev.deviceId)}
 async function startMic(){
   if(micQ.toLowerCase()==="off"||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
-  const badge=document.getElementById("badge");
   let stream;try{stream=await micStream()}catch(e){return}
   const ctx=new (window.AudioContext||window.webkitAudioContext)();
   const an=ctx.createAnalyser();an.fftSize=1024;ctx.createMediaStreamSource(stream).connect(an);
@@ -245,6 +269,8 @@ async function startMic(){
     // Snap up fast when you speak, ease back down slowly so it doesn't flicker between words.
     lvl+=(target-lvl)*(target>lvl?0.45:0.06);
     badge.style.setProperty("--lvl",lvl.toFixed(3));
+    // PNGtuber swap, with a little hysteresis so the mouth doesn't chatter at the threshold.
+    if(talkUrl){const on=badge.classList.contains("talking");if(!on&&lvl>=talkAt)badge.classList.add("talking");else if(on&&lvl<talkAt*0.6)badge.classList.remove("talking")}
     requestAnimationFrame(frame)})()}
 startMic();
 `;

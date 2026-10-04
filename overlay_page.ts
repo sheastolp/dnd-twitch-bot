@@ -9,7 +9,7 @@ import { scrollDoc } from "./scroll_theme.ts";
 
 /** Every overlay panel: what it shows and a sensible OBS browser-source size. */
 export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; width: number; height: number }> = {
-  theme: { label: "Full stream theme", blurb: "Your whole layout in one source: a parchment sheet with a torn-edged window for your game, your title across the top, Tavern Talk chat down the right (lines fade after 30 s — change with &fade=<seconds>, 0 keeps them), a d20 badge with your name bottom-left, and the status strip bottom-right. Put it above your game capture, and size the capture to X 64, Y 112, 1440 × 810 on a 1920 × 1080 canvas (X 43, Y 75, 960 × 540 on 1280 × 720). Extras: &logo=<image URL> for your own badge, &title=<text>, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands, &status=0 to drop the strip. The d20 emblem reacts to your mic — dim when you're quiet, bright and glowing when you talk; pick the mic below (&mic=<name>), and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic.", width: 1920, height: 1080 },
+  theme: { label: "Full stream theme", blurb: "Your whole layout in one source: a parchment sheet with a torn-edged window for your game, your title across the top, Tavern Talk chat down the right (lines fade after 30 s — change with &fade=<seconds>, 0 keeps them), a d20 emblem (or your own image or PNGtuber) bottom-left, and the status strip bottom-right. Put it above your game capture, and size the capture to X 64, Y 112, 1440 × 810 on a 1920 × 1080 canvas (X 43, Y 75, 960 × 540 on 1280 × 720). Your title is your Twitch name, kept up to date. Extras: &title=<text> to write your own, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands, &status=0 to drop the strip. The emblem — the d20, your own image, or a PNGtuber that swaps to its talking image — reacts to your mic: dim when you're quiet, bright and glowing when you talk. Set it up below, and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic.", width: 1920, height: 1080 },
   status: { label: "Status bar", blurb: "One slim strip: live dot, raid boss HP, fight in progress, giveaway, the peddler's ware and the swear jar. Made for the top or bottom edge of the screen.", width: 1920, height: 70 },
   raid: { label: "Raid boss", blurb: "This stream's raid boss with its HP bar, the muster/cooldown state, and the top damage dealers.", width: 520, height: 300 },
   battle: { label: "Battle tracker", blurb: "Whatever fight is under way — arena duel, monster hunt, party duel or party hunt — with live HP bars and whose turn it is. Hidden when nobody is fighting.", width: 560, height: 420 },
@@ -200,6 +200,15 @@ export function renderOverlayPage(channelKey: string, panel: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe overlay · ${escapeHtml(panel)}</title><style>${STYLE}</style></head><body><div id="root"></div><script>window.__OVERLAY__=${cfgJson};${CLIENT}</script></body></html>`;
 }
 
+// The theme card's link builder: emblem (d20, your image, or a PNGtuber pair), its size, and the mic.
+const THEME_BUILDER = `<div class="tb">
+<label>Emblem <select class="tb-mode"><option value="d20">GuildScribe d20</option><option value="image">My own image</option><option value="png">PNGtuber (idle + talking images)</option></select></label>
+<label class="tb-img" hidden>Image URL <input type="url" class="tb-idle" placeholder="https://…/emblem.png"></label>
+<label class="tb-png" hidden>Talking image URL <input type="url" class="tb-talk" placeholder="https://…/talking.png"></label>
+<label>Size <input type="number" class="tb-size" min="80" max="520" step="10" placeholder="auto"> px</label>
+<div class="tb-wide tb-row">Mic <select class="mic-pick"><option value="">Default microphone</option><option value="off">Off (no mic reaction)</option></select><button type="button" class="ghost mic-list">List my microphones</button></div>
+<p class="muted tb-wide">Images need a public link ending in .png, .gif or .webp (a Discord or Imgur image link works). Quiet = dimmer, talking = brighter; a PNGtuber also swaps to the talking image and bobs.</p></div>`;
+
 /** The setup page: every overlay's URL, its suggested size and a live preview. */
 export function renderOverlayIndexPage(channelName: string, channelKey: string, channelId: string, baseUrl: string): string {
   const base = `${baseUrl}/overlay?channel=${encodeURIComponent(channelKey)}`;
@@ -208,7 +217,7 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
     // The full theme scales itself to fit, so its preview is just a 16:9 box.
     const full = key === "theme";
     const previewH = full ? 0 : Math.min(p.height, 360);
-    const opts = full ? `<div class="side-opt mic-opt"><span>Emblem mic</span><select class="mic-pick"><option value="">Default microphone</option><option value="off">Off (no mic glow)</option></select><button type="button" class="ghost mic-list">List my microphones</button></div>` : `<label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label>`;
+    const opts = full ? THEME_BUILDER : `<label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label>`;
     return `<section class="ov${full ? " full" : ""}" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p>${opts}<div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="${full ? "aspect-ratio:16/9" : `height:${previewH}px`}"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
   }).join("");
   return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
@@ -223,8 +232,15 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button.mi
     const mics=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput"&&d.label&&d.deviceId!=="default"&&d.deviceId!=="communications");
     for(const o of [...sel.options].slice(2))o.remove();for(const m of mics){const o=document.createElement("option");o.value=m.label.replace(/\\s*\\([0-9a-f]{4}:[0-9a-f]{4}\\)$/i,"");o.textContent=m.label;sel.append(o)}
     b.textContent=mics.length?"Pick one above":"No microphones found"}catch(_){b.textContent="Mic permission denied"}});
-document.addEventListener("change",(e)=>{const ms=e.target.closest("select.mic-pick");if(!ms)return;const ov=ms.closest(".ov");const link=ov.dataset.link+(ms.value?"&mic="+encodeURIComponent(ms.value):"");
-  ov.querySelector(".url code").textContent=link;ov.querySelector("button[data-copy]").dataset.copy=link;});
+function themeLink(ov){const q=(c)=>ov.querySelector(c);const mode=q(".tb-mode").value;let link=ov.dataset.link;
+  q(".tb-img").hidden=mode==="d20";q(".tb-png").hidden=mode!=="png";
+  const idle=q(".tb-idle").value.trim(),talk=q(".tb-talk").value.trim(),size=q(".tb-size").value.trim(),mic=q(".mic-pick").value;
+  if(mode!=="d20"&&idle)link+="&emblem="+encodeURIComponent(idle);if(mode==="png"&&idle&&talk)link+="&talk="+encodeURIComponent(talk);
+  if(size)link+="&size="+encodeURIComponent(size);const view=link;if(mic)link+="&mic="+encodeURIComponent(mic);
+  q(".url code").textContent=link;q("button[data-copy]").dataset.copy=link;
+  const fr=q("iframe");const want=view+"&always=1";if(fr.dataset.src!==want){fr.dataset.src=want;fr.src=want}}
+let tbTimer;document.addEventListener("input",(e)=>{const ov=e.target.closest(".ov.full");if(!ov)return;clearTimeout(tbTimer);tbTimer=setTimeout(()=>themeLink(ov),400)});
+document.addEventListener("change",(e)=>{const ov=e.target.closest(".ov.full");if(ov)themeLink(ov)});
 document.addEventListener("change",(e)=>{const cb=e.target.closest("input.side-right,input.from-bottom");if(!cb)return;const ov=cb.closest(".ov");const link=ov.dataset.link+(ov.querySelector("input.side-right").checked?"&side=right":"")+(ov.querySelector("input.from-bottom").checked?"&from=bottom":"");ov.querySelector(".url code").textContent=link;ov.querySelector("button[data-copy]").dataset.copy=link;ov.querySelector("iframe").src=link+"&always=1";});
 document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied!";}catch(_){b.textContent="Select & copy";}setTimeout(()=>{b.textContent="Copy"},1500);});</script>
 `, {
@@ -237,7 +253,9 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button[da
 .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
 .url{display:flex;gap:8px;align-items:stretch}.url code{flex:1;min-width:0;background:#2b1d12;color:#f3dfb4;border:0;border-left:3px solid var(--seal);border-radius:3px;padding:8px 10px;font-size:.8rem}
 .url button{padding:0 14px}
-.mic-opt{align-items:center;flex-wrap:wrap}.mic-opt select{width:auto;max-width:100%}.mic-opt button{padding:6px 12px}
+.tb{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px 16px;margin:0 0 10px;font-size:.92rem}
+.tb label,.tb-row{display:flex;align-items:center;gap:8px;min-width:0}.tb label[hidden]{display:none}.tb input,.tb select{flex:1;min-width:0;width:auto}.tb .tb-size{flex:0 1 90px}
+.tb-wide{grid-column:1/-1;flex-wrap:wrap}.tb p{margin:0}.tb button{padding:6px 12px}
 .side-opt{display:flex;align-items:baseline;gap:8px;margin:0 0 8px;font-size:.92rem;cursor:pointer}.side-opt .muted{font-size:.8rem}
 .preview{margin-top:10px;border-radius:5px;overflow:hidden;border:1px solid var(--edge);background:repeating-conic-gradient(#2a2420 0 25%,#1d1915 0 50%) 0 0/24px 24px}
 .preview iframe{width:100%;height:100%;border:0;background:transparent;color-scheme:normal}`,

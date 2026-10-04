@@ -28,6 +28,7 @@ import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
+import { env, getAppToken } from "./twitch.ts";
 
 /** Panels that fetch their own slice of data; "status", "all" and "rotate" combine these. */
 export const DATA_PANELS = ["raid", "battle", "giveaway", "merchant", "jar", "gold", "dice", "guild"] as const;
@@ -65,6 +66,35 @@ async function resolveChannel(param: string | null) {
     name: String(b.display_name || b.login || "This channel"),
     live: Number(b.is_live) === 1,
   };
+}
+
+// The theme's title is the channel's name as Twitch has it *now* (the stored
+// display_name is from when the channel connected, so a rename or a change of
+// capitals wouldn't show). Cached per isolate; a changed name is saved back.
+const NAME_TTL_MS = 10 * 60_000;
+const nameCache = new Map<string, { at: number; login: string; name: string }>();
+
+async function liveChannelName(channel: { id: string; login: string; name: string }): Promise<{ login: string; name: string }> {
+  const hit = nameCache.get(channel.id);
+  if (hit && Date.now() - hit.at < NAME_TTL_MS) return hit;
+  let login = channel.login, name = channel.name;
+  try {
+    const res = await fetch(`https://api.twitch.tv/helix/users?id=${encodeURIComponent(channel.id)}`, {
+      headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+      signal: AbortSignal.timeout(3000),
+    });
+    const user = res.ok ? (await res.json())?.data?.[0] : null;
+    if (user?.login) {
+      login = String(user.login);
+      name = String(user.display_name || user.login);
+      if (login !== channel.login || name !== channel.name) {
+        await sqlite.execute("UPDATE broadcasters SET login = ?, display_name = ? WHERE broadcaster_id = ?", [login, name, channel.id]).catch(() => {});
+      }
+    }
+  } catch (_) { /* Twitch unreachable — fall back to the stored name */ }
+  const out = { at: Date.now(), login, name };
+  nameCache.set(channel.id, out);
+  return out;
 }
 
 const fresh = (row: any) => row && Date.now() - Number(row.updated_at ?? 0) <= DUEL_IDLE_TIMEOUT_MS;
@@ -327,7 +357,10 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   const channelKey = channel.login || channel.id;
   if (path === "/overlays") return html(renderOverlayIndexPage(channel.name, channelKey, channel.id, PUBLIC_BASE_URL));
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
-  if (panel === "theme") return html(renderThemePage(channelKey, channel.login, channel.name));
+  if (panel === "theme") {
+    const live = await liveChannelName(channel);
+    return html(renderThemePage(channelKey, live.login, live.name));
+  }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));
 }
