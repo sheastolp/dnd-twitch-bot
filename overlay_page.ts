@@ -66,6 +66,11 @@ body.mirror .cols{direction:rtl}body.mirror .cols>*{direction:ltr}
 body.mirror .strip{flex-direction:row-reverse;margin-left:auto}
 body.mirror .chip+.chip{border-left:0;padding-left:0;border-right:1px solid #68463299;padding-right:10px}
 body.mirror .mini>i{margin-left:auto}
+/* &from=bottom — feed from the bottom up: anchored to the bottom edge, first panel lowest, later ones stack above it. */
+body.bottom{height:100vh;display:flex;flex-direction:column;justify-content:flex-end}
+body.bottom #root{flex-direction:column-reverse;transform-origin:bottom left}
+body.bottom.right #root,body.bottom.mirror #root{transform-origin:bottom right}
+body.bottom.center #root,body.bottom.mirror.center #root{transform-origin:bottom center}
 @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes hit{0%,100%{filter:none}30%{filter:brightness(2) saturate(2) hue-rotate(-30deg)}}
 @keyframes bump{0%,100%{transform:scale(1)}40%{transform:scale(1.18)}}
@@ -82,6 +87,7 @@ const refresh=num("refresh",5,3,60)*1000, cycle=num("cycle",12,4,120)*1000, scal
 const always=Q.get("always")==="1";
 const align=Q.get("align"); if(align==="right"||align==="center")document.body.classList.add(align);
 if(Q.get("side")==="right")document.body.classList.add("mirror"); // hang from the right, mirrored
+if(Q.get("from")==="bottom")document.body.classList.add("bottom"); // feed from the bottom up
 const root=document.getElementById("root"); root.style.transform="scale("+scale+")";
 const dataUrl="/overlay/data?channel="+encodeURIComponent(CFG.channel)+"&panels="+encodeURIComponent(panel)
   +(Q.get("window")?"&window="+encodeURIComponent(Q.get("window")):"")+(Q.get("limit")?"&limit="+encodeURIComponent(Q.get("limit")):"");
@@ -199,15 +205,15 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
   const cards = Object.entries(OVERLAY_PANELS).map(([key, p]) => {
     const link = `${base}&panel=${key}`;
     const previewH = Math.min(p.height, 360);
-    return `<section class="ov" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p><label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="height:${previewH}px"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
+    return `<section class="ov" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p><label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label><div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="height:${previewH}px"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
   }).join("");
   return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
 <span class="pill">Stream overlays</span><h1>OBS overlays</h1><p class="intro">${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
 <div class="note"><strong>Adding one to OBS</strong><ol><li>In OBS, add a <strong>Browser</strong> source to your scene.</li><li>Paste an overlay URL below and set the width/height shown next to it.</li><li>Leave the background transparent (OBS's default custom CSS is fine). Panels refresh on their own every few seconds.</li></ol>
-<p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;side=right</code> (hang from the right — mirrored; the checkbox on each overlay adds it), <code>&amp;align=right</code> or <code>center</code> (just move the column), <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning). Panels for features you've switched off on your dashboard stay hidden.</p></div>
+<p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;side=right</code> (hang from the right — mirrored; the checkbox on each overlay adds it), <code>&amp;from=bottom</code> (feed from the bottom up — anchored to the bottom edge, panels stack upward; the checkbox on each overlay adds it), <code>&amp;align=right</code> or <code>center</code> (just move the column), <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning). Panels for features you've switched off on your dashboard stay hidden.</p></div>
 <div class="grid">${cards}</div>
 <p class="colophon"><a href="${escapeHtml(baseUrl)}/roster?channel=${encodeURIComponent(channelId)}">Guild roster</a> · <a href="${escapeHtml(baseUrl)}/guide">Guild Codex</a></p>
-<script>document.addEventListener("change",(e)=>{const cb=e.target.closest("input.side-right");if(!cb)return;const ov=cb.closest(".ov");const link=ov.dataset.link+(cb.checked?"&side=right":"");ov.querySelector(".url code").textContent=link;ov.querySelector("button[data-copy]").dataset.copy=link;ov.querySelector("iframe").src=link+"&always=1";});
+<script>document.addEventListener("change",(e)=>{const cb=e.target.closest("input.side-right,input.from-bottom");if(!cb)return;const ov=cb.closest(".ov");const link=ov.dataset.link+(ov.querySelector("input.side-right").checked?"&side=right":"")+(ov.querySelector("input.from-bottom").checked?"&from=bottom":"");ov.querySelector(".url code").textContent=link;ov.querySelector("button[data-copy]").dataset.copy=link;ov.querySelector("iframe").src=link+"&always=1";});
 document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied!";}catch(_){b.textContent="Select & copy";}setTimeout(()=>{b.textContent="Copy"},1500);});</script>
 `, {
     width: 1140,
