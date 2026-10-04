@@ -8,6 +8,7 @@
 //   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts);
 //                                                    &scene=game|brb|chat picks the layout (overlay_scenes.ts)
 //   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
+//   GET /overlay/title?channel=<id|login>            the stream's current title (the theme's subtitle polls it)
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -29,7 +30,7 @@ import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
-import { env, getAppToken } from "./twitch.ts";
+import { env, getAppToken, getChannelInfo } from "./twitch.ts";
 
 /** Panels that fetch their own slice of data; "status", "all" and "rotate" combine these. */
 export const DATA_PANELS = ["raid", "battle", "giveaway", "merchant", "jar", "gold", "dice", "guild"] as const;
@@ -96,6 +97,22 @@ async function liveChannelName(channel: { id: string; login: string; name: strin
   const out = { at: Date.now(), login, name };
   nameCache.set(channel.id, out);
   return out;
+}
+
+// The theme's subtitle is the stream title. It changes mid-stream, so the
+// theme page polls /overlay/title; a per-isolate cache keeps every open
+// source to one Helix call a minute. On a failed lookup the last known title
+// stays up rather than blanking.
+const STREAM_TITLE_TTL_MS = 60_000;
+const streamTitleCache = new Map<string, { at: number; title: string }>();
+
+async function liveStreamTitle(channelId: string): Promise<string> {
+  const hit = streamTitleCache.get(channelId);
+  if (hit && Date.now() - hit.at < STREAM_TITLE_TTL_MS) return hit.title;
+  const info = await getChannelInfo(channelId);
+  const title = info ? info.title.trim() : hit?.title ?? "";
+  streamTitleCache.set(channelId, { at: Date.now(), title });
+  return title;
 }
 
 const fresh = (row: any) => row && Date.now() - Number(row.updated_at ?? 0) <= DUEL_IDLE_TIMEOUT_MS;
@@ -333,8 +350,13 @@ const json = (body: unknown, status = 200) =>
 
 /** Overlay routes; null when the path isn't one of them. */
 export async function handleOverlayRoute(req: Request, url: URL, path: string): Promise<Response | null> {
-  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data")) return null;
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
+
+  if (path === "/overlay/title") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    return json({ ok: true, title: await liveStreamTitle(channel.id) });
+  }
 
   if (path === "/overlay/data") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
@@ -367,8 +389,8 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   if (path === "/overlays") return html(renderOverlayIndexPage(channel.name, channelKey, channel.id, PUBLIC_BASE_URL));
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
   if (panel === "theme") {
-    const live = await liveChannelName(channel);
-    return html(renderThemePage(channelKey, live.login, live.name, (url.searchParams.get("scene") ?? "game").toLowerCase()));
+    const [live, streamTitle] = await Promise.all([liveChannelName(channel), liveStreamTitle(channel.id)]);
+    return html(renderThemePage(channelKey, live.login, live.name, (url.searchParams.get("scene") ?? "game").toLowerCase(), streamTitle));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));

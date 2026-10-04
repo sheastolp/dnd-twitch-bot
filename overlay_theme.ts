@@ -1,7 +1,8 @@
 // GuildScribe — the full-screen "theme" overlay: the whole stream layout in
 // one OBS Browser source. A parchment sheet covers the 1920×1080 canvas with a
 // torn-edged window cut out of it for the game capture (which sits *below*
-// this source in OBS), the channel's title across the top, "Tavern Talk" chat
+// this source in OBS), the channel's name across the top with the stream
+// title as a subtitle under it, "Tavern Talk" chat
 // down the right (messages fade out after a while), a d20 emblem (name
 // banner optional) in the bottom-left, and the status strip in the bottom-right.
 //
@@ -16,6 +17,9 @@
 // URL extras (all optional): &fade=<seconds> before a chat line fades (default
 // 30, 0 = never), &title=<text> instead of the channel name (which otherwise
 // comes from Twitch, CamelCase split into words; &split=0 keeps it as-is),
+// &subtitle=<text> instead of the stream title (which otherwise follows the
+// channel's current Twitch title, checked every couple of minutes;
+// &subtitle=0 hides it),
 // &hide=<login,login> chatters to leave out (bots),
 // &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip,
 // &mic=<part of the mic's name> to pick which microphone lights the emblem
@@ -141,8 +145,12 @@ const STYLE = `
 .curl.bot{bottom:0;transform:scaleY(-1)}
 .roller{position:absolute;left:0;right:0;height:48px;pointer-events:none;background:${ROLLER_BG};filter:drop-shadow(0 7px 7px #0009)}
 .roller.top{top:-4px}.roller.bot{bottom:-4px;filter:drop-shadow(0 -5px 7px #0007)}
-.title{position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;align-items:center;gap:18px;
+.title{position:absolute;left:0;right:0;top:56px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.title.sub{top:47px}
+.title .name{display:flex;justify-content:center;align-items:center;gap:18px;
   font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
+.title .subtitle{max-width:1360px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:#8a6424;text-shadow:0 1px 0 #fff8}
 .gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
 .chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
   background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px #c99a2e80,inset 0 0 0 5px transparent,inset 0 0 0 6px #c99a2e40}
@@ -189,6 +197,13 @@ const hideCmds=Q.get("hidecmds")==="1";
 const autoTitle=Q.get("split")==="0"?CFG.name:CFG.name.replace(/_+/g," ").replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g,"$1 $2").trim();
 const title=Q.get("title")||autoTitle;
 document.getElementById("title").textContent=title;
+// The stream title under the name: &subtitle=<text> pins it, &subtitle=0 hides
+// it, otherwise it follows Twitch (checked every 2 minutes).
+const subEl=document.getElementById("subtitle"),subQ=Q.get("subtitle");
+function setSub(t){t=(t||"").trim();subEl.textContent=t;subEl.title=t;subEl.hidden=!t;subEl.parentElement.classList.toggle("sub",!!t)}
+if(subQ==="0")setSub("");else if(subQ)setSub(subQ);else{
+  setSub(CFG.streamTitle);
+  setInterval(()=>{fetch("/overlay/title?channel="+encodeURIComponent(CFG.channel)).then(r=>r.ok?r.json():null).then(d=>{if(d&&d.ok)setSub(d.title)}).catch(()=>{})},120000)}
 document.getElementById("chatsub").textContent="words from "+CFG.name+"'s common room";
 const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.fontSize=Math.max(12,Math.min(22,330/Math.max(1,title.length)))+"px";
 // The emblem: the d20, or your own image (+ an optional talking image for a PNGtuber).
@@ -297,11 +312,11 @@ async function startMic(){
 startMic();
 ${SCENE_CLIENT}`;
 
-export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game"): string {
+export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = ""): string {
   if (!(sceneKey in SCENES)) sceneKey = "game";
   const scene = SCENES[sceneKey];
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   // Edge shading, all through the same ROUGH filter as the mask: a shadow the
@@ -323,7 +338,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
 <style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
-<div class="title"><i class="gem"></i><span id="title"></span></div>
+<div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div><div class="subtitle" id="subtitle" hidden></div></div>
 <section class="chat"><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}<iframe class="status" id="status" title="status" scrolling="no"></iframe>
 <div class="roller top"></div><div class="roller bot"></div>
