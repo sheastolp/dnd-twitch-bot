@@ -27,6 +27,7 @@ import { formatCoins } from "./coins.ts";
 import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { creditBounty } from "./hoard.ts";
+import { restIfLow, settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import {
   addAutohuntProgress,
   bumpAutohuntReports,
@@ -131,6 +132,10 @@ export async function settleAutohunt(
   let lastLevel: number | undefined;
   let missing = false;
 
+  // Hunt and Hoard wounds (hoard_combat.ts): when the module is on, bouts
+  // start at current HP and a low hero rests that bout instead of fighting.
+  const wounds = await woundsOn(bid);
+  let rests = 0;
   for (let i = 0; i < count; i++) {
     // Re-read every bout: a level-up mid-trip changes what the hero fights.
     const c = await getCharacter(username, bid);
@@ -138,10 +143,18 @@ export async function settleAutohunt(
       missing = true;
       break;
     }
+    const hp0 = await startHp(bid, c, wounds);
+    const rested = await restIfLow(bid, c, wounds);
+    if (rested !== null) {
+      rests++;
+      lines.push(`⛺ rested to ${rested}/${c.hpMax} HP`);
+      continue;
+    }
     // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
     const monster = (await summonMonster(bid, c.level))!;
-    const fight = simulateMonsterFight(c, session.display_name, monster);
+    const fight = simulateMonsterFight(c, session.display_name, monster, { startHp: hp0 });
     await recordMonsterOutcome(bid, monster.name, fight.won, c.level);
+    await settleWounds(bid, username, fight.playerHp, wounds); // before XP (level-ups raise HP)
     if (fight.won) {
       wins++;
       const gained = await awardMonsterXp(username, monster.cr, bid);
@@ -163,7 +176,7 @@ export async function settleAutohunt(
     }
   }
 
-  if (wins + losses > 0) {
+  if (wins + losses + rests > 0) {
     // Manual hunts respect the cooldown from the hero's latest bout.
     await stampHunt(bid, [username], now);
     await addAutohuntProgress(bid, username, { bouts: wins + losses, wins, losses, xp, copper, levels });
@@ -192,7 +205,7 @@ export async function settleAutohunt(
   }
 
   const left = formatDuration(session.ends_at - now);
-  return `${tag}${name} 🏹 autohunt report — ${lines.length} bout${lines.length === 1 ? "" : "s"} (${wins}W/${losses}L): ${shown} | ${gains}${levelNote} | ${left} left.`;
+  return `${tag}${name} 🏹 autohunt report — ${wins + losses} bout${wins + losses === 1 ? "" : "s"} (${wins}W/${losses}L)${rests ? `, ${rests} rest${rests === 1 ? "" : "s"}` : ""}: ${shown} | ${gains}${levelNote} | ${left} left.`;
 }
 
 /** Handles !autohunt, !autohunt status|stop, !autohuntstatus, !autohuntstop. */

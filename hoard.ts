@@ -14,15 +14,17 @@
 //             sheet with applyGear, exactly like a !haggle purchase.
 //
 // What Hunt & Hoard adds on top:
-//   - HP that carries between hunts. A !hunt starts at the hero's current HP
-//     (the sheet's hpCurrent) and leaves them wherever the fight did — never
-//     below 1. Heal with !rest (to 80%), potions, or 3 HP every 15 minutes.
+//   - HP that carries between fights. While the module is open, EVERY monster
+//     fight (!hunt, !dndduel solo/party hunts, !autohunt, raids) starts at the
+//     hero's current HP and leaves them where it ended — never below 1 (see
+//     hoard_combat.ts). Heal with !rest (to 80%), potions, or 3 HP every 15 min.
 //   - A merchant stall: three offers of potions and peddler gear, turning
 //     over every 20 minutes, bought with coin.
 //   - A pack of potions: !inv, !use, !sell, !drop.
 //   - A bounty board: three "slay N of X" postings drawn from the bestiary's
-//     easy end. Kills from !hunt and !autohunt count; whoever finishes one
-//     first is paid and the posting is replaced.
+//     easy end. Every monster kill counts (creditBounty is called from the
+//     solo/party duel, autohunt and raid code); whoever finishes one first is
+//     paid and the posting is replaced.
 //   - A "Next:" hint on most replies saying what to do next.
 //
 // Off by default per channel (!hoard on / the dashboard). While off, or if
@@ -56,6 +58,7 @@ import { formatCoins } from "./coins.ts";
 import { adjustBalance, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { combatStats, formatRaceName, pick } from "./utils.ts";
 import type { Character } from "./types.ts";
+import { isLowHp, loadHero } from "./hoard_combat.ts";
 import {
   type Bounty,
   findPackPotion,
@@ -75,11 +78,8 @@ import {
 } from "./hoard_db.ts";
 import {
   LORE_TEMPLATES,
-  LOW_HP_FRACTION,
   MAX_POTION_STACK,
   POTIONS,
-  REGEN_HP,
-  REGEN_INTERVAL_MS,
   REST_FRACTION,
   SELL_BACK_SHARE,
 } from "./hoard_data.ts";
@@ -98,35 +98,6 @@ const rollHeal = ([n, sides, flat]: [number, number, number]) => {
   for (let i = 0; i < n; i++) total += 1 + Math.floor(Math.random() * sides);
   return total;
 };
-
-// ── HP between hunts ──
-
-/** Catch-up regen for however long it's been. Mutates both; true if either
- * changed (caller saves). */
-function applyRegen(c: Character, p: HoardPlayer): boolean {
-  const now = Date.now();
-  // Topped up: keep the clock fresh (at most one save per interval), so a
-  // later wound doesn't cash in hours of banked regen.
-  if (!p.lastHealAt || c.hpCurrent >= c.hpMax) {
-    if (p.lastHealAt && now - p.lastHealAt < REGEN_INTERVAL_MS) return false;
-    p.lastHealAt = now;
-    return true;
-  }
-  const ticks = Math.floor((now - p.lastHealAt) / REGEN_INTERVAL_MS);
-  if (ticks <= 0) return false;
-  c.hpCurrent = Math.min(c.hpMax, c.hpCurrent + ticks * REGEN_HP);
-  p.lastHealAt += ticks * REGEN_INTERVAL_MS;
-  return true;
-}
-
-const isLowHp = (c: Character) => c.hpCurrent <= Math.max(1, Math.ceil(c.hpMax * LOW_HP_FRACTION));
-
-/** Loads the hero and their pack, applying regen. */
-async function loadHero(broadcasterId: string, username: string): Promise<{ c: Character | null; p: HoardPlayer }> {
-  const [c, p] = await Promise.all([getCharacter(username, broadcasterId), getPlayer(broadcasterId, username)]);
-  if (c && applyRegen(c, p)) await Promise.all([saveCharacter(c, broadcasterId), savePlayer(broadcasterId, username, p)]);
-  return { c, p };
-}
 
 // ── The "Next:" hint ──
 
@@ -161,8 +132,8 @@ function describeBounty(b: Bounty, progress: number): string {
 /**
  * Logs one kill of `monsterName` toward the board, paying out and reposting
  * the slot the moment a hero finishes it. Returns a short note for the reply
- * ("" when no bounty matched or the module is off). Also called by
- * autohunt.ts for each bout won. `player` lets the caller save once.
+ * ("" when no bounty matched or the module is off). Also called by every
+ * monster fight: combat_monster.ts, combat_partyduel.ts, autohunt.ts, raid.ts. `player` lets the caller save once.
  */
 export async function creditBounty(
   broadcasterId: string,

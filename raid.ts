@@ -32,6 +32,8 @@ import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";
 import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
+import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
+import { creditBounty } from "./hoard.ts";
 import { monsterLootCopper, splitLoot } from "./loot.ts";
 import { adjustBalance, isPointsEnabled } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
@@ -254,7 +256,8 @@ export type RaidBoss = { name: string; ac: number; hpMax: number; attack: number
  * RAID_MAX_ROUNDS pass and the party falls back. Pure: no DB, no chat.
  */
 export function simulateRaidFight(
-  heroes: Array<{ name: string; c: any }>,
+  // `hp`: HP going in (Hunt and Hoard wounds); full HP when omitted.
+  heroes: Array<{ name: string; c: any; hp?: number }>,
   boss: RaidBoss,
   bossHpStart: number,
   maxRounds = RAID_MAX_ROUNDS,
@@ -263,13 +266,13 @@ export function simulateRaidFight(
   const hp: Record<string, number> = {};
   const damage: Record<string, number> = {};
   for (const h of heroes) {
-    hp[h.name] = h.c.hpMax;
+    hp[h.name] = Math.max(1, Math.min(h.c.hpMax, h.hp ?? h.c.hpMax));
     damage[h.name] = 0;
   }
   const battle = new BattleLog();
   const bossAttacks = 1 + Math.floor(heroes.length / 2);
   const d = (sides: number) => 1 + Math.floor(Math.random() * sides);
-  for (const h of heroes) battle.describe(fighterLine(h.name, h.c, h.c.hpMax, 11, { die: 10, edge: 1 }));
+  for (const h of heroes) battle.describe(fighterLine(h.name, h.c, hp[h.name], 11, { die: 10, edge: 1 }));
   battle.describe(
     `${boss.name}: ${bossHpStart}/${boss.hpMax} HP going in, AC ${boss.ac} (stat block), attack d20 + ${boss.attack}, damage 1d${boss.die} + ${boss.bonus}; ` +
       `strikes back ${bossAttacks} time${bossAttacks === 1 ? "" : "s"} a round (1 + a legendary action for every 2nd raider).`,
@@ -351,21 +354,36 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   if (!(await changed(claim, async () => (await getRaidQuest(broadcasterId))?.last_raid_at === now))) return false;
 
   const members = parseJson<Member[]>(q.muster_members, []);
-  const heroes: Array<{ name: string; c: any }> = [];
+  // Hunt and Hoard wounds (hoard_combat.ts): with the module on, raiders
+  // charge at their current HP and anyone at 1 HP stays behind.
+  const wounds = await woundsOn(broadcasterId);
+  const heroes: Array<{ name: string; c: any; hp: number }> = [];
+  const benched: string[] = [];
   for (const m of members) {
     const c = await getCharacter(m.u, broadcasterId);
-    if (c) heroes.push({ name: m.u, c });
+    if (!c) continue;
+    const hp = await startHp(broadcasterId, c, wounds);
+    if (wounds && hp <= 1) benched.push(m.u);
+    else heroes.push({ name: m.u, c, hp });
   }
+  const benchNote = benched.length ? ` (${benched.join(", ")} too wounded to ride out.)` : "";
   const boss: RaidBoss = {
     name: q.monster_name, ac: q.monster_ac, hpMax: q.monster_hp_max,
     attack: q.monster_attack, die: q.monster_die, bonus: q.monster_bonus,
   };
   if (!heroes.length) {
-    await sendChatMessage(`📯 The war horn fades — nobody with a saved hero answered. ${boss.name} waits. (!createchar, then !raid)`, broadcasterId);
+    await sendChatMessage(
+      benched.length
+        ? `📯 The war horn fades — every raider is too wounded to ride out (1 HP). ${boss.name} waits. (!rest or !use a potion, then !raid)`
+        : `📯 The war horn fades — nobody with a saved hero answered. ${boss.name} waits. (!createchar, then !raid)`,
+      broadcasterId,
+    );
     return true;
   }
 
   const fight = simulateRaidFight(heroes, boss, q.monster_hp);
+  for (const h of heroes) await settleWounds(broadcasterId, h.name, fight.hp[h.name], wounds); // before XP
+  const woundsText = wounds ? " 🩸 Wounds carry over." : "";
   const dealt = q.monster_hp - fight.bossHp;
   await sqlite.execute(
     "UPDATE raid_quests SET monster_hp = MAX(0, monster_hp - ?) WHERE broadcaster_id = ? AND status = 'active'",
@@ -397,8 +415,10 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     const won = await changed(slain, async () => true);
     const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : { note: "", hoard: "" };
     const learnNote = won ? await recordMonsterOutcome(broadcasterId, boss.name, true, raidLevel(heroes)) : "";
+    let bountyNote = "";
+    if (won) for (const u of Object.keys(contributors)) bountyNote ||= await creditBounty(broadcasterId, u, boss.name);
     const msg = `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards.note}` +
-      ` The raid quest is complete for this stream.${learnNote}`;
+      ` The raid quest is complete for this stream.${bountyNote}${learnNote}${woundsText}${benchNote}`;
     await sendChatMessages(msg, broadcasterId, {
       names: [...new Set([...names, ...Object.keys(contributors)])],
       detail: fullLog(msg),
@@ -414,7 +434,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   const learnNote = standing ? "" : await recordMonsterOutcome(broadcasterId, boss.name, false, raidLevel(heroes));
   const msg = `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
     `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
-    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.${learnNote}`;
+    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.${learnNote}${woundsText}${benchNote}`;
   await sendChatMessages(msg, broadcasterId, {
     names,
     detail: fullLog(msg),

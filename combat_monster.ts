@@ -14,6 +14,8 @@ import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, forfeitIfIdleMonsterDuel } from "./combat_shared.ts";
+import { settleWounds, startHp, tooWoundedText, woundNote, woundsOn } from "./hoard_combat.ts";
+import { creditBounty } from "./hoard.ts";
 
 export async function monsterDuelText(d: any) {
   return `${d.player} vs ${d.monster_name} (CR ${d.monster_cr}) — Player HP ${
@@ -114,6 +116,8 @@ export async function handleMonsterDuelCommand(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",
         [broadcasterId],
       );
+      // Retreating keeps the wounds taken so far (Hunt and Hoard).
+      if (active.player_hp != null) await settleWounds(broadcasterId, username, Number(active.player_hp), await woundsOn(broadcasterId));
       await sendChatMessage(
         `@${display} the monster duel ends. The dungeon master calls it a tactical retreat.`,
         broadcasterId,
@@ -143,6 +147,14 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
+    // Hunt and Hoard wounds (hoard_combat.ts): start hurt if the module is on.
+    const wounds = await woundsOn(broadcasterId);
+    const hp0 = await startHp(broadcasterId, c, wounds);
+    const hurt = tooWoundedText("your hero", hp0, c.hpMax, wounds);
+    if (hurt) {
+      await sendChatMessage(`@${display} ${hurt}`, broadcasterId);
+      return true;
+    }
     // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
     const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
     if (!monster) {
@@ -154,7 +166,7 @@ export async function handleMonsterDuelCommand(
     }
     if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
     await sqlite.execute(
-      "INSERT OR REPLACE INTO monster_duels (broadcaster_id,player,monster_name,monster_cr,monster_ac,monster_hp,monster_hp_max,monster_attack,monster_damage_die,monster_damage_bonus,current_turn,active,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT OR REPLACE INTO monster_duels (broadcaster_id,player,monster_name,monster_cr,monster_ac,monster_hp,monster_hp_max,monster_attack,monster_damage_die,monster_damage_bonus,current_turn,active,updated_at,player_hp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
         broadcasterId,
         username,
@@ -169,10 +181,11 @@ export async function handleMonsterDuelCommand(
         "player",
         1,
         Date.now(),
+        hp0,
       ],
     );
     await sendChatMessage(
-      `@${display} classic monster fight! ${monster.name} (CR ${monster.cr}${tierTag(monster.tier)}) AC ${monster.ac}, HP ${monster.hp}. Your HP: ${c.hpMax}. ${
+      `@${display} classic monster fight! ${monster.name} (CR ${monster.cr}${tierTag(monster.tier)}) AC ${monster.ac}, HP ${monster.hp}. Your HP: ${hp0 < c.hpMax ? `${hp0}/` : ""}${c.hpMax}. ${
         duelNarration("challenge")
       } Use !dndduel attack.`,
       broadcasterId,
@@ -190,6 +203,13 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
+    const wounds = await woundsOn(broadcasterId);
+    const hp0 = await startHp(broadcasterId, c, wounds);
+    const hurt = tooWoundedText("your hero", hp0, c.hpMax, wounds);
+    if (hurt) {
+      await sendChatMessage(`@${display} ${hurt}`, broadcasterId);
+      return true;
+    }
     // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
     const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
     if (!monster) {
@@ -200,16 +220,18 @@ export async function handleMonsterDuelCommand(
       return true;
     }
     if (!(await claimHunt(broadcasterId, [username], display, { self: username }))) return true;
-    const fight = simulateMonsterFight(c, username, monster);
+    const fight = simulateMonsterFight(c, username, monster, { startHp: hp0 });
     const { playerHp, monsterHp, battle } = fight;
     await sqlite.execute("DELETE FROM monster_duels WHERE broadcaster_id = ?", [
       broadcasterId,
     ]);
     const won = monsterHp <= 0 && playerHp > 0;
     const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, won, c.level);
+    await settleWounds(broadcasterId, username, playerHp, wounds); // before XP (level-ups raise HP)
     let xpNote = "";
     let lootNote = "";
     let loot = "";
+    let bountyNote = "";
     if (won) {
       const xp = await awardMonsterXp(username, monster.cr, broadcasterId);
       if (xp) {
@@ -220,6 +242,7 @@ export async function handleMonsterDuelCommand(
       const paid = await awardMonsterLoot([username], monster.cr, broadcasterId);
       lootNote = soloLootNote(paid);
       loot = lootSummary(paid);
+      bountyNote = await creditBounty(broadcasterId, username, monster.name);
     }
     const shownLog = battle.render();
     const msg =
@@ -231,9 +254,9 @@ export async function handleMonsterDuelCommand(
         won
           ? `${username} defeats ${monster.name}! ${
             duelNarration("victory")
-          }${xpNote}${lootNote}`
+          }${xpNote}${lootNote}${bountyNote}`
           : `${monster.name} wins. ${duelNarration("defeat")}`
-      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.${learnNote}`;
+      } Final HP: you ${playerHp}/${c.hpMax}, ${monster.name} ${monsterHp}/${monster.hp}.${learnNote}${woundNote(playerHp, c.hpMax, wounds)}`;
     await sendChatMessages(
       msg,
       broadcasterId,
@@ -301,6 +324,8 @@ export async function handleMonsterDuelCommand(
         [broadcasterId],
       );
       const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), true, player.level);
+      const wounds = await woundsOn(broadcasterId);
+      await settleWounds(broadcasterId, username, playerHp, wounds); // before XP (level-ups raise HP)
       const xp = await awardMonsterXp(
         username,
         String(active.monster_cr ?? "1"),
@@ -314,10 +339,11 @@ export async function handleMonsterDuelCommand(
       const lootNote = soloLootNote(
         await awardMonsterLoot([username], String(active.monster_cr ?? "1"), broadcasterId),
       );
+      const bountyNote = await creditBounty(broadcasterId, username, String(active.monster_name));
       await sendChatMessage(
         `@${display} ${playerResult} ${active.monster_name} is defeated! ${
           duelNarration("victory")
-        }${xpNote}${lootNote}${learnNote}`,
+        }${xpNote}${lootNote}${bountyNote}${learnNote}${woundNote(playerHp, player.hpMax, wounds)}`,
         broadcasterId,
       );
       return true;
@@ -346,10 +372,12 @@ export async function handleMonsterDuelCommand(
         [broadcasterId],
       );
       const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), false, player.level);
+      const wounds = await woundsOn(broadcasterId);
+      await settleWounds(broadcasterId, username, 0, wounds);
       await sendChatMessages(
         `@${display} ${playerResult} ${monsterResult} ${
           duelNarration("defeat")
-        } ${active.monster_name} wins this encounter.${learnNote}`,
+        } ${active.monster_name} wins this encounter.${learnNote}${woundNote(0, player.hpMax, wounds)}`,
         broadcasterId,
       );
     } else {
