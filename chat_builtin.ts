@@ -17,6 +17,7 @@ import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
 import { classes } from "./data.ts";
 import { chatHelpText } from "./help.ts";
+import { startGuideText } from "./start.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -30,7 +31,7 @@ async function sendWelcomeMessage(display: string, broadcasterId: string) {
   );
 }
 
-/** The built-in chat commands that aren't in their own modules (!logs, !help,
+/** The built-in chat commands that aren't in their own modules (!logs, !help, !start,
  * lookups, dice, !createchar, !char, …), custom command invocation, and
  * plain-chat replies (goodnight, triggers, chronicle, NPC chatter). Runs last
  * in main.ts's chat handling, after every module's own handler declined. */
@@ -75,6 +76,9 @@ export async function handleBuiltinChatCommand(ctx: {
       `@${display} 📜 Guild Codex (full command guide): ${PUBLIC_BASE_URL}/guide`,
       broadcasterId,
     );
+  } else if (/^!start(?:\s+\w+)?$/i.test(chatMessage)) {
+    const topic = chatMessage.split(/\s+/)[1]?.toLowerCase();
+    await sendChatMessages(`@${display} ${startGuideText(topic, PUBLIC_BASE_URL)}`, broadcasterId);
   } else if (/^!dndbothelp(?:\s+\w+)?$/i.test(chatMessage)) {
     const category = chatMessage.split(/\s+/)[1]?.toLowerCase();
     const help = chatHelpText(category, PUBLIC_BASE_URL);

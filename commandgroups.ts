@@ -39,7 +39,7 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 //     swear jar, boons, chat earnings) each have a group below on top of it.
 //   - !dashboard [reset] — must stay reachable even with "custom" off, or a
 //     steward could lock themselves out of the page that turns things back on.
-//   - !help, !guide, !link, !dndbothelp — always available so players can
+//   - !help, !start, !guide, !link, !dndbothelp — always available so players can
 //     see why other commands aren't responding.
 // !dndbot's *management* subcommands (add/edit/remove/list/cooldown) share
 // the "dndbot" word with the master switch, but only reach the "customcmds"

@@ -45,6 +45,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **whisper.ts** | Long replies by whisper: per-request "who ran this command" context (AsyncLocalStorage), the bot's own user token for Helix Send Whisper (`bot_user_tokens`), the `/connect-bot` OAuth routes, and the one-line chat summary |
 | **web_routes.ts** | Every web route (health, static pages, OAuth connect/callback, character/map/roster pages, dashboard, `/admin/*`); `main.ts` calls it first and falls through to EventSub when nothing matched |
 | **chat_builtin.ts** | Built-in chat commands without their own module (`!logs`, `!help`, lookups, dice, `!createchar`, `!char`, …), custom-command invocation, and plain-chat replies (goodnight, triggers, chronicle, NPC chatter) |
+| **start.ts** | `!start [char\|dice\|fight\|party\|coin]` — the beginner's quick-start guide, one chat message per page (pure data, like help.ts) |
 | **config.ts** | Shared runtime config (`PUBLIC_BASE_URL`) |
 | **merchant.ts** | `!market on/off/status` toggle + open-stall merchant ad flavor generator (no DB writes beyond the toggle) |
 | **merchant_cron.ts** | Posts a merchant ad to every channel that's due — Val Town **cron trigger** — and records the current listing for `!haggle` |
@@ -183,6 +184,8 @@ Delete any old **`http.ts`** entry file after switching the trigger to `main.ts`
 | Command | Description |
 |---------|-------------|
 | `!help` | Guild hall welcome + path to begin |
+| `!start` | **Beginner's quick-start**: the five steps to get playing (make a hero, check your sheet, roll, hunt, form a company) |
+| `!start <topic>` | One step in more detail — `char`, `dice`, `fight`, `party`, `coin` (each ends with a pointer to the next) |
 | `!guide` / `!link` | **Posts the Guild Codex URL** (`/guide`) |
 | `!dndbothelp` | Codex chapters: dice, character, party, combat, lookup, maps, gold, custom, settings |
 | `!dndbothelp <chapter>` | Detailed syntax for that chapter |
