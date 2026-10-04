@@ -2,8 +2,8 @@
 // one OBS Browser source. A parchment sheet covers the 1920×1080 canvas with a
 // torn-edged window cut out of it for the game capture (which sits *below*
 // this source in OBS), the channel's title across the top, "Tavern Talk" chat
-// down the right (messages fade out after a while), a d20 badge with the
-// channel's name in the bottom-left, and the status strip in the bottom-right.
+// down the right (messages fade out after a while), a d20 emblem (name
+// banner optional) in the bottom-left, and the status strip in the bottom-right.
 //
 // Chat comes straight from Twitch's IRC websocket as an anonymous read-only
 // guest (no token, nothing stored server-side). Everything viewer-supplied goes
@@ -23,8 +23,8 @@
 // while you talk (with a little bounce; &bounce=0 to keep it still) — a
 // PNGtuber. &talkat=<0–1> sets how loud counts as talking (default .3),
 // &size=<px> the emblem's size (default 200 d20 / 240 image, up to 520; it
-// grows upward from the bottom-left corner), &ribbon=0/1 hides/shows the name
-// ribbon (default: shown with the d20, hidden with your own image), &dim=0
+// grows upward from the bottom-left corner), &ribbon=1 adds the red name
+// banner under the emblem (off by default), &dim=0
 // keeps it at full brightness while quiet.
 //
 // The emblem reacts to the mic: dim while you're quiet, brightening and
@@ -184,7 +184,7 @@ const imgUrl=k=>{try{const u=new URL(Q.get(k)||"");return u.protocol==="https:"|
 const idleUrl=imgUrl("emblem")||imgUrl("logo"), talkUrl=imgUrl("talk");
 if(idleUrl){const img=h("img","idle");img.alt="";img.src=idleUrl;badge.replaceChildren(img);badge.parentElement.classList.add("custom");
   if(talkUrl){const t=h("img","talk");t.alt="";t.src=talkUrl;badge.append(t);if(Q.get("bounce")!=="0")badge.classList.add("bounce")}}
-if(Q.get("ribbon")==="0"||(idleUrl&&Q.get("ribbon")!=="1"))rib.remove();
+if(Q.get("ribbon")!=="1")rib.remove(); // the name banner is opt-in
 const sizeQ=Number(Q.get("size"));badge.style.setProperty("--size",(Number.isFinite(sizeQ)&&sizeQ>0?Math.max(80,Math.min(520,sizeQ)):idleUrl?240:200)+"px");
 if(Q.get("dim")==="0")badge.classList.add("nodim");
 const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));

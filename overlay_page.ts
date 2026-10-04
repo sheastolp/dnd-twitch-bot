@@ -202,7 +202,7 @@ export function renderOverlayPage(channelKey: string, panel: string): string {
 
 // The theme card's link builder: emblem (d20, your image, or a PNGtuber pair), its size, and the mic.
 const THEME_BUILDER = `<div class="tb">
-<label>Emblem <select class="tb-mode"><option value="d20">GuildScribe d20</option><option value="image">My own image</option><option value="png">PNGtuber (idle + talking images)</option></select></label>
+<label>Emblem <select class="tb-mode"><option value="d20">GuildScribe d20</option><option value="d20name">GuildScribe d20 with name banner</option><option value="image">My own image</option><option value="png">PNGtuber (idle + talking images)</option></select></label>
 <label class="tb-img" hidden>Image URL <input type="url" class="tb-idle" placeholder="https://…/emblem.png"></label>
 <label class="tb-png" hidden>Talking image URL <input type="url" class="tb-talk" placeholder="https://…/talking.png"></label>
 <label>Size <input type="number" class="tb-size" min="80" max="520" step="10" placeholder="auto"> px</label>
@@ -233,9 +233,9 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button.mi
     for(const o of [...sel.options].slice(2))o.remove();for(const m of mics){const o=document.createElement("option");o.value=m.label.replace(/\\s*\\([0-9a-f]{4}:[0-9a-f]{4}\\)$/i,"");o.textContent=m.label;sel.append(o)}
     b.textContent=mics.length?"Pick one above":"No microphones found"}catch(_){b.textContent="Mic permission denied"}});
 function themeLink(ov){const q=(c)=>ov.querySelector(c);const mode=q(".tb-mode").value;let link=ov.dataset.link;
-  q(".tb-img").hidden=mode==="d20";q(".tb-png").hidden=mode!=="png";
+  q(".tb-img").hidden=mode.startsWith("d20");q(".tb-png").hidden=mode!=="png";
   const idle=q(".tb-idle").value.trim(),talk=q(".tb-talk").value.trim(),size=q(".tb-size").value.trim(),mic=q(".mic-pick").value;
-  if(mode!=="d20"&&idle)link+="&emblem="+encodeURIComponent(idle);if(mode==="png"&&idle&&talk)link+="&talk="+encodeURIComponent(talk);
+  if(!mode.startsWith("d20")&&idle)link+="&emblem="+encodeURIComponent(idle);if(mode==="d20name")link+="&ribbon=1";if(mode==="png"&&idle&&talk)link+="&talk="+encodeURIComponent(talk);
   if(size)link+="&size="+encodeURIComponent(size);const view=link;if(mic)link+="&mic="+encodeURIComponent(mic);
   q(".url code").textContent=link;q("button[data-copy]").dataset.copy=link;
   const fr=q("iframe");const want=view+"&always=1";if(fr.dataset.src!==want){fr.dataset.src=want;fr.src=want}}
