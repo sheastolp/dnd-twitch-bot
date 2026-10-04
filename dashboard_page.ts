@@ -31,6 +31,7 @@ export interface DashboardData {
   autoBanEnabled: boolean;
   autoBanPermitted: boolean;
   pointsEnabled: boolean;
+  hoardEnabled: boolean;
 }
 
 function dashHidden(broadcasterId: string, key: string): string {
@@ -39,7 +40,7 @@ function dashHidden(broadcasterId: string, key: string): string {
 
 /** Switches with their own dedicated on/off (not COMMAND_GROUPS); each has a
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
-export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter"];
+export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter", "hoard"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
 const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "hug", "logs", "connections"]);
 
@@ -134,6 +135,13 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     g.rows.push(groupToggleRow(d, key, def.label, enabled));
     if (enabled) g.on++;
     bySection.set(def.section, g);
+  }
+  // Hunt and Hoard's master switch sits in its own folder, ahead of the
+  // per-card switches (which only matter while it's on).
+  const hoard = bySection.get("Hunt and Hoard");
+  if (hoard) {
+    hoard.rows = [featureToggleRow(d, "hoard_on", "hoard_off", "Hunt and Hoard", "The whole module — off by default; same as !hoard on/off. The switches beside it only matter while it's on", d.hoardEnabled), ...hoard.rows];
+    if (d.hoardEnabled) hoard.on++;
   }
   const social = bySection.get("Chronicle, oracle & NPCs");
   if (social) {

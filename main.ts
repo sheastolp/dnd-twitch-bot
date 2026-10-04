@@ -28,6 +28,8 @@ import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
+import { handleHoardCommand } from "./hoard.ts";
+import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
@@ -102,6 +104,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureWatchtimeTables,
   ensureBestiaryTables,
   ensureChecklistTables,
+  ensureHoardTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -378,6 +381,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeWatchtimeData(broadcasterId);
         await purgeBestiaryData(broadcasterId);
         await purgeChecklistData(broadcasterId);
+        await purgeHoardData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);
@@ -497,6 +501,9 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    // Hunt and Hoard (hoard.ts): off by default; its words fall through when
+    // it's off or the channel has its own custom command of the same name.
+    if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

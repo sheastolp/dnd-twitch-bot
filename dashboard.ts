@@ -58,6 +58,7 @@ import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
+import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -222,7 +223,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled, hoardEnabled] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -235,6 +236,7 @@ export async function renderDashboard(
     isAutoBanEnabled(channelId),
     hasBanPermission(channelId),
     isPointsEnabled(channelId),
+    isHoardEnabled(channelId),
   ]);
   const data: DashboardData = {
     broadcasterId: channelId,
@@ -257,6 +259,7 @@ export async function renderDashboard(
     autoBanEnabled,
     autoBanPermitted,
     pointsEnabled,
+    hoardEnabled,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
@@ -551,6 +554,12 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       const enabled = intent === "npc_on";
       await setNpcEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPCs turned ${enabled ? "on" : "off"}.` }, "toggle-npc"));
+    }
+    case "hoard_on":
+    case "hoard_off": {
+      const enabled = intent === "hoard_on";
+      await setHoardEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Hunt and Hoard turned ${enabled ? "on" : "off"}.` }, "toggle-hoard"));
     }
     case "npcchatter_on":
     case "npcchatter_off": {

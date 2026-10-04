@@ -26,6 +26,7 @@ import { awardMonsterLoot } from "./loot.ts";
 import { formatCoins } from "./coins.ts";
 import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
+import { creditBounty } from "./hoard.ts";
 import {
   addAutohuntProgress,
   bumpAutohuntReports,
@@ -153,7 +154,9 @@ export async function settleAutohunt(
       }
       const paid = await awardMonsterLoot([username], monster.cr, bid);
       copper += paid?.[0]?.copper ?? 0;
-      lines.push(`✔ beat ${monster.name} in ${fight.rounds} rd${fight.rounds === 1 ? "" : "s"} (you ${fight.playerHp}/${c.hpMax} HP)`);
+      // Hunt and Hoard bounties count autohunt kills too (no-op when it's off).
+      const bounty = await creditBounty(bid, username, monster.name);
+      lines.push(`✔ beat ${monster.name} in ${fight.rounds} rd${fight.rounds === 1 ? "" : "s"} (you ${fight.playerHp}/${c.hpMax} HP)${bounty}`);
     } else {
       losses++;
       lines.push(`✘ fell to ${monster.name} (it kept ${fight.monsterHp}/${monster.hp} HP)`);

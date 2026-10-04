@@ -296,8 +296,10 @@ export function simulateAttack(
  * Pure simulation: no DB writes, no chat. `username` is the display label
  * used in the battle log.
  */
-export function simulateMonsterFight(c: any, username: string, monster: any) {
-  let playerHp = c.hpMax;
+/** `opts.startHp` starts the hero wounded (Hunt and Hoard keeps HP between
+ * hunts, see hoard.ts); every other fight starts at full HP. */
+export function simulateMonsterFight(c: any, username: string, monster: any, opts: { startHp?: number } = {}) {
+  let playerHp = Math.max(1, Math.min(c.hpMax, Math.floor(opts.startHp ?? c.hpMax)));
   let monsterHp = monster.hp;
   const pStats = combatStats(c);
   // Slightly forgiving AC for stream pacing
@@ -312,7 +314,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any) {
   const ability = fightingAbility(c).name;
   const label = username === YOU ? "You" : username;
   battle.describe(
-    `${label}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${c.hpMax} HP, AC ${playerAc} (${heroAcWhy(11, c)}), ` +
+    `${label}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${playerHp < c.hpMax ? `${playerHp}/` : ""}${c.hpMax} HP, AC ${playerAc} (${heroAcWhy(11, c)}), ` +
       `attack d20 ${signed(pStats.mod)} ${ability} +${c.proficiency} prof +1 edge (hunter's edge), damage 1d${dmgDie} ${signed(pStats.mod)} ${ability} +1 edge.`,
   );
   battle.describe(

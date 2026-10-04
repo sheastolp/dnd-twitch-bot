@@ -28,6 +28,8 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 //   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
 //     per-channel toggle; broadcaster-only so it isn't a dashboard group.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
+//   - !hoard on/off/status — the Hunt and Hoard module's master switch
+//     (hoard.ts), off by default; its own dashboard tile.
 //   - !checklist ... — the streamer's start-of-stream checklist
 //     (checklist.ts), mod/broadcaster only with its own on/off.
 //   - The gold system as a whole (isPointsEnabled in points_db.ts, on by
@@ -93,6 +95,14 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   huntcooldown: { section: "Arena, wilds & the company", label: "Hunting cooldown (!huntcooldown)", commands: ["huntcooldown", "huntcd"], parent: "combat" },
   raid: { section: "Arena, wilds & the company", label: "Raid quest (!raid)", commands: ["raid"], parent: "combat" },
   bestiary: { section: "Arena, wilds & the company", label: "Bestiary (!bestiary — huntable monsters & what they've learned)", commands: ["bestiary"], parent: "combat" },
+  // Hunt and Hoard (hoard.ts) — the module also has its own master switch
+  // (!hoard on/off, off by default). Its words are deliberately not listed
+  // under `commands`: hoard.ts checks these switches itself so that, when the
+  // module or a switch is off, !shop/!buy/... fall through to a channel's own
+  // custom commands instead of being silently swallowed.
+  hoardhunt: { section: "Hunt and Hoard", label: "Hunting (!hunt, !rest, !ledger)", commands: [] },
+  hoardbounties: { section: "Hunt and Hoard", label: "Bounty board (!bounties)", commands: [] },
+  hoardshop: { section: "Hunt and Hoard", label: "Stall & pack (!shop, !buy, !inv, !use, !sell, !purse)", commands: [] },
   // Chronicle, oracle & NPCs (chronicle and NPCs have their own switches)
   oracle: { section: "Chronicle, oracle & NPCs", label: "Oracle (!oracle)", commands: ["oracle"], parent: "dice" },
   // Gold, leaderboard & giveaways (needs the gold switch on as well)
