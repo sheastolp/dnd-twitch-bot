@@ -58,7 +58,7 @@ const ROLL_END = svgUrl(
 );
 // The rolled-up parchment between the finials: a shaded cylinder, faint
 // wrap lines, spiral rings at each end of the roll, and the bare dowel.
-const ROLLER_BG = [
+export const ROLLER_BG = [
   `${FINIAL_L} left center/52px 48px no-repeat`,
   `${FINIAL_R} right center/52px 48px no-repeat`,
   `${ROLL_END} 40px 50%/12px 36px no-repeat`,

@@ -15,6 +15,7 @@
 // &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip.
 
 import { escapeHtml } from "./utils.ts";
+import { ROLLER_BG } from "./scroll_theme.ts";
 
 /** The game window on the 1920×1080 canvas — where the game capture goes (16:9). */
 export const THEME_HOLE = { x: 64, y: 112, w: 1440, h: 810 } as const;
@@ -31,41 +32,52 @@ function rng(seed: number) {
   };
 }
 
-/** A torn-paper outline just inside the game window: the paper overlaps the
- * capture by 1–13 px, so the frame never shows a gap at the edge. */
+/** A torn-paper outline just inside the game window. Three scales of tear: a
+ * slow wander (the line of the rip), a small jitter every few pixels (the
+ * ragged edge), and the odd bite or flap where the paper caught. The paper
+ * always overlaps the capture (min inset 5 px, more than the fibre roughening
+ * in ROUGH can pull it back), so the frame never shows a gap at the edge. */
 function tornPath(): string {
   const { x, y, w, h } = THEME_HOLE;
   const r = rng(20);
-  let d = 6;
+  let wander = 9, drift = 0, bite = 0, biteLen = 0, biteAt = 0;
   const step = () => {
-    // Random walk with the odd deeper bite, like a real tear.
-    d += (r() - 0.5) * 5;
-    if (r() < 0.06) d += 4 + r() * 4;
-    d = Math.max(1, Math.min(13, d * 0.92 + 0.5));
-    return d;
+    drift = drift * 0.9 + (r() - 0.5) * 1.1;
+    wander = Math.max(6, Math.min(17, wander + drift));
+    if (!biteLen && r() < 0.025) { biteLen = 3 + Math.floor(r() * 6); biteAt = 0; bite = (r() < 0.75 ? 1 : -0.6) * (5 + r() * 9); }
+    let d = wander + (r() - 0.5) * 3.2;
+    if (biteLen) { biteAt++; d += bite * Math.sin(Math.PI * biteAt / (biteLen + 1)); if (biteAt >= biteLen) biteLen = 0; }
+    return Math.max(5, Math.min(28, d));
   };
   const pts: string[] = [];
   const pt = (px: number, py: number) => pts.push(`${px.toFixed(1)} ${py.toFixed(1)}`);
+  const gap = () => 2.5 + r() * 4.5;
   // Each edge stops short of its corner, so the corners come out as small diagonal nicks rather than spikes.
-  const c = 10;
-  for (let p = x + c; p < x + w - c; p += 8 + r() * 10) pt(p, y + step());
-  for (let p = y + c; p < y + h - c; p += 8 + r() * 10) pt(x + w - step(), p);
-  for (let p = x + w - c; p > x + c; p -= 8 + r() * 10) pt(p, y + h - step());
-  for (let p = y + h - c; p > y + c; p -= 8 + r() * 10) pt(x + step(), p);
+  const c = 14;
+  for (let p = x + c; p < x + w - c; p += gap()) pt(p, y + step());
+  for (let p = y + c; p < y + h - c; p += gap()) pt(x + w - step(), p);
+  for (let p = x + w - c; p > x + c; p -= gap()) pt(p, y + h - step());
+  for (let p = y + h - c; p > y + c; p -= gap()) pt(x + step(), p);
   return `M${pts.join("L")}Z`;
 }
 
 const HOLE = tornPath();
-const PAPER = `M0 0H${W}V${H}H0Z${HOLE}`;
+// The outer edge runs off-canvas so the fibre roughening never frays the screen border.
+const PAPER = `M-40 -40H${W + 40}V${H + 40}H-40Z${HOLE}`;
 const svgUrl = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 // The paper's shape, used as a mask: opaque everywhere except the torn window.
-const PAPER_MASK = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><path fill-rule='evenodd' d='${PAPER}'/></svg>`);
+// Fibre roughening: fine noise pushes the cut edge around by a few pixels, so
+// it frays instead of running in straight segments. The mask and every edge
+// stroke below use this exact filter (same seed and region), so they line up.
+const ROUGH = (id: string, q: string) =>
+  `<filter id=${q}${id}${q} filterUnits=${q}userSpaceOnUse${q} x=${q}-40${q} y=${q}-40${q} width=${q}${W + 80}${q} height=${q}${H + 80}${q}><feTurbulence type=${q}fractalNoise${q} baseFrequency=${q}0.11${q} numOctaves=${q}3${q} seed=${q}4${q} result=${q}n${q}/><feDisplacementMap in=${q}SourceGraphic${q} in2=${q}n${q} scale=${q}7${q} xChannelSelector=${q}R${q} yChannelSelector=${q}G${q}/></filter>`;
+const PAPER_MASK = svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><defs>${ROUGH("r", "'")}</defs><path fill-rule='evenodd' d='${PAPER}' filter='url(#r)'/></svg>`);
 // Fine fibre grain and soft stains, brown at low alpha.
 const GRAIN = svgUrl(
   `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' seed='5' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.32  0 0 0 0 0.1  0 0 0 0.3 -0.08'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`,
 );
 const STAINS = svgUrl(
-  `<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.006' numOctaves='3' seed='11' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.75  0 0 0 0 0.55  0 0 0 0 0.15  0 0 0 0.55 -0.2'/></filter><rect width='100%' height='100%' filter='url(#s)'/></svg>`,
+  `<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.006' numOctaves='3' seed='11' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.75  0 0 0 0 0.55  0 0 0 0 0.15  0 0 0 0.55 -0.2'/></filter><rect width='100%' height='100%' filter='url(#s)'/></svg>`,
 );
 
 // The d20 badge: dark green disc in a gold ring with a golden d20 on it.
@@ -87,18 +99,23 @@ const STYLE = `
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}
 #stage{position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;font-family:"EB Garamond",Georgia,serif;color:var(--ink)}
 .paper{position:absolute;inset:0;
-  background:${STAINS} 0 0/900px 900px,${GRAIN} 0 0/240px 240px,
+  background:${STAINS} 0 0/${W}px ${H}px no-repeat,${GRAIN} 0 0/240px 240px,
     radial-gradient(ellipse at 8% 6%,#fffef8 0,#fffdf3 22%,transparent 55%),
     radial-gradient(ellipse at 100% 0%,#f9e27c 0,transparent 45%),
     radial-gradient(ellipse at 96% 100%,#f4d870 0,transparent 50%),
     linear-gradient(115deg,#fffaf0 0%,#fdf3cf 40%,#f8e7a0 75%,#f3d97c 100%);
   -webkit-mask:${PAPER_MASK} 0 0/${W}px ${H}px no-repeat;mask:${PAPER_MASK} 0 0/${W}px ${H}px no-repeat}
 .edges{position:absolute;inset:0;pointer-events:none}
-.title{position:absolute;left:0;right:0;top:30px;display:flex;justify-content:center;align-items:center;gap:18px;
-  font:700 40px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
+/* The Codex's scroll rollers, top and bottom; the paper darkens as it curls onto them. */
+.curl{position:absolute;left:0;right:0;height:70px;pointer-events:none;background:linear-gradient(180deg,#5a3a1640,#5a3a1614 40%,transparent)}
+.curl.bot{bottom:0;transform:scaleY(-1)}
+.roller{position:absolute;left:0;right:0;height:48px;pointer-events:none;background:${ROLLER_BG};filter:drop-shadow(0 7px 7px #0009)}
+.roller.top{top:-4px}.roller.bot{bottom:-4px;filter:drop-shadow(0 -5px 7px #0007)}
+.title{position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center;align-items:center;gap:18px;
+  font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
 .gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
-.chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;
-  background:linear-gradient(180deg,#fffefaee,#fffbeccc);border-radius:4px;box-shadow:0 2px 14px #b0862a30,inset 0 0 0 1px #e9d38c,inset 0 0 0 5px #fffdf5,inset 0 0 0 6px #ecd89a}
+.chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
+  background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px #c99a2e80,inset 0 0 0 5px transparent,inset 0 0 0 6px #c99a2e40}
 .chat header{text-align:center;padding:22px 20px 14px}
 .chat h2{margin:0;font:700 30px/1.1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
 .chat header p{margin:6px 0 0;font:italic 16px/1.2 "EB Garamond",Georgia,serif;color:#a98235}
@@ -115,8 +132,8 @@ const STYLE = `
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
-.rule{position:absolute;left:290px;right:16px;top:${THEME_HOLE.y + THEME_HOLE.h + 52}px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
-.status{position:absolute;right:12px;bottom:10px;width:1200px;height:70px;border:0;background:transparent}
+.rule{position:absolute;left:290px;right:16px;top:${THEME_HOLE.y + THEME_HOLE.h + 30}px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
+.status{position:absolute;right:12px;bottom:46px;width:1200px;height:70px;border:0;background:transparent}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.55;box-shadow:0 0 4px #e9191640}}
 `;
@@ -196,19 +213,29 @@ export function renderThemePage(channelKey: string, login: string, name: string)
   const cfg = { channel: channelKey, login: login.toLowerCase(), name };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
-  const edges = `<svg class="edges" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><defs>
-<filter id="soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="5"/></filter>
-<filter id="softer" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="9"/></filter>
-<clipPath id="onpaper"><path clip-rule="evenodd" d="${PAPER}"/></clipPath><clipPath id="ongame"><path d="${HOLE}"/></clipPath></defs>
-<g clip-path="url(#ongame)" stroke-linejoin="round"><path d="${HOLE}" fill="none" stroke="#000" stroke-width="22" opacity=".45" filter="url(#softer)"/></g>
-<g clip-path="url(#onpaper)" stroke-linejoin="round"><path d="${HOLE}" fill="none" stroke="#b07a22" stroke-width="16" opacity=".45" filter="url(#soft)"/>
-<path d="${HOLE}" fill="none" stroke="#7a4c14" stroke-width="3" opacity=".75"/></g></svg>`;
+  // Edge shading, all through the same ROUGH filter as the mask: a shadow the
+  // lifted paper casts onto the game, an aged brown band soaking into the
+  // paper, a scorched rim, and a pale fringe of torn fibres right at the tear.
+  const edges = `<svg class="edges" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><defs>${ROUGH("rough", '"')}
+<filter id="fibres" filterUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><feTurbulence type="fractalNoise" baseFrequency="0.11" numOctaves="3" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G" result="d"/><feTurbulence type="fractalNoise" baseFrequency="0.9 0.35" numOctaves="2" seed="9" result="f"/><feColorMatrix in="f" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 2.6 -1.1" result="fa"/><feComposite in="d" in2="fa" operator="in"/></filter>
+<filter id="soft" filterUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><feGaussianBlur stdDeviation="4"/></filter>
+<filter id="wide" filterUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><feGaussianBlur stdDeviation="14"/></filter>
+<mask id="onpaper" maskUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><path fill="#fff" fill-rule="evenodd" d="${PAPER}" filter="url(#rough)"/></mask>
+<mask id="ongame" maskUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><path fill="#fff" d="${HOLE}" filter="url(#rough)"/></mask></defs>
+<g stroke-linejoin="round" fill="none">
+<g mask="url(#ongame)"><path d="${HOLE}" stroke="#1a0e04" stroke-width="30" opacity=".55" filter="url(#wide)"/></g>
+<g mask="url(#onpaper)"><path d="${HOLE}" stroke="#a06a1c" stroke-width="60" opacity=".32" filter="url(#wide)"/>
+<path d="${HOLE}" stroke="#8a5718" stroke-width="12" opacity=".4" filter="url(#soft)"/>
+<path d="${HOLE}" stroke="#5e3a10" stroke-width="3.2" opacity=".8" filter="url(#rough)"/></g>
+<path d="${HOLE}" stroke="#fffbea" stroke-width="2.6" opacity=".95" filter="url(#fibres)"/>
+</g></svg>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
-<style>${STYLE}</style></head><body><div id="stage"><div class="paper"></div>${edges}
+<style>${STYLE}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><i class="gem"></i><span id="title"></span></div>
 <section class="chat"><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
 <div class="rule"></div><iframe class="status" id="status" title="status" scrolling="no"></iframe>
+<div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;
 }
