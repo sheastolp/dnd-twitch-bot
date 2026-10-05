@@ -203,7 +203,10 @@ export async function settleAutohunt(
       (fresh.total_copper > 0 ? `, 🪙 +${formatCoins(fresh.total_copper)}` : "");
     const recent = lines.length ? `Latest: ${shown}. ` : "";
     const lv = fresh.levels_gained > 0 ? ` 🎉 Leveled up ${fresh.levels_gained} time${fresh.levels_gained === 1 ? "" : "s"}!` : "";
-    return `${tag}${name} 🏹 autohunt over after ${formatDuration(now - fresh.started_at)} (${why}): ${recent}Trip total: ${total}.${lv}`;
+    // Measure to the scheduled end, not to now: an offline channel's session is
+    // only settled once the stream returns, possibly hours after it finished.
+    const ran = Math.min(now, fresh.ends_at) - fresh.started_at;
+    return `${tag}${name} 🏹 autohunt over after ${formatDuration(ran)} (${why}): ${recent}Trip total: ${total}.${lv}`;
   }
 
   const left = formatDuration(session.ends_at - now);
@@ -263,6 +266,12 @@ export async function handleAutohuntCommand(
   const char = await getCharacter(user, broadcasterId);
   if (!char) {
     await say(`@${display} you need a saved character to send out hunting — try !createchar first.`);
+    return true;
+  }
+  if (existing && Date.now() >= existing.ends_at) {
+    // Finished but not yet settled (the cron skips offline channels): wrap it up now.
+    const report = await settleAutohunt(existing, { direct: true });
+    await say(report ?? `@${display} 🏹 your autohunt has already wrapped up.`);
     return true;
   }
   if (existing) {
