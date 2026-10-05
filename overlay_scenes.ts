@@ -146,9 +146,10 @@ if(trackerEl){if(Q.get("tracker")==="0")trackerEl.remove();else{
         if(b>pad*4&&b<=H)bottom=b}}
     const fit=()=>Math.min(grow||1,(W-2*pad)/Math.max(1,r.scrollWidth),(bottom-pad)/Math.max(1,r.scrollHeight));
     const dir=grow?"column-reverse":"column";
-    r.style.flexDirection=dir;r.style.alignItems="center";const col=fit();
+    // Stacked, every card takes the widest one's width so their sides are flush.
+    r.style.flexDirection=dir;r.style.alignItems="stretch";const col=fit();
     r.style.flexDirection="row";r.style.alignItems=grow?"flex-end":"flex-start";const row=fit();
-    if(col>=row){r.style.flexDirection=dir;r.style.alignItems="center"}
+    if(col>=row){r.style.flexDirection=dir;r.style.alignItems="stretch"}
     const s=Math.max(col,row),x=(W-r.scrollWidth*s)/2-pad,y=grow?bottom-pad-r.scrollHeight*s:0;
     r.style.transform="translate("+x.toFixed(1)+"px,"+y.toFixed(1)+"px) scale("+s.toFixed(3)+")"}catch(e){}},1000)}}
 const topicEl=document.getElementById("topic");if(topicEl)topicEl.textContent=Q.get("topic")||"Pull up a chair by the hearth — the kettle's on.";
