@@ -149,7 +149,7 @@ const STYLE = `
 .title.sub{top:47px}
 .title .name{display:flex;justify-content:center;align-items:center;gap:18px;
   font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
-.title .subtitle{max-width:1360px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+.title .subtitle{max-width:600px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
   font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:#8a6424;text-shadow:0 1px 0 #fff8}
 .gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
 .chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
