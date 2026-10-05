@@ -4,12 +4,15 @@
 //
 //   game  — one big torn window for the game capture, and the status strip
 //           (with suggested next steps) along the bottom.
-//   brb   — "Be right back": a torn window for Words on Stream, the Dungeon
+//   brb   — "Be right back": a torn window with The Endless Delve in it (the
+//           idle game chat plays, idle.ts — or, with &idle=0, an empty
+//           window for your own source such as Words on Stream), the Dungeon
 //           Gate (a framed spot for pop-up overlays such as Tangia dungeons),
 //           a card with rotating flavour lines and an optional countdown, and
 //           the Battle Tracker across the bottom right, under the gate and a
 //           shortened Tavern Talk.
-//   chat  — "Just chatting": a big torn window for Words on Stream, the
+//   chat  — "Just chatting": a big torn window with The Endless Delve (or,
+//           with &idle=0, for Words on Stream or another source), the
 //           Dungeon Gate (16:9, so a full-canvas pop-up source scales into it
 //           exactly), the Battle Tracker under it (cards drawn larger and
 //           stacked from the bottom up, level with the goldboard's card at the
@@ -25,13 +28,18 @@
 // playing the gate is just a quiet frame. Positions are on the 1920×1080
 // canvas and listed on the /overlays setup page.
 //
-// Scene extras: &gate=<label> renames the Dungeon Gate; brb: &minutes=<n>
+// The Endless Delve is drawn by the theme itself, under the paper in its
+// window (an iframe of /overlay?panel=idle), so it needs no OBS source.
+//
+// Scene extras: &idle=0 leaves the game window empty for a source of your
+// own; &gate=<label> renames the Dungeon Gate; brb: &minutes=<n>
 // counts down ("Back in 4:59"), &brbtext=<line> replaces the rotating lines;
 // chat: &topic=<text> for the topic card; both: &tracker=0 to leave the
 // Battle Tracker empty.
 
 export type Rect = { x: number; y: number; w: number; h: number };
-export type SceneWindow = Rect & { id: string; label: string };
+/** idle: the theme fills this window with The Endless Delve unless &idle=0. */
+export type SceneWindow = Rect & { id: string; label: string; idle?: boolean };
 export type SceneDef = {
   label: string;
   windows: SceneWindow[];
@@ -58,7 +66,7 @@ export const SCENES: Record<string, SceneDef> = {
   },
   brb: {
     label: "Be right back",
-    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585 }],
+    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
     gate: { x: 1128, y: 112, w: 376, h: 585 },
     card: { kind: "brb", x: 300, y: 722, w: 804, h: 224 },
     // Under the gate and Tavern Talk, which ends level with the gate.
@@ -67,7 +75,7 @@ export const SCENES: Record<string, SceneDef> = {
   },
   chat: {
     label: "Just chatting",
-    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 864, h: 486 }],
+    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 864, h: 486, idle: true }],
     gate: { x: 952, y: 112, w: 552, h: 311 },
     tracker: { x: 952, y: 447, w: 552, h: 499 },
     trackerGrow: 1.6,
@@ -75,9 +83,10 @@ export const SCENES: Record<string, SceneDef> = {
   },
 };
 
-const box = (r: Rect) => `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+export const box = (r: Rect) => `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
 
 export const SCENE_CSS = `
+.idlegame{position:absolute;border:0;background:#120d09}
 .slot-hint{position:absolute;display:flex;align-items:center;justify-content:center;font:700 28px/1.2 Cinzel,Georgia,serif;letter-spacing:.06em;color:#fff8;text-transform:uppercase;text-align:center;pointer-events:none}
 .gate{position:absolute;border:2px dashed #c99a2e99;border-radius:10px;box-shadow:inset 0 0 0 6px #fff3,inset 0 0 40px #b07a2222}
 .gate::before,.gate::after{content:"◆";position:absolute;color:var(--gold);font-size:16px;line-height:1}
@@ -105,7 +114,7 @@ export const SCENE_CSS = `
 
 /** The scene's panels (drawn on the paper) and, in previews, labels for its windows. */
 export function sceneHtml(scene: SceneDef): string {
-  const hints = scene.windows.map((w) => `<div class="slot-hint" data-hint style="${box(w)}">${w.label}<br>goes here</div>`).join("");
+  const hints = scene.windows.map((w) => `<div class="slot-hint" data-hint${w.idle ? " data-idle" : ""} style="${box(w)}">${w.label}<br>goes here</div>`).join("");
   const gate = scene.gate
     ? `<div class="gate" style="${box(scene.gate)}"><div class="plaque" id="gatelabel">Dungeon Gate</div><div class="empty"><b>⚔</b><span>Adventures appear here</span></div></div>`
     : "";
@@ -121,8 +130,18 @@ export function sceneHtml(scene: SceneDef): string {
   return hints + gate + tracker + card;
 }
 
+/** The Endless Delve's frames, drawn *under* the paper so the torn edge overlaps them like a capture. */
+export function sceneUnderHtml(scene: SceneDef): string {
+  return scene.windows.filter((w) => w.idle).map((w) => `<iframe class="idlegame" data-idlegame title="The Endless Delve" scrolling="no" style="${box(w)}"></iframe>`).join("");
+}
+
 // Scene behaviour in the client (runs after the theme's own client; h() and Q are in scope).
 export const SCENE_CLIENT = `
+// The Endless Delve in the game window, unless &idle=0 keeps it for a source of your own.
+const idleOn=Q.get("idle")!=="0";
+for(const f of document.querySelectorAll("[data-idlegame]")){if(!idleOn)f.remove();
+  else f.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=idle&pad=26"+(preview?"&always=1":"")+(Q.get("hide")?"&hide="+encodeURIComponent(Q.get("hide")):"")}
+if(idleOn)document.querySelectorAll("[data-hint][data-idle]").forEach(e=>e.remove());
 if(!preview)document.querySelectorAll("[data-hint]").forEach(e=>e.remove());
 const gl=document.getElementById("gatelabel");if(gl&&Q.get("gate"))gl.textContent=Q.get("gate");
 const trackerEl=document.getElementById("tracker");

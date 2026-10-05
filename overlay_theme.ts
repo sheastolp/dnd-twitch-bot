@@ -13,7 +13,9 @@
 //
 // Scenes (&scene=game|brb|chat, see overlay_scenes.ts) swap the middle of
 // the sheet: gameplay, "be right back" and "just chatting" layouts with their
-// own windows, a Dungeon Gate for pop-up overlays, and a card.
+// own windows, a Dungeon Gate for pop-up overlays, and a card. The brb and
+// chat windows play The Endless Delve (idle.ts), chat's idle game, unless
+// &idle=0 leaves them empty for a source of your own (Words on Stream).
 //
 // Chat comes straight from Twitch's IRC websocket as an anonymous read-only
 // guest (no token, nothing stored server-side). Everything viewer-supplied goes
@@ -47,7 +49,7 @@
 
 import { escapeHtml } from "./utils.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
-import { SCENES, SCENE_CLIENT, SCENE_CSS, sceneHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
+import { SCENES, SCENE_CLIENT, SCENE_CSS, sceneHtml, sceneUnderHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
 
 const W = 1920, H = 1080;
 
@@ -251,7 +253,7 @@ const statusEl=document.getElementById("status");
 if(statusEl){if(Q.get("status")==="0")statusEl.remove();
   else statusEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10&next=1"+(preview?"&always=1":"")}
 // OBS keeps every scene's browser sources running; the embedded panels (the
-// status strip, the Battle Tracker, the goldboard) can't hear OBS's events, so park them while this scene
+// status strip, the Battle Tracker, the goldboard, The Endless Delve) can't hear OBS's events, so park them while this scene
 // isn't showing and bring them back when it is.
 let obsActive=true,obsVisible=true;
 function obsPark(){const off=!obsActive&&!obsVisible;for(const f of document.querySelectorAll("iframe[src],iframe[data-parked]")){
@@ -369,7 +371,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 </g></svg>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
-<style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
+<style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage">${sceneUnderHtml(scene)}<div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}

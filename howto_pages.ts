@@ -70,6 +70,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
       `<strong>Which overlay?</strong> <code>status</code> is a slim strip for a screen edge; <code>raid</code>, <code>battle</code>, <code>giveaway</code>, <code>merchant</code> and <code>jar</code> show live state; <code>gold</code>, <code>dice</code> and <code>guild</code> are leaderboards and summaries; <code>all</code> stacks everything and <code>rotate</code> cycles through one at a time.`,
       `URL extras: <code>&amp;scale=1.5</code>, <code>&amp;align=right</code> or <code>center</code>, <code>&amp;refresh=10</code>, <code>&amp;limit=3</code>, <code>&amp;window=week</code> (dice), <code>&amp;cycle=20</code> (rotate), and <code>&amp;always=1</code> to show a placeholder while positioning.`,
       `Overlays for features switched off on your dashboard stay hidden.`,
+      `<strong>Words on Stream replacement:</strong> the theme's Be right back and Just chatting scenes play <strong>The Endless Delve</strong> in their big window — an idle dungeon crawl your chat powers just by chatting (<code>fireball</code> and <code>bless</code> in chat are spells; <code>!delve</code> explains it). It needs no extra source; add <code>&amp;idle=0</code> to the theme link to keep the window for Words on Stream instead, or use the <code>idle</code> overlay on its own.`,
     ],
     pages: [["Overlay setup page", "/go/overlays"]],
   },
