@@ -8,6 +8,9 @@
 // banner optional) in the bottom-left, and (gameplay only) the status strip
 // with suggested next steps along the bottom.
 //
+// The gem beside the name shows live status (grey offline, glowing red live),
+// from the channel's stream.online/offline state, re-checked every minute.
+//
 // Scenes (&scene=game|brb|chat, see overlay_scenes.ts) swap the middle of
 // the sheet: gameplay, "be right back" and "just chatting" layouts with their
 // own windows, a Dungeon Gate for pop-up overlays, and a card.
@@ -154,7 +157,9 @@ const STYLE = `
   font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
 .title .subtitle{max-width:600px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
   font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:#8a6424;text-shadow:0 1px 0 #fff8}
-.gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
+/* The gem by the name shows live status: a dull grey stone while offline, a glowing, pulsing red one while live. */
+.gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e4ddd2,#9b9184 55%,#5f574d);box-shadow:0 0 0 1px #6b5a4040;transition:background .6s,box-shadow .6s}
+.gem.live{background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
 .chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
   background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px #c99a2e80,inset 0 0 0 5px transparent,inset 0 0 0 6px #c99a2e40}
 .chat header{text-align:center;padding:22px 20px 14px}
@@ -208,10 +213,17 @@ document.getElementById("title").textContent=title;
 // it, otherwise it follows Twitch (checked every 2 minutes).
 // Only the be-right-back and just-chatting scenes carry it (no #subtitle in gameplay).
 const subEl=document.getElementById("subtitle"),subQ=Q.get("subtitle");
+const gemEl=document.getElementById("gem");
+function setLive(on){gemEl.classList.toggle("live",!!on);gemEl.title=on?"Live":"Offline"}
+setLive(CFG.live||preview);
 function setSub(t){t=(t||"").trim();subEl.textContent=t;subEl.title=t;subEl.hidden=!t;subEl.parentElement.classList.toggle("sub",!!t)}
-if(!subEl||subQ==="0"){}else if(subQ)setSub(subQ);else{
-  setSub(CFG.streamTitle);
-  setInterval(()=>{fetch("/overlay/title?channel="+encodeURIComponent(CFG.channel)).then(r=>r.ok?r.json():null).then(d=>{if(d&&d.ok)setSub(d.title)}).catch(()=>{})},120000)}
+// One poll for both: the live gem every minute, and the stream title (when this scene follows it) every other.
+const followSub=!!subEl&&subQ!=="0"&&!subQ;
+if(subEl&&subQ&&subQ!=="0")setSub(subQ);else if(followSub)setSub(CFG.streamTitle);
+let polls=0;
+setInterval(()=>{const withTitle=followSub&&++polls%2===0;
+  fetch("/overlay/title?channel="+encodeURIComponent(CFG.channel)+(withTitle?"":"&title=0")).then(r=>r.ok?r.json():null)
+    .then(d=>{if(!d||!d.ok)return;if(!preview)setLive(d.live);if(withTitle)setSub(d.title)}).catch(()=>{})},60000);
 document.getElementById("chatsub").textContent="words from "+CFG.name+"'s common room";
 const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.fontSize=Math.max(12,Math.min(22,330/Math.max(1,title.length)))+"px";
 // The emblem: the d20, or your own image (+ an optional talking image for a PNGtuber).
@@ -332,11 +344,11 @@ async function startMic(){
 startMic();
 ${SCENE_CLIENT}`;
 
-export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = ""): string {
+export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = "", live = false): string {
   if (!(sceneKey in SCENES)) sceneKey = "game";
   const scene = SCENES[sceneKey];
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   // Edge shading, all through the same ROUGH filter as the mask: a shadow the
@@ -358,7 +370,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
 <style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
-<div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
+<div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
 <div class="roller top"></div><div class="roller bot"></div>

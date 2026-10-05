@@ -8,7 +8,8 @@
 //   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts);
 //                                                    &scene=game|brb|chat picks the layout (overlay_scenes.ts)
 //   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
-//   GET /overlay/title?channel=<id|login>            the stream's current title (the theme's subtitle polls it)
+//   GET /overlay/title?channel=<id|login>            the stream's current title and live state (the theme's
+//                                                    subtitle and live gem poll it; &title=0 skips the title)
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -367,7 +368,8 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
 
   if (path === "/overlay/title") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
-    return json({ ok: true, title: await liveStreamTitle(channel.id) });
+    const title = url.searchParams.get("title") === "0" ? undefined : await liveStreamTitle(channel.id);
+    return json({ ok: true, live: channel.live, title });
   }
 
   if (path === "/overlay/data") {
@@ -405,7 +407,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     // The stream title subtitle is only on the brb and chat scenes.
     const withSub = scene === "brb" || scene === "chat";
     const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
-    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle));
+    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));
