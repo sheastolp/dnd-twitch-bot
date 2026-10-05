@@ -333,6 +333,8 @@ export async function getOverlayData(
 
 /** Which data panels a display panel needs. */
 export function dataPanelsFor(panel: string): DataPanel[] {
+  // The battle tracker leads with the raid boss summary (overlay_page.ts).
+  if (panel === "battle") return ["battle", "raid"];
   if ((DATA_PANELS as readonly string[]).includes(panel)) return [panel as DataPanel];
   if (panel === "status") return ["raid", "battle", "giveaway", "merchant", "jar"];
   return [...DATA_PANELS]; // all, rotate

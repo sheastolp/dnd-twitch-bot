@@ -14,7 +14,7 @@
 //           exactly), the Battle Tracker under it, and a topic card.
 //
 // The Battle Tracker (brb and chat) is GuildScribe's battle panel — the fight
-// under way and the recent results — drawn by the theme itself (no extra
+// under way, the raid boss summary and the recent results — drawn by the theme itself (no extra
 // source) and shrunk to fit its frame.
 //
 // Windows are cut out of the paper, so their sources go *below* the theme in

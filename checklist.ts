@@ -6,8 +6,10 @@
 //
 // Sent as a whisper to the broadcaster when the bot has whisper access
 // (whisper.ts); otherwise posted once in chat, @-ing the broadcaster.
-// On by default per channel; !checklist off stops the go-live reminder
-// (the items are kept, and !checklist still shows them on demand).
+// Off by default per channel; !checklist on turns the go-live reminder on,
+// and even then it's only sent when the channel has at least one item.
+// !checklist off stops it again (the items are kept, and !checklist still
+// shows them on demand).
 //
 // !checklist                 show it now (mod/broadcaster)
 // !checklist add <item>      add an item (mod/broadcaster)
@@ -36,9 +38,17 @@ export async function ensureChecklistTables() {
   await sqlite.execute("CREATE INDEX IF NOT EXISTS idx_checklist_channel ON stream_checklist_items(broadcaster_id)");
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS stream_checklist_settings (
-      broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER
+      broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
     )`,
   );
+  // One-time: the reminder used to be on by default, so quiet every channel
+  // that had it on; streamers who want it back can !checklist on.
+  await sqlite.execute("CREATE TABLE IF NOT EXISTS stream_checklist_migrations (name TEXT PRIMARY KEY, ran_at INTEGER)");
+  const done = await sqlite.execute("SELECT 1 FROM stream_checklist_migrations WHERE name = 'default_off_v1'");
+  if (!done.rows.length) {
+    await sqlite.execute("UPDATE stream_checklist_settings SET enabled = 0, updated_at = ?", [Date.now()]);
+    await sqlite.execute("INSERT OR IGNORE INTO stream_checklist_migrations (name, ran_at) VALUES ('default_off_v1', ?)", [Date.now()]);
+  }
 }
 
 async function listItems(broadcasterId: string): Promise<string[]> {
@@ -48,7 +58,7 @@ async function listItems(broadcasterId: string): Promise<string[]> {
 
 async function isReminderEnabled(broadcasterId: string): Promise<boolean> {
   const res = await sqlite.execute("SELECT enabled FROM stream_checklist_settings WHERE broadcaster_id = ?", [broadcasterId]);
-  return !res.rows.length || Number(res.rows[0].enabled) === 1;
+  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
 }
 
 async function setReminderEnabled(broadcasterId: string, enabled: boolean) {
@@ -106,12 +116,14 @@ async function buildChecklist(broadcasterId: string): Promise<string> {
 }
 
 /** stream.online hook (main.ts): whisper the broadcaster their checklist,
- * or post it in chat if the bot can't whisper. Never throws. */
+ * or post it in chat if the bot can't whisper. Only when the reminder is on
+ * and the checklist has items. Never throws. */
 export async function onChecklistStreamOnline(broadcasterId: string) {
   try {
     const conn = await getBroadcaster(broadcasterId);
     if (!conn || Number(conn.connected) !== 1) return;
     if (!(await isReminderEnabled(broadcasterId))) return;
+    if (!(await listItems(broadcasterId)).length) return;
     const text = await buildChecklist(broadcasterId);
     if (await sendWhisperParts(broadcasterId, splitChatMessage(text, WHISPER_MAX))) return;
     const name = String(conn.display_name || conn.login || "").trim();
@@ -170,7 +182,7 @@ export async function handleChecklistCommand(
     await setReminderEnabled(broadcasterId, sub === "on");
     await say(
       sub === "on"
-        ? "the stream checklist will be sent to the broadcaster each time the stream goes live."
+        ? "the stream checklist will be sent to the broadcaster each time the stream goes live (as long as it has items — !checklist add <item>)."
         : "the go-live checklist reminder is off (items are kept; !checklist still shows them).",
     );
   } else if (sub === "status") {
