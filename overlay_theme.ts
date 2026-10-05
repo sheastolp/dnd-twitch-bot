@@ -3,7 +3,8 @@
 // torn-edged window cut out of it for the game capture (which sits *below*
 // this source in OBS), the channel's name across the top (with the stream
 // title as a subtitle under it in the brb and chat scenes), "Tavern Talk" chat
-// down the right (messages fade out after a while), a d20 emblem (name
+// down the right (lines run top-down and fade out after a while, with the
+// goldboard — the richest adventurers — along its bottom), a d20 emblem (name
 // banner optional) in the bottom-left, and (gameplay only) the status strip
 // with suggested next steps along the bottom.
 //
@@ -22,7 +23,8 @@
 // channel's current Twitch title, checked every couple of minutes;
 // &subtitle=0 hides it),
 // &hide=<login,login> chatters to leave out (bots),
-// &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip,
+// &hidecmds=1 to leave out "!command" messages, &goldboard=0 to drop the
+// goldboard from under Tavern Talk, &status=0 to drop the strip,
 // &mic=<part of the mic's name> to pick which microphone lights the emblem
 // (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
@@ -159,7 +161,11 @@ const STYLE = `
 .chat h2{margin:0;font:700 30px/1.1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
 .chat header p{margin:6px 0 0;font:italic 16px/1.2 "EB Garamond",Georgia,serif;color:#a98235}
 .chat header::after{content:"";display:block;height:2px;margin:14px 18px 0;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
-.msgs{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding:8px 20px 20px}
+.msgs{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;gap:10px;padding:8px 20px 20px}
+/* The goldboard (richest adventurers) along the bottom of Tavern Talk; hidden while it has nothing to show. */
+.goldbox{position:relative;flex:none;height:210px;margin:0 6px 6px;border-top:1px solid #c99a2e80}
+.goldbox[hidden]{display:none}
+.goldbox iframe{position:absolute;inset:6px 0 0;width:100%;height:calc(100% - 6px);border:0;background:transparent}
 .msg{font-size:22px;line-height:1.3;overflow-wrap:anywhere;animation:in .45s ease-out;transition:opacity .9s ease,transform .9s ease}
 .msg b{font-weight:600}.msg .sep{color:#a98235}.msg.me .txt{font-style:italic}
 .msg img{height:1.35em;vertical-align:-.3em;margin:0 1px}
@@ -218,11 +224,22 @@ if(Q.get("ribbon")!=="1")rib.remove(); // the name banner is opt-in
 const sizeQ=Number(Q.get("size"));badge.style.setProperty("--size",(Number.isFinite(sizeQ)&&sizeQ>0?Math.max(80,Math.min(520,sizeQ)):idleUrl?240:200)+"px");
 if(Q.get("dim")==="0")badge.classList.add("nodim");
 const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));
+// The goldboard at the foot of Tavern Talk: the gold leaderboard panel, shrunk
+// to the column's width and hidden while it's empty (gold off, nobody rich yet).
+const goldBox=document.getElementById("goldbox"),goldEl=document.getElementById("gold");
+if(goldBox){if(Q.get("goldboard")==="0")goldBox.remove();else{
+  goldEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=gold&align=center&refresh=30&limit=5"+(preview?"&always=1":"");
+  setInterval(()=>{try{const doc=goldEl.contentDocument,r=doc&&doc.getElementById("root");if(!r)return;
+    const empty=!r.children.length;if(goldBox.hidden!==empty){goldBox.hidden=empty;trim()}if(empty)return;
+    r.style.transform="none";r.style.maxWidth="none";r.style.margin="0";r.style.transformOrigin="top left";
+    const W=goldEl.clientWidth,H=goldEl.clientHeight,pad=10;
+    const sc=Math.min(1,(W-2*pad)/Math.max(1,r.scrollWidth),(H-2*pad)/Math.max(1,r.scrollHeight));
+    r.style.transform="translateX("+((W-r.scrollWidth*sc)/2-pad).toFixed(1)+"px) scale("+sc.toFixed(3)+")"}catch(e){}},1000)}}
 const statusEl=document.getElementById("status");
 if(statusEl){if(Q.get("status")==="0")statusEl.remove();
   else statusEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10&next=1"+(preview?"&always=1":"")}
 // OBS keeps every scene's browser sources running; the embedded panels (the
-// status strip, the Battle Tracker) can't hear OBS's events, so park them while this scene
+// status strip, the Battle Tracker, the goldboard) can't hear OBS's events, so park them while this scene
 // isn't showing and bring them back when it is.
 let obsActive=true,obsVisible=true;
 function obsPark(){const off=!obsActive&&!obsVisible;for(const f of document.querySelectorAll("iframe[src],iframe[data-parked]")){
@@ -240,8 +257,8 @@ function ink(hex,name){let m=/^#([0-9a-f]{6})$/i.exec(hex||"");if(!m){let n=0;fo
   const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let hh=0,s=0,l=(mx+mn)/2;
   if(mx!==mn){const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);hh=mx===r?(g-b)/d+(g<b?6:0):mx===g?(b-r)/d+2:(r-g)/d+4;hh*=60}
   return "hsl("+Math.round(hh)+","+Math.round(Math.min(s,.8)*100)+"%,"+Math.round(Math.min(l,.36)*100)+"%)"}
-// Bottom-anchored lists overflow upward (scrollHeight never grows), so drop lines whose top has left the panel.
-function trim(){const top=list.getBoundingClientRect().top;while(list.children.length>1&&list.firstElementChild.getBoundingClientRect().top<top)list.firstElementChild.remove()}
+// Lines run top-down: new ones go underneath, and once the panel is full the oldest drop off the top.
+function trim(){while(list.children.length>1&&list.scrollHeight>list.clientHeight)list.firstElementChild.remove()}
 function retire(el){if(!fade||preview)return;setTimeout(()=>{el.classList.add("out");setTimeout(()=>el.remove(),950)},fade*1000)}
 function emoteNodes(text,spec){const cps=Array.from(text);const out=[];const marks=[];
   if(spec)for(const part of spec.split("/")){const [id,ranges]=part.split(":");if(!ranges||!/^[\\w-]+$/.test(id))continue;
@@ -342,7 +359,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
 <style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
-<section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
+<section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
