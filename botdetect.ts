@@ -11,8 +11,15 @@
 // Each chatter is scored on account age, a default profile picture and a
 // generated-looking username. It's a heuristic, not a verdict: the page says
 // so, and the ignore list (per channel, permanent until un-ignored) covers
-// real viewers who happen to trip it. Known service bots (isBotAccount), the
-// broadcaster and GuildScribe itself are never flagged.
+// real viewers who happen to trip it. Known service bots (isBotAccount), bots
+// typed into the channel's bot list, the broadcaster and GuildScribe itself
+// are never flagged.
+//
+// The check keeps the channel's bot list (channel_bots.ts) up to date: every
+// scan adds the chatters scoring BOTCHECK_AUTO_ADD_SCORE or more (unless the
+// channel switched that off on the bot list page), and the page has an "Add
+// to bot list" button for the rest. Accounts the check added are still shown
+// here while they sit in chat, marked as on the list.
 //
 // The chat list comes from fetchChatters in watchtime.ts, which uses the
 // broadcaster's own token and needs moderator:read:chatters — already
@@ -25,6 +32,7 @@ import { getAppToken, env, sendChatMessage } from "./twitch.ts";
 import { fetchChatters } from "./watchtime.ts";
 import { escapeHtml, isBotAccount } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
+import { addChannelBots, BOTCHECK_AUTO_ADD_SCORE, getChannelBotLogins, isBotCheckAutoAdd } from "./channel_bots.ts";
 
 // ── Persistence ──
 
@@ -137,7 +145,8 @@ const SCAN_TTL_MS = 60_000;
 // Bounds the Get Users fan-out on very large chats.
 const MAX_SCANNED = 5000;
 
-export type ScanResult = { totalChatters: number; flagged: BotScore[]; scannedAt: number; truncated: boolean };
+/** onList: flagged logins on the channel's bot list; added: the ones this scan put there. */
+export type ScanResult = { totalChatters: number; flagged: BotScore[]; scannedAt: number; truncated: boolean; onList: string[]; added: string[] };
 const scanCache = new Map<string, ScanResult>();
 
 /** "no_permission" when the broadcaster hasn't granted moderator:read:chatters. */
@@ -147,16 +156,25 @@ export async function scanChannel(broadcasterId: string, fresh = false): Promise
   const chatters = await fetchChatters(broadcasterId);
   if (chatters === "no_permission") return "no_permission";
   const ignored = new Set((await listIgnored(broadcasterId)).map((r) => r.login));
+  const typedIn = await getChannelBotLogins(broadcasterId, true);
   const botId = env("TWITCH_BOT_ID");
   const candidates = chatters
-    .filter((c) => c.id !== broadcasterId && !isBotAccount(c.login, c.id, botId) && !ignored.has(c.login))
+    .filter((c) => c.id !== broadcasterId && !isBotAccount(c.login, c.id, botId) && !typedIn.has(c.login) && !ignored.has(c.login))
     .map((c) => c.login);
   const users = await getUsersByLogin(candidates.slice(0, MAX_SCANNED));
   const flagged = users
     .map(scoreUser)
     .filter((r): r is BotScore => r !== null)
     .sort((a, b) => b.score - a.score || a.accountAgeDays - b.accountAgeDays);
-  const result = { totalChatters: chatters.length, flagged, scannedAt: Date.now(), truncated: candidates.length > MAX_SCANNED };
+  // Keep the bot list up to date with the accounts the check is fairly sure about.
+  let added: string[] = [];
+  if (await isBotCheckAutoAdd(broadcasterId)) {
+    const sure = flagged.filter((r) => r.score >= BOTCHECK_AUTO_ADD_SCORE);
+    if (sure.length) added = await addChannelBots(broadcasterId, sure.map((r) => ({ login: r.login, note: `score ${r.score}: ${r.reasons.join(", ")}` })), "botcheck");
+  }
+  const listed = await getChannelBotLogins(broadcasterId);
+  const onList = flagged.filter((r) => listed.has(r.login.toLowerCase())).map((r) => r.login.toLowerCase());
+  const result = { totalChatters: chatters.length, flagged, scannedAt: Date.now(), truncated: candidates.length > MAX_SCANNED, onList, added };
   scanCache.set(broadcasterId, result);
   return result;
 }
@@ -207,8 +225,9 @@ export async function handleBotCheckCommand(
     const summary = n === 0
       ? `🤖 No likely bot viewers spotted out of ${scan.totalChatters} in chat right now.`
       : `🤖 ${n} likely bot viewer${n === 1 ? "" : "s"} out of ${scan.totalChatters} in chat right now.`;
+    const addedNote = scan.added.length ? ` ${scan.added.length} added to the bot list.` : "";
     const modHint = isModerator && n > 0 ? " Mods: the full list is on the dashboard (!dashboard → Bot viewer check)." : "";
-    await sendChatMessage(`${summary}${modHint}`, broadcasterId);
+    await sendChatMessage(`${summary}${addedNote}${modHint}`, broadcasterId);
   } catch (e) {
     console.error("botcheck failed", e);
     await sendChatMessage(`@${display} 🤖 Bot check couldn't reach Twitch just now — try again in a minute.`, broadcasterId);
@@ -221,7 +240,14 @@ export async function handleBotCheckCommand(
 export async function applyBotCheckForm(broadcasterId: string, form: FormData): Promise<string | null> {
   const action = String(form.get("intent") ?? "");
   const login = String(form.get("login") ?? "").replace(/^@/, "").trim().toLowerCase();
-  if (!/^[a-z0-9_]{1,25}$/.test(login) || (action !== "ignore" && action !== "unignore")) return null;
+  if (!/^[a-z0-9_]{1,25}$/.test(login)) return null;
+  if (action === "botlist_add") {
+    const note = String(form.get("note") ?? "");
+    const added = await addChannelBots(broadcasterId, [{ login, note }], "botcheck");
+    scanCache.delete(broadcasterId);
+    return added.length ? `${login} is on the bot list.` : `${login} was already on the bot list.`;
+  }
+  if (action !== "ignore" && action !== "unignore") return null;
   await setIgnored(broadcasterId, login, action === "ignore");
   return action === "ignore" ? `${login} will no longer be flagged.` : `${login} can be flagged again.`;
 }
@@ -248,14 +274,20 @@ export async function renderBotCheckPage(d: { broadcasterId: string; broadcaster
   } else if (scan === "error") {
     main = `<p class="banner error">Couldn't reach Twitch just now. <a href="/dashboard/botcheck?${qs}&fresh=1">Try again</a>.</p>`;
   } else {
-    const rows = scan.flagged.map((r) =>
-      `<tr><td><a href="https://twitch.tv/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${escapeHtml(r.displayName || r.login)}</a></td><td class="num"><span class="score s${Math.min(r.score, 7)}">${r.score}</span></td><td class="num">${r.accountAgeDays}d</td><td class="small">${escapeHtml(r.reasons.join(" · "))}</td><td class="num">${form("ignore", r.login, "Ignore", "ghost")}</td></tr>`
-    ).join("");
+    const onList = new Set(scan.onList);
+    const rows = scan.flagged.map((r) => {
+      const listed = onList.has(r.login.toLowerCase());
+      const listCell = listed
+        ? `<span class="badge learned">on bot list</span>`
+        : `<form method="post" action="/dashboard/botcheck" class="inline">${hidden}<input type="hidden" name="intent" value="botlist_add"><input type="hidden" name="login" value="${escapeHtml(r.login)}"><input type="hidden" name="note" value="${escapeHtml(`score ${r.score}: ${r.reasons.join(", ")}`)}"><button type="submit" class="ghost">Add to bot list</button></form>`;
+      return `<tr><td><a href="https://twitch.tv/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${escapeHtml(r.displayName || r.login)}</a></td><td class="num"><span class="score s${Math.min(r.score, 7)}">${r.score}</span></td><td class="num">${r.accountAgeDays}d</td><td class="small">${escapeHtml(r.reasons.join(" · "))}</td><td class="num nowrap">${listCell}</td><td class="num">${listed ? "" : form("ignore", r.login, "Ignore", "ghost")}</td></tr>`;
+    }).join("");
     const when = new Date(scan.scannedAt).toISOString().slice(11, 16) + " UTC";
-    main = `<div class="stats"><div class="stat"><b>${scan.totalChatters}</b>in chat</div><div class="stat"><b>${scan.flagged.length}</b>flagged</div><div class="stat"><b>${ignored.length}</b>ignored</div></div>
+    main = `<div class="stats"><div class="stat"><b>${scan.totalChatters}</b>in chat</div><div class="stat"><b>${scan.flagged.length}</b>flagged</div><div class="stat"><b>${scan.onList.length}</b>on bot list</div><div class="stat"><b>${ignored.length}</b>ignored</div></div>
+${scan.added.length ? `<p class="banner ok">Added to the bot list by this scan: ${escapeHtml(scan.added.join(", "))}.</p>` : ""}
 <p class="muted small">Scanned ${when}${scan.truncated ? ` · only the first ${MAX_SCANNED} chatters were checked` : ""} · <a href="/dashboard/botcheck?${qs}&fresh=1">Rescan now</a></p>
 ${scan.flagged.length
-      ? `<div class="table-wrap"><table><thead><tr><th>Account</th><th class="num">Score</th><th class="num">Age</th><th>Why flagged</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ? `<div class="table-wrap"><table><thead><tr><th>Account</th><th class="num">Score</th><th class="num">Age</th><th>Why flagged</th><th class="num">Bot list</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<p class="note">Nothing flagged right now — the chat list looks clean.</p>`}`;
   }
 
@@ -266,12 +298,13 @@ ${scan.flagged.length
   const body = `<header class="dash-top"><div><span class="pill">Moderation · Bot viewer check</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 <p>Accounts in chat right now that look like follow/view-bots: very new accounts, default profile pictures and generated-looking names. This is a <strong>heuristic, not a verdict</strong> — open an account before blocking it. Nothing is banned automatically.</p>
+<p class="muted">Each scan keeps the <a href="/dashboard/bots?${qs}">🧾 bot list</a> up to date: accounts scoring ${BOTCHECK_AUTO_ADD_SCORE}+ are added automatically (switch that off on the bot list page), and <strong>Add to bot list</strong> adds any of the others.</p>
 ${main}
 <h2>Ignore list</h2><p class="muted">Real viewers who tripped the check. They stay ignored until un-ignored.</p>${ignoredList}
 <p class="colophon muted">In chat: <code>!botcheck</code> · <code>!botcheck ignore &lt;user&gt;</code> · <code>!botcheck unignore &lt;user&gt;</code></p>`;
 
   return scrollDoc(`${name} — Bot viewer check`, body, {
     width: 1000,
-    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button{padding:5px 12px;font-size:.78rem}.score{display:inline-block;min-width:26px;text-align:center;border-radius:999px;padding:1px 8px;font-weight:700;background:#dccea8;color:var(--ink)}.score.s5,.score.s6,.score.s7{background:var(--bad-bg);color:var(--bad)}.score.s3,.score.s4{background:#e2c08f;color:var(--seal-dk)}td{vertical-align:middle}`,
+    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button{padding:5px 12px;font-size:.78rem}.score{display:inline-block;min-width:26px;text-align:center;border-radius:999px;padding:1px 8px;font-weight:700;background:#dccea8;color:var(--ink)}.score.s5,.score.s6,.score.s7{background:var(--bad-bg);color:var(--bad)}.score.s3,.score.s4{background:#e2c08f;color:var(--seal-dk)}td{vertical-align:middle}.nowrap{white-space:nowrap}`,
   });
 }

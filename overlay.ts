@@ -32,6 +32,7 @@ import { formatRaceName } from "./utils.ts";
 import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { getIdleHeroes, renderIdlePage } from "./idle.ts";
+import { getChannelBotLogins } from "./channel_bots.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -421,7 +422,8 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const live = await liveChannelName(channel);
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: the bot's own lines just count as a chatter */ }
-    return html(renderIdlePage(channelKey, live.login, live.name, botId));
+    const channelBots = await getChannelBotLogins(channel.id).catch(() => new Set<string>());
+    return html(renderIdlePage(channelKey, live.login, live.name, botId, channelBots));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));

@@ -29,6 +29,7 @@ import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
+import { ensureChannelBotTables, isChannelBot, purgeChannelBotData } from "./channel_bots.ts";
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
@@ -40,7 +41,7 @@ import { handleDashboardCommand } from "./dashboard.ts";
 import { handleCreationCommand } from "./characters.ts";
 import { handleDuelCommand, handleMonsterDuelCommand, handlePartyCommand, handlePartyDuelCommand, handleInitiativeCommand } from "./combat.ts";
 import { env, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
-import { isBotAccount, hasModeratorBadge } from "./utils.ts";
+import { hasModeratorBadge } from "./utils.ts";
 import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidThankYou } from "./flavor_events.ts";
 import { groupForMessage } from "./commandgroups.ts";
 import { page } from "./pages.ts";
@@ -91,6 +92,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAdTables,
   ensureAutoBanTables,
   ensureBotDetectTables,
+  ensureChannelBotTables,
   ensureAdAlertTables,
   ensureSocialTables,
   ensurePointsTables,
@@ -184,7 +186,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const subDisplay: string = body.event?.user_name ?? subUserLogin;
       const tier: string | undefined = body.event?.tier;
       const isAnonymousGifter = subscriptionType === "channel.subscription.gift" && Boolean(body.event?.is_anonymous);
-      if (!subBroadcasterId || (!isAnonymousGifter && isBotAccount(subUserLogin, body.event?.user_id ?? "", env("TWITCH_BOT_ID")))) {
+      if (!subBroadcasterId || (!isAnonymousGifter && await isChannelBot(subBroadcasterId, subUserLogin, body.event?.user_id ?? "", env("TWITCH_BOT_ID")))) {
         return new Response("OK");
       }
       const subConnection = await getBroadcaster(subBroadcasterId);
@@ -221,7 +223,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const raiderId: string = body.event?.from_broadcaster_user_id ?? "";
       const raiderDisplay: string = body.event?.from_broadcaster_user_name ?? raiderLogin;
       const viewers = Number(body.event?.viewers ?? 0);
-      if (!raidBroadcasterId || isBotAccount(raiderLogin, raiderId, env("TWITCH_BOT_ID"))) {
+      if (!raidBroadcasterId || await isChannelBot(raidBroadcasterId, raiderLogin, raiderId, env("TWITCH_BOT_ID"))) {
         return new Response("OK");
       }
       const raidConnection = await getBroadcaster(raidBroadcasterId);
@@ -277,7 +279,7 @@ async function handleRequest(req: Request): Promise<Response> {
       hasModeratorBadge(body.event);
     const baseUrl = url.origin;
 
-    if (isBotAccount(chatter, chatterId, env("TWITCH_BOT_ID"))) {
+    if (await isChannelBot(broadcasterId, chatter, chatterId, env("TWITCH_BOT_ID"))) {
       // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
       // never get processed as commands, quoted by the chronicle, or replied
       // to by random NPC chatter, but they still count as chat activity
@@ -376,6 +378,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAdData(broadcasterId);
         await purgeAutoBanData(broadcasterId);
         await purgeBotDetectData(broadcasterId);
+        await purgeChannelBotData(broadcasterId);
         await purgeAdAlertData(broadcasterId);
         await purgePointsData(broadcasterId);
         await purgeSwearJarData(broadcasterId);

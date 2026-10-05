@@ -40,6 +40,7 @@ import { getBroadcasterAdToken } from "./ads_db.ts";
 import { env, getAppToken, sendChatMessage } from "./twitch.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { isBotAccount, pick } from "./utils.ts";
+import { getChannelBotLogins } from "./channel_bots.ts";
 
 export const FOLLOW_SCOPE = "moderator:read:followers";
 export const CHATTERS_SCOPE = "moderator:read:chatters";
@@ -282,7 +283,8 @@ export async function pollWatchtime(broadcasterId: string, isLiveDb: boolean): P
   const half = Math.floor(windowMs / 2);
   const botId = env("TWITCH_BOT_ID");
 
-  const present = chatters.filter((c) => USERNAME_RE.test(c.login) && !isBotAccount(c.login, c.id, botId));
+  const listed = await getChannelBotLogins(broadcasterId).catch(() => new Set<string>());
+  const present = chatters.filter((c) => USERNAME_RE.test(c.login) && !isBotAccount(c.login, c.id, botId) && !listed.has(c.login.toLowerCase()));
   const upsert = `INSERT INTO watchtime_stats (broadcaster_id, username, display_name, total_ms, first_seen_at, last_seen_at, in_chat)
      VALUES (?,?,?,?,?,?,1)
      ON CONFLICT(broadcaster_id, username) DO UPDATE SET

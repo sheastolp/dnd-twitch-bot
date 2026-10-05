@@ -29,7 +29,7 @@
 
 import { getBroadcaster, isChannelBlocked, isChannelEnabled, saveExtraEventSubSubscription } from "./db.ts";
 import { createRedemptionEventSubscription, sendChatMessage } from "./twitch.ts";
-import { isBotAccount } from "./utils.ts";
+import { isChannelBot } from "./channel_bots.ts";
 import {
   clearEffects,
   getEffectRemainingMs,
@@ -196,7 +196,7 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
   if (!mapping) return;
 
   const botId = Deno.env.get("TWITCH_BOT_ID") ?? "";
-  if (isBotAccount(redeemer, String(event?.user_id ?? ""), botId)) return;
+  if (await isChannelBot(broadcasterId, redeemer, String(event?.user_id ?? ""), botId)) return;
   const connection = await getBroadcaster(broadcasterId);
   if (!connection || Number(connection.connected) !== 1) return;
   if (await isChannelBlocked(broadcasterId)) return;
@@ -226,7 +226,7 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
     await sendChatMessage(`@${display} you can't hex yourself — a mod can refund "${title}" from the rewards queue.`, broadcasterId);
     return;
   }
-  if (parsed.target === broadcasterLogin || isBotAccount(parsed.target, "", botId)) {
+  if (parsed.target === broadcasterLogin || await isChannelBot(broadcasterId, parsed.target, "", botId)) {
     await sendChatMessage(
       `@${display} that target is protected by powers beyond any hex — a mod can refund "${title}" from the rewards queue.`,
       broadcasterId,

@@ -58,6 +58,7 @@ import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
+import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
@@ -641,6 +642,31 @@ export async function handleBotCheckForm(form: FormData, baseUrl: string, cookie
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (notice) params.set("notice", notice);
   return redirectTo(`${baseUrl}/dashboard/botcheck?${params.toString()}`);
+}
+
+// ── Bot list page (channel_bots.ts), behind the same key + login ──
+
+export async function handleBotListPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderBotListPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleBotListForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyBotListForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/bots?${params.toString()}`);
 }
 
 // ── Auto-ban word list page (autoban_page.ts), behind the same key + login ──

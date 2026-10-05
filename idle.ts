@@ -30,8 +30,9 @@
 // ever goes in through textContent.
 //
 // URL extras: &hide=<login,login> chatters who don't play (bots — the
-// GuildScribe bot, logins ending in "bot" and every account listed in
-// bot_accounts.ts are always left out), &pad=<px> a
+// GuildScribe bot, logins ending in "bot", every account listed in
+// bot_accounts.ts and the channel's bot list on the dashboard are always left
+// out; a name added there reaches the game the next time its source loads), &pad=<px> a
 // margin inside the frame, &always=1 preview mode (demo party, nothing saved).
 
 import { escapeHtml } from "./utils.ts";
@@ -324,8 +325,9 @@ loadHeroes();setInterval(loadHeroes,5*60000);
 connect();
 `;
 
-export function renderIdlePage(channelKey: string, login: string, name: string, botId = ""): string {
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId, bots: listedBotAccounts() };
+/** channelBots: the channel's own bot list (channel_bots.ts), left out like the built-in bots. */
+export function renderIdlePage(channelKey: string, login: string, name: string, botId = "", channelBots: Iterable<string> = []): string {
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId, bots: [...new Set([...listedBotAccounts(), ...channelBots])] };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Endless Delve · ${escapeHtml(name)}</title>
