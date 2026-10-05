@@ -327,6 +327,7 @@ export async function purgeChannelData(broadcasterId: string) {
     "map_cells",
     "map_tokens",
     "dice_roll_events",
+    "battle_log",
   ]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }

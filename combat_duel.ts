@@ -8,6 +8,7 @@ import { getCharacter, getDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, resolvePlayerDuel } from "./combat_shared.ts";
+import { recordBattle } from "./battle_log.ts";
 
 export async function handleDuelCommand(
   chatMessage: string,
@@ -99,6 +100,13 @@ export async function handleDuelCommand(
       challenger,
       defender,
     );
+    const loser = result.winner === username ? String(challenge.challenger) : display;
+    await recordBattle(broadcasterId, {
+      kind: "duel",
+      side: result.winner === username ? display : String(challenge.challenger),
+      foe: loser,
+      outcome: "win",
+    });
     const intro = `@${display} accepted! ${duelNarration("accept")} `;
     await sendChatMessages(
       intro + result.log,
@@ -202,6 +210,12 @@ export async function handleDuelCommand(
       const winner = active.challenger_hp > 0
         ? active.challenger
         : active.defender;
+      await recordBattle(broadcasterId, {
+        kind: "duel",
+        side: String(winner),
+        foe: String(winner === active.challenger ? active.defender : active.challenger),
+        outcome: "win",
+      });
       await sqlite.execute("DELETE FROM duels WHERE broadcaster_id = ?", [
         broadcasterId,
       ]);

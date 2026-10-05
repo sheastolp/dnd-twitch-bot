@@ -28,6 +28,7 @@ import { formatCoins } from "./coins.ts";
 import { formatRaceName } from "./utils.ts";
 import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
+import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { env, getAppToken, getChannelInfo } from "./twitch.ts";
@@ -48,6 +49,8 @@ export type OverlayData = {
   updatedAt: number;
   raid?: Awaited<ReturnType<typeof getRaidRosterStatus>>;
   battle?: Fight[];
+  /** Finished fights from the last RECENT_WINDOW_MS, newest first (battle_log.ts). */
+  recent?: Array<BattleEntry & { at: number }>;
   giveaway?: { prize: string; cost: string; maxTickets: number; open: boolean; entrants: number; tickets: number; winners: string[] } | null;
   merchant?: { merchant: string; item: string; price: string; postedAt: number } | null;
   jar?: { total: number; text: string } | null;
@@ -114,6 +117,11 @@ async function liveStreamTitle(channelId: string): Promise<string> {
   streamTitleCache.set(channelId, { at: Date.now(), title });
   return title;
 }
+
+// The battle tracker's "Recent battles": most fights are auto-resolved in one
+// message, so without these the tracker would sit empty nearly all stream.
+const RECENT_LIMIT = 5;
+const RECENT_WINDOW_MS = 45 * 60_000;
 
 const fresh = (row: any) => row && Date.now() - Number(row.updated_at ?? 0) <= DUEL_IDLE_TIMEOUT_MS;
 
@@ -290,7 +298,9 @@ export async function getOverlayData(
   };
 
   job("raid", async () => { out.raid = on("raid") ? await getRaidRosterStatus(id) : null; });
-  job("battle", async () => { out.battle = await loadFights(id); });
+  job("battle", async () => {
+    [out.battle, out.recent] = await Promise.all([loadFights(id), getRecentBattles(id, RECENT_LIMIT, RECENT_WINDOW_MS)]);
+  });
   job("giveaway", async () => { out.giveaway = on("giveaways") ? await loadGiveaway(id) : null; });
   job("merchant", async () => {
     const l = marketOn ? await getMerchantListing(id) : null;
@@ -389,8 +399,11 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   if (path === "/overlays") return html(renderOverlayIndexPage(channel.name, channelKey, channel.id, PUBLIC_BASE_URL));
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
   if (panel === "theme") {
-    const [live, streamTitle] = await Promise.all([liveChannelName(channel), liveStreamTitle(channel.id)]);
-    return html(renderThemePage(channelKey, live.login, live.name, (url.searchParams.get("scene") ?? "game").toLowerCase(), streamTitle));
+    const scene = (url.searchParams.get("scene") ?? "game").toLowerCase();
+    // The stream title subtitle is only on the brb and chat scenes.
+    const withSub = scene === "brb" || scene === "chat";
+    const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
+    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
   return html(renderOverlayPage(channelKey, panel));

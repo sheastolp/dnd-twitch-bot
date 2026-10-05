@@ -27,6 +27,7 @@
 
 import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
+import { recordBattle } from "./battle_log.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { formatCoins } from "./coins.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
@@ -169,6 +170,13 @@ export async function handleRobCommand(
       : `🛡️ @${display} is caught red-handed! ${winnerName} claims ${percent}% of their purse as a fine: ${formatCoins(amount)}.`;
   }
 
+  await recordBattle(broadcasterId, {
+    kind: "rob",
+    side: winnerName,
+    foe: loserName,
+    outcome: "win",
+    note: loot ? `+${formatCoins(amount)}` : undefined,
+  });
   const lunge = `🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows!`;
   await sendChatMessages(`${lunge} ${result.log} ${outcome}`, broadcasterId, {
     detail: `${lunge} ${result.fullLog} ${outcome}`,

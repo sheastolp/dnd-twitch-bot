@@ -4,6 +4,7 @@
 
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
+import { recordBattle } from "./battle_log.ts";
 import { combatStats, firstAlive } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
@@ -163,6 +164,7 @@ export async function handlePartyDuelCommand(
           [broadcasterId],
         );
         const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), true, attacker.level);
+        await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyHunt.party_name), foe: String(partyHunt.monster_name), outcome: "win" });
         const wounds = await woundsOn(broadcasterId);
         for (const n of partyHunt.members) await settleWounds(broadcasterId, n, partyHunt.member_hp[n] ?? 0, wounds); // before XP
         const xpNotes: string[] = [];
@@ -237,6 +239,7 @@ export async function handlePartyDuelCommand(
           [broadcasterId],
         );
         const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), false, attacker.level);
+        await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyHunt.party_name), foe: String(partyHunt.monster_name), outcome: "loss" });
         const wounds = await woundsOn(broadcasterId);
         for (const n of partyHunt.members) await settleWounds(broadcasterId, n, 0, wounds);
         await sendChatMessages(
@@ -467,6 +470,7 @@ export async function handlePartyDuelCommand(
       }
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, partyWon, avgLevel);
+      await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyName), foe: monster.name, outcome: partyWon ? "win" : "loss" });
       for (const n of livingMembers) await settleWounds(broadcasterId, n, hp[n], wounds); // before XP
       const xpNotes: string[] = [];
       let lootNote = "";
@@ -694,6 +698,12 @@ export async function handlePartyDuelCommand(
     const winnerParty = challengerAlive
       ? challenge.challenger_party
       : challenge.defender_party;
+    await recordBattle(broadcasterId, {
+      kind: "partyduel",
+      side: String(winnerParty),
+      foe: String(challengerAlive ? challenge.defender_party : challenge.challenger_party),
+      outcome: "win",
+    });
     const left = attackers.map((n) => `${n}:${aHp[n]}`).join(",");
     const right = defenders.map((n) => `${n}:${dHp[n]}`).join(",");
     await sqlite.execute("DELETE FROM party_duels WHERE broadcaster_id = ?", [
@@ -834,6 +844,12 @@ export async function handlePartyDuelCommand(
       const winner = active.current_side === "challenger"
         ? active.challenger_party
         : active.defender_party;
+      await recordBattle(broadcasterId, {
+        kind: "partyduel",
+        side: String(winner),
+        foe: String(active.current_side === "challenger" ? active.defender_party : active.challenger_party),
+        outcome: "win",
+      });
       await sqlite.execute("DELETE FROM party_duels WHERE broadcaster_id = ?", [
         broadcasterId,
       ]);

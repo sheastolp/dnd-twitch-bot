@@ -4,6 +4,7 @@
 
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
+import { recordBattle } from "./battle_log.ts";
 import { combatStats } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { simulateMonsterFight } from "./battle.ts";
@@ -227,6 +228,7 @@ export async function handleMonsterDuelCommand(
     ]);
     const won = monsterHp <= 0 && playerHp > 0;
     const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, won, c.level);
+    await recordBattle(broadcasterId, { kind: "hunt", side: display, foe: monster.name, outcome: won ? "win" : "loss" });
     await settleWounds(broadcasterId, username, playerHp, wounds); // before XP (level-ups raise HP)
     let xpNote = "";
     let lootNote = "";
@@ -324,6 +326,7 @@ export async function handleMonsterDuelCommand(
         [broadcasterId],
       );
       const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), true, player.level);
+      await recordBattle(broadcasterId, { kind: "hunt", side: display, foe: String(active.monster_name), outcome: "win" });
       const wounds = await woundsOn(broadcasterId);
       await settleWounds(broadcasterId, username, playerHp, wounds); // before XP (level-ups raise HP)
       const xp = await awardMonsterXp(
@@ -372,6 +375,7 @@ export async function handleMonsterDuelCommand(
         [broadcasterId],
       );
       const learnNote = await recordMonsterOutcome(broadcasterId, String(active.monster_name), false, player.level);
+      await recordBattle(broadcasterId, { kind: "hunt", side: display, foe: String(active.monster_name), outcome: "loss" });
       const wounds = await woundsOn(broadcasterId);
       await settleWounds(broadcasterId, username, 0, wounds);
       await sendChatMessages(

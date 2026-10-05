@@ -1,8 +1,8 @@
 // GuildScribe — the full-screen "theme" overlay: the whole stream layout in
 // one OBS Browser source. A parchment sheet covers the 1920×1080 canvas with a
 // torn-edged window cut out of it for the game capture (which sits *below*
-// this source in OBS), the channel's name across the top with the stream
-// title as a subtitle under it, "Tavern Talk" chat
+// this source in OBS), the channel's name across the top (with the stream
+// title as a subtitle under it in the brb and chat scenes), "Tavern Talk" chat
 // down the right (messages fade out after a while), a d20 emblem (name
 // banner optional) in the bottom-left, and the status strip in the bottom-right.
 //
@@ -17,7 +17,7 @@
 // URL extras (all optional): &fade=<seconds> before a chat line fades (default
 // 30, 0 = never), &title=<text> instead of the channel name (which otherwise
 // comes from Twitch, CamelCase split into words; &split=0 keeps it as-is),
-// &subtitle=<text> instead of the stream title (which otherwise follows the
+// &subtitle=<text> instead of the stream title (brb and chat scenes only) (which otherwise follows the
 // channel's current Twitch title, checked every couple of minutes;
 // &subtitle=0 hides it),
 // &hide=<login,login> chatters to leave out (bots),
@@ -199,9 +199,10 @@ const title=Q.get("title")||autoTitle;
 document.getElementById("title").textContent=title;
 // The stream title under the name: &subtitle=<text> pins it, &subtitle=0 hides
 // it, otherwise it follows Twitch (checked every 2 minutes).
+// Only the be-right-back and just-chatting scenes carry it (no #subtitle in gameplay).
 const subEl=document.getElementById("subtitle"),subQ=Q.get("subtitle");
 function setSub(t){t=(t||"").trim();subEl.textContent=t;subEl.title=t;subEl.hidden=!t;subEl.parentElement.classList.toggle("sub",!!t)}
-if(subQ==="0")setSub("");else if(subQ)setSub(subQ);else{
+if(!subEl||subQ==="0"){}else if(subQ)setSub(subQ);else{
   setSub(CFG.streamTitle);
   setInterval(()=>{fetch("/overlay/title?channel="+encodeURIComponent(CFG.channel)).then(r=>r.ok?r.json():null).then(d=>{if(d&&d.ok)setSub(d.title)}).catch(()=>{})},120000)}
 document.getElementById("chatsub").textContent="words from "+CFG.name+"'s common room";
@@ -338,7 +339,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
 <style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
-<div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div><div class="subtitle" id="subtitle" hidden></div></div>
+<div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}<iframe class="status" id="status" title="status" scrolling="no"></iframe>
 <div class="roller top"></div><div class="roller bot"></div>

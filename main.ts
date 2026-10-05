@@ -15,6 +15,7 @@ import { handleRobCommand } from "./rob.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
+import { ensureBattleLogTables } from "./battle_log.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
@@ -105,6 +106,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureBestiaryTables,
   ensureChecklistTables,
   ensureHoardTables,
+  ensureBattleLogTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {

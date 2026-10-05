@@ -10,10 +10,10 @@ import { SCENES } from "./overlay_scenes.ts";
 
 /** Every overlay panel: what it shows and a sensible OBS browser-source size. */
 export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; width: number; height: number }> = {
-  theme: { label: "Full stream theme", blurb: "Your whole layout in one source, in three scenes — Gameplay, Be right back and Just chatting (pick below; add one OBS Browser source per scene). Gameplay is a parchment sheet with a torn-edged window for your game, your channel name across the top with the stream title under it (follows your Twitch title; &subtitle=<text> to pin your own, &subtitle=0 to hide), Tavern Talk chat down the right (lines fade after 30 s — change with &fade=<seconds>, 0 keeps them), a d20 emblem (or your own image or PNGtuber) bottom-left, and the status strip bottom-right. Put it above your game capture, and place your sources where the list below says. The Be right back and Just chatting scenes add a Words on Stream window and a Dungeon Gate for pop-up overlays like Tangia dungeons; Just chatting also has a Guild Board where GuildScribe's own panels (raid boss, leaderboards, roll call…) take turns. Extras there: &minutes=<n> for a BRB countdown, &brbtext=<line>, &topic=<text>, &gate=<label>, &cycle=<seconds> for the board. Your title is your Twitch name, kept up to date. Extras: &title=<text> to write your own, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands, &status=0 to drop the strip. The emblem — the d20, your own image, or a PNGtuber that swaps to its talking image — reacts to your mic: dim when you're quiet, bright and glowing when you talk. Set it up below, and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic.", width: 1920, height: 1080 },
+  theme: { label: "Full stream theme", blurb: "Your whole layout in one source, in three scenes — Gameplay, Be right back and Just chatting (pick below; add one OBS Browser source per scene). Gameplay is a parchment sheet with a torn-edged window for your game, your channel name across the top, Tavern Talk chat down the right (lines fade after 30 s — change with &fade=<seconds>, 0 keeps them), a d20 emblem (or your own image or PNGtuber) bottom-left, and the status strip bottom-right. Put it above your game capture, and place your sources where the list below says. The Be right back and Just chatting scenes put your stream title under the channel name (follows your Twitch title; &subtitle=<text> to pin your own, &subtitle=0 to hide) and add a Words on Stream window and a Dungeon Gate for pop-up overlays like Tangia dungeons; Just chatting also has a Guild Board where GuildScribe's own panels (raid boss, leaderboards, roll call…) take turns. Extras there: &minutes=<n> for a BRB countdown, &brbtext=<line>, &topic=<text>, &gate=<label>, &cycle=<seconds> for the board. Your title is your Twitch name, kept up to date. Extras: &title=<text> to write your own, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands, &status=0 to drop the strip. The emblem — the d20, your own image, or a PNGtuber that swaps to its talking image — reacts to your mic: dim when you're quiet, bright and glowing when you talk. Set it up below, and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic.", width: 1920, height: 1080 },
   status: { label: "Status bar", blurb: "One slim strip: live dot, raid boss HP, fight in progress, giveaway, the peddler's ware and the swear jar. Made for the top or bottom edge of the screen.", width: 1920, height: 70 },
   raid: { label: "Raid boss", blurb: "This stream's raid boss with its HP bar, the muster/cooldown state, and the top damage dealers.", width: 520, height: 300 },
-  battle: { label: "Battle tracker", blurb: "Whatever fight is under way — arena duel, monster hunt, party duel or party hunt — with live HP bars and whose turn it is. Hidden when nobody is fighting.", width: 560, height: 420 },
+  battle: { label: "Battle tracker", blurb: "Whatever fight is under way — arena duel, monster hunt, party duel or party hunt — with live HP bars and whose turn it is, plus the last few results from the past 45 minutes (auto hunts and duels, !autohunt bouts, raids, robberies) with the session's win/loss tally. Hidden when nobody has fought lately.", width: 560, height: 420 },
   giveaway: { label: "Giveaway", blurb: "The open giveaway's prize, entrants and tickets, then the winners for ten minutes after the draw. Hidden otherwise.", width: 520, height: 200 },
   merchant: { label: "Peddler's stall", blurb: "The ware the open-stall merchant is currently hawking and its price (needs !market on).", width: 520, height: 180 },
   jar: { label: "Swear jar", blurb: "The swear jar's running total; it bounces whenever someone pays in.", width: 360, height: 110 },
@@ -45,6 +45,7 @@ body.center #root{margin:0 auto;transform-origin:top center;align-items:center}
 ol{margin:0;padding-left:1.4em}ol li{padding:1px 0}
 .fighter{margin:6px 0}.fighter .name{font-size:.92rem}
 .fighter.turn .name::before{content:"▶ ";color:var(--gold)}.fighter.down{opacity:.45}.fighter.down .name::after{content:" 💀"}
+.recent .row{align-items:baseline}.recent .row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent .win{color:var(--good)}.recent .loss{color:var(--bad)}.recent .retreat{color:var(--warn)}.recent .note{color:var(--muted);font-size:.82rem}
 .side+.side{margin-top:8px;padding-top:6px;border-top:1px dashed #68463299}.side>.label{color:var(--gold);font-size:.82rem;text-transform:uppercase;letter-spacing:.08em}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .strip{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;background:var(--card);border:1px solid var(--edge);border-radius:999px;padding:8px 16px;width:max-content;max-width:100%;overflow:hidden;white-space:nowrap;box-shadow:0 6px 18px #0007}
@@ -114,13 +115,14 @@ const R={
     if(r.contributors&&r.contributors.length){const ol=h("ol");for(const x of r.contributors.slice(0,3))add(ol,add(h("li"),add(h("div","row"),h("span",null,x.name),h("span",null,x.damage+" dmg"))));add(c,h("div","hint","Top raiders"),ol)}
     if(r.slain)c.querySelector("h2").firstChild.textContent="🏆 "+r.monster+" — slain!";
     return c},
-  battle(d){const fs=d.battle||[];if(!fs.length)return null;const wrap=document.createDocumentFragment();
+  battle(d){const fs=d.battle||[],rec=d.recent||[];if(!fs.length&&!rec.length)return null;const wrap=document.createDocumentFragment();
     for(const f of fs){const c=card(f.title);
       for(const s of f.sides){const sd=add(h("div","side"),h("div","label",s.label));
         for(const m of s.combatants){const fe=h("div","fighter"+(m.turn?" turn":"")+(m.down?" down":""));
           add(fe,add(h("div","name"),h("span",null,m.name)),bar(m.hp,m.hpMax,null,f.kind+":"+m.name));add(sd,fe)}
         add(c,sd)}
       add(wrap,c)}
+    if(rec.length)add(wrap,recentCard(rec,fs.length?3:5));
     const holder=h("div","group");holder.style.display="contents";add(holder,wrap);return holder},
   giveaway(d){const g=d.giveaway;if(!g)return null;
     const c=card("🎁 "+(g.open?"Giveaway":"Giveaway drawn"),g.open?(g.cost==="free"?"free entry":g.cost+" / ticket"):null);
@@ -155,10 +157,24 @@ const R={
     if(d.jar){const v=h("span",null,"🫙 "+d.jar.text);if(lastJar!=null&&d.jar.total>lastJar)v.classList.add("bump");lastJar=d.jar.total;add(s,add(h("span","chip"),v))}
     return s},
 };
+// "Recent battles": finished fights (battle_log.ts), newest first, with a win/loss tally.
+const KIND_ICON={hunt:"🐉",partyhunt:"🏹",autohunt:"⏳",raid:"☠️",duel:"⚔️",partyduel:"🛡️",rob:"🗡️"};
+function ago(at){const m=Math.max(0,Math.floor((Date.now()-at)/60000));return m<1?"just now":m+"m ago"}
+function recentCard(rec,max){
+  const pvp=r=>r.kind==="duel"||r.kind==="partyduel"||r.kind==="rob";
+  const pve=rec.filter(r=>!pvp(r)),wins=pve.filter(r=>r.outcome==="win").length,losses=pve.filter(r=>r.outcome==="loss").length;
+  const c=card("📜 Recent battles",pve.length?"🏆 "+wins+" won · ☠️ "+losses+" lost":null);const list=h("div","recent");
+  for(const r of rec.slice(0,max)){
+    const line=pvp(r)?r.side+" beats "+r.foe
+      :r.outcome==="win"?r.side+" slew "+r.foe:r.outcome==="loss"?r.foe+" felled "+r.side:r.side+" fell back from "+r.foe;
+    const what=h("span",null,(KIND_ICON[r.kind]||"⚔️")+" ");add(what,h("b",pvp(r)?"win":r.outcome,line));
+    if(r.note)add(what,h("span","note"," · "+r.note));
+    add(list,add(h("div","row"),what,h("span",null,ago(r.at))))}
+  return add(c,list)}
 const ORDER=["raid","battle","giveaway","merchant","jar","gold","dice","guild"];
 const LABELS=CFG.labels;
 // Cheap "does this panel have anything to show" check (no DOM, no side effects).
-const HAS={raid:d=>!!d.raid,battle:d=>!!(d.battle&&d.battle.length),giveaway:d=>!!d.giveaway,merchant:d=>!!d.merchant,jar:d=>!!d.jar,
+const HAS={raid:d=>!!d.raid,battle:d=>!!((d.battle&&d.battle.length)||(d.recent&&d.recent.length)),giveaway:d=>!!d.giveaway,merchant:d=>!!d.merchant,jar:d=>!!d.jar,
   gold:d=>!!(d.gold&&d.gold.length),dice:d=>!!(d.dice&&(d.dice.nat20.length||d.dice.nat1.length)),guild:d=>!!(d.guild&&d.guild.characters)};
 let rotIdx=-1, rotAt=0, lastSig="", prevShown=new Set();
 
@@ -171,7 +187,7 @@ function render(d){
     list=live.length?[live[rotIdx%live.length]]:[]}
   else list=panel==="status"||HAS[panel](d)?[panel]:[];
   // Redraw only when something on screen would change (plus once a minute for "x minutes ago").
-  const sig=JSON.stringify([list,list.map(p=>p==="status"?[d.channel,d.raid,d.battle,d.giveaway,d.merchant,d.jar]:d[p]),Math.floor(Date.now()/60000)]);
+  const sig=JSON.stringify([list,list.map(p=>p==="status"?[d.channel,d.raid,d.battle,d.giveaway,d.merchant,d.jar]:p==="battle"?[d.battle,d.recent]:d[p]),Math.floor(Date.now()/60000)]);
   if(sig===lastSig)return;lastSig=sig;
   root.replaceChildren();
   const shown=new Set();

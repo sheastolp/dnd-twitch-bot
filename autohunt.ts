@@ -20,6 +20,7 @@
 
 import { getCharacter } from "./db.ts";
 import { recordMonsterOutcome, summonMonster } from "./bestiary.ts";
+import { recordBattle } from "./battle_log.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot } from "./loot.ts";
@@ -154,6 +155,7 @@ export async function settleAutohunt(
     const monster = (await summonMonster(bid, c.level))!;
     const fight = simulateMonsterFight(c, session.display_name, monster, { startHp: hp0 });
     await recordMonsterOutcome(bid, monster.name, fight.won, c.level);
+    await recordBattle(bid, { kind: "autohunt", side: String(session.display_name), foe: monster.name, outcome: fight.won ? "win" : "loss" });
     await settleWounds(bid, username, fight.playerHp, wounds); // before XP (level-ups raise HP)
     if (fight.won) {
       wins++;

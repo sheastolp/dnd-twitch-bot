@@ -47,6 +47,7 @@
 import { getCharacter, getCustomCommand, isCommandGroupEnabled, saveCharacter } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { summonMonster, recordMonsterOutcome, tierTag } from "./bestiary.ts";
+import { recordBattle } from "./battle_log.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
@@ -288,6 +289,7 @@ export async function handleHoardCommand(
       const startHp = c.hpCurrent;
       const fight = simulateMonsterFight(c, chatter, monster, { startHp });
       const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, fight.won, c.level);
+      await recordBattle(broadcasterId, { kind: "hunt", side: display, foe: monster.name, outcome: fight.won ? "win" : "loss" });
       // HP carries over, but nobody dies on a hunt: worst case, 1 HP.
       c.hpCurrent = Math.max(1, fight.playerHp);
       await saveCharacter(c, broadcasterId);

@@ -30,6 +30,7 @@ import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";
+import { recordBattle } from "./battle_log.ts";
 import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
@@ -401,6 +402,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     `${fight.rounds} round${fight.rounds === 1 ? "" : "s"}: ${shownLog} — `;
   // The chat summary names the raid party; the detail page gets every round.
   const raiders = `raid #${q.raids + 1} (${names.join(", ")})`;
+  const raidSide = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
   const raidHp = (bossLeft: number) =>
     hpLeft([...heroes.map((h): [string, number, number] => [h.name, fight.hp[h.name], h.c.hpMax]), [boss.name, bossLeft, boss.hpMax]]);
   const fullLog = (msg: string) => msg.replace(shownLog, fight.battle.renderDetailed());
@@ -415,6 +417,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     const won = await changed(slain, async () => true);
     const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : { note: "", hoard: "" };
     const learnNote = won ? await recordMonsterOutcome(broadcasterId, boss.name, true, raidLevel(heroes)) : "";
+    if (won) await recordBattle(broadcasterId, { kind: "raid", side: raidSide, foe: boss.name, outcome: "win" });
     let bountyNote = "";
     if (won) for (const u of Object.keys(contributors)) bountyNote ||= await creditBounty(broadcasterId, u, boss.name);
     const msg = `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards.note}` +
@@ -432,6 +435,13 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   // A rout is a win the boss learns from; falling back with heroes standing
   // settles nothing either way.
   const learnNote = standing ? "" : await recordMonsterOutcome(broadcasterId, boss.name, false, raidLevel(heroes));
+  await recordBattle(broadcasterId, {
+    kind: "raid",
+    side: raidSide,
+    foe: boss.name,
+    outcome: standing ? "retreat" : "loss",
+    note: `${left}/${boss.hpMax} HP left`,
+  });
   const msg = `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
     `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
     `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.${learnNote}${woundsText}${benchNote}`;
