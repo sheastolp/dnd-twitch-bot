@@ -28,7 +28,8 @@ import { formatCoins } from "./coins.ts";
 import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { creditBounty } from "./hoard.ts";
-import { restIfLow, settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
+import { loadHero, restIfLow, settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
+import { AUTOHUNT_REGEN_MULTIPLIER } from "./hoard_data.ts";
 import {
   addAutohuntProgress,
   bumpAutohuntReports,
@@ -135,6 +136,7 @@ export async function settleAutohunt(
 
   // Hunt and Hoard wounds (hoard_combat.ts): when the module is on, bouts
   // start at current HP and a low hero rests that bout instead of fighting.
+  // Passive regen runs at AUTOHUNT_REGEN_MULTIPLIER x while out hunting.
   const wounds = await woundsOn(bid);
   let rests = 0;
   for (let i = 0; i < count; i++) {
@@ -144,7 +146,7 @@ export async function settleAutohunt(
       missing = true;
       break;
     }
-    const hp0 = await startHp(bid, c, wounds);
+    const hp0 = await startHp(bid, c, wounds, AUTOHUNT_REGEN_MULTIPLIER);
     const rested = await restIfLow(bid, c, wounds);
     if (rested !== null) {
       rests++;
@@ -296,6 +298,9 @@ export async function handleAutohuntCommand(
   }
   // Starting a hunt is subject to the same cooldown as every other hunt.
   if (!(await claimHunt(broadcasterId, [user], display, { self: user }))) return true;
+  // Cash in regen banked before the trip at the normal rate, so only time
+  // spent hunting earns the autohunt bonus.
+  if (await woundsOn(broadcasterId)) await loadHero(broadcasterId, user);
   const firstBoutIn = Math.max(BOUT_INTERVAL_MS, await getHuntCooldownMs(broadcasterId));
   const now = Date.now();
   await createAutohuntSession({

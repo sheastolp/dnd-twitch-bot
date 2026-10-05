@@ -17,7 +17,7 @@
 //   - HP that carries between fights. While the module is open, EVERY monster
 //     fight (!hunt, !dndduel solo/party hunts, !autohunt, raids) starts at the
 //     hero's current HP and leaves them where it ended — never below 1 (see
-//     hoard_combat.ts). Heal with !rest (to 80%), potions, or 3 HP every 15 min.
+//     hoard_combat.ts). Heal with !rest (to 80%), potions, or 3 HP every 15 min (6 on autohunt).
 //   - A merchant stall: three offers of potions and peddler gear, bought with
 //     coin. Each ware sells once (first buyer wins); sold slots stay empty
 //     until the whole stall turns over every 20 minutes.

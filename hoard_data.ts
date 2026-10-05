@@ -70,6 +70,8 @@ export const BOUNTY_POTION_CHANCE = 0.35;
 /** Passive regen: this many HP every interval, caught up on the next command. */
 export const REGEN_HP = 3;
 export const REGEN_INTERVAL_MS = 15 * 60_000;
+/** Passive regen is this many times faster while the hero is out on !autohunt. */
+export const AUTOHUNT_REGEN_MULTIPLIER = 2;
 /** !rest heals to this share of max HP. */
 export const REST_FRACTION = 0.8;
 /** At or under this share of max HP the advisor says to heal first. */

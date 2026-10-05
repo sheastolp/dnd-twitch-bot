@@ -20,9 +20,9 @@ import { getPlayer, type HoardPlayer, isHoardEnabled, savePlayer } from "./hoard
 import { LOW_HP_FRACTION, REGEN_HP, REGEN_INTERVAL_MS, REST_FRACTION } from "./hoard_data.ts";
 import type { Character } from "./types.ts";
 
-/** Catch-up regen for however long it's been. Mutates both; true if either
- * changed (caller saves). */
-export function applyRegen(c: Character, p: HoardPlayer): boolean {
+/** Catch-up regen for however long it's been, `multiplier` times the normal
+ * rate (autohunt doubles it). Mutates both; true if either changed (caller saves). */
+export function applyRegen(c: Character, p: HoardPlayer, multiplier = 1): boolean {
   const now = Date.now();
   // Topped up: keep the clock fresh (at most one save per interval), so a
   // later wound doesn't cash in hours of banked regen.
@@ -33,7 +33,7 @@ export function applyRegen(c: Character, p: HoardPlayer): boolean {
   }
   const ticks = Math.floor((now - p.lastHealAt) / REGEN_INTERVAL_MS);
   if (ticks <= 0) return false;
-  c.hpCurrent = Math.min(c.hpMax, c.hpCurrent + ticks * REGEN_HP);
+  c.hpCurrent = Math.min(c.hpMax, c.hpCurrent + ticks * REGEN_HP * multiplier);
   p.lastHealAt += ticks * REGEN_INTERVAL_MS;
   return true;
 }
@@ -54,11 +54,12 @@ export const woundsOn = (broadcasterId: string) => isHoardEnabled(broadcasterId)
 /**
  * The HP a hero walks into a fight with: full when wounds are off, otherwise
  * their current HP after regen (also written onto `c.hpCurrent`).
+ * `regenMultiplier` speeds up that regen (autohunt passes AUTOHUNT_REGEN_MULTIPLIER).
  */
-export async function startHp(broadcasterId: string, c: Character, wounds: boolean): Promise<number> {
+export async function startHp(broadcasterId: string, c: Character, wounds: boolean, regenMultiplier = 1): Promise<number> {
   if (!wounds) return c.hpMax;
   const p = await getPlayer(broadcasterId, c.username);
-  if (applyRegen(c, p)) await Promise.all([saveCharacter(c, broadcasterId), savePlayer(broadcasterId, c.username, p)]);
+  if (applyRegen(c, p, regenMultiplier)) await Promise.all([saveCharacter(c, broadcasterId), savePlayer(broadcasterId, c.username, p)]);
   return Math.max(1, Math.min(c.hpMax, c.hpCurrent));
 }
 
