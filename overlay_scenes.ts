@@ -44,7 +44,7 @@ export type SceneDef = {
   label: string;
   windows: SceneWindow[];
   gate?: Rect;
-  /** The gate's plaque centred on it (Just chatting) instead of sitting right,
+  /** The gate's plaque centred on it (brb and Just chatting) instead of sitting right,
    * clear of the stream title; a long title then stops short of it. */
   gateCentered?: boolean;
   card?: Rect & { kind: "brb" | "chat" };
@@ -73,6 +73,7 @@ export const SCENES: Record<string, SceneDef> = {
     label: "Be right back",
     windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
     gate: { x: 1128, y: 112, w: 376, h: 585 },
+    gateCentered: true,
     card: { kind: "brb", x: 300, y: 722, w: 804, h: 224 },
     music: { x: 442, y: 936, w: 520, h: 60 }, // under the "Be right back" card, centred on it
     // Under the gate and Tavern Talk, which ends level with the gate.
