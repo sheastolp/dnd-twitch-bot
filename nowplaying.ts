@@ -1,24 +1,32 @@
 // GuildScribe — "Now playing": the song the streamer has on, shown on stream.
 //
-// Two sources, set up per channel on the dashboard's 🎵 Now playing page:
-//   • Spotify — connected directly (OAuth, user-read-currently-playing). The
-//     operator needs a Spotify app: SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET,
-//     with {PUBLIC_BASE_URL}/spotify/callback as a redirect URI.
-//   • Last.fm — for Apple Music (which has no live "now playing" API) or any
-//     player a scrobbler app reports to Last.fm. Just a Last.fm username; the
-//     operator needs LASTFM_API_KEY.
-// With both set up, Spotify wins while it's playing, Last.fm otherwise.
+// Every channel sets itself up on its dashboard's 🎵 Now playing page, a
+// step-by-step guide that needs nobody else: no server keys, no developer.
+//   • Spotify — the streamer makes their own (free) Spotify app, pastes its
+//     Client ID and secret, and connects (OAuth, user-read-currently-playing).
+//     Their own app means Spotify's development-mode user list only needs
+//     their own account. Keys are checked with Spotify before they're saved.
+//   • Apple Music — Apple has no live "now playing" API, so it goes through
+//     Last.fm: a scrobbler app reports the song, and the streamer enters their
+//     own free Last.fm API key and username (checked with Last.fm on save).
+//   • Spotify via Last.fm — the same Last.fm route with Spotify's built-in
+//     scrobbling, for streamers who'd rather not make a Spotify app.
+// With Spotify and Last.fm both set up, Spotify wins while it's playing.
+//
+// Optional server-wide fallbacks (a channel's own keys always win):
+// SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET and LASTFM_API_KEY.
 //
 //   GET  /overlay/nowplaying?channel=<id|login>   public JSON: { ok, track } (track null when nothing plays)
 //   GET  /overlay?channel=<id|login>&panel=music  standalone overlay (520×120)
-//   GET  /dashboard/music · POST /dashboard/music  settings page (dashboard key + mod login; dashboard.ts)
+//   GET  /dashboard/music · POST /dashboard/music  the setup guide (dashboard key + mod login; dashboard.ts)
 //   GET  /dashboard/music/spotify                  starts the Spotify connection
-//   GET  /spotify/callback                         Spotify's OAuth return
+//   GET  /spotify/callback                         Spotify's OAuth return (the same for every channel)
 //
 // The theme shows it top-left in every scene with &music=1 (overlay_theme.ts).
 // Lookups are cached a few seconds per channel and shared between identical
 // requests, so any number of open sources cost one Spotify/Last.fm call per
-// NOW_PLAYING_CACHE_MS. Only song details ever leave the server, never tokens.
+// NOW_PLAYING_CACHE_MS. Only song details ever leave the server: keys,
+// secrets and tokens are never sent to a page (the guide shows them masked).
 
 import { sqlite } from "./sqlite.ts";
 import { escapeHtml } from "./utils.ts";
@@ -29,11 +37,9 @@ const NOW_PLAYING_CACHE_MS = 4_000;
 const OAUTH_STATE_TTL_MS = 10 * 60_000;
 const SPOTIFY_SCOPE = "user-read-currently-playing";
 const LASTFM_USER_RE = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
+const KEY_RE = /^[0-9a-f]{32}$/i; // Spotify client ID/secret and Last.fm API keys are all 32 hex characters
 const LASTFM_BLANK_ART = "2a96cbd8b46e442fc41c2b86b821562f"; // Last.fm's grey star placeholder
 
-const spotifyClientId = () => Deno.env.get("SPOTIFY_CLIENT_ID") ?? "";
-const spotifyClientSecret = () => Deno.env.get("SPOTIFY_CLIENT_SECRET") ?? "";
-const lastfmKey = () => Deno.env.get("LASTFM_API_KEY") ?? "";
 export const spotifyRedirectUri = () => `${PUBLIC_BASE_URL}/spotify/callback`;
 
 export type NowPlaying = {
@@ -61,6 +67,10 @@ export async function ensureNowPlayingTables() {
       spotify_expires INTEGER NOT NULL DEFAULT 0
     )`,
   );
+  // Per-channel keys (the self-serve setup guide); added after the table first shipped.
+  for (const col of ["spotify_client_id", "spotify_client_secret", "lastfm_key", "setup_path"]) {
+    try { await sqlite.execute(`ALTER TABLE now_playing ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`); } catch (_) { /* already there */ }
+  }
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS spotify_oauth_states (
       state TEXT PRIMARY KEY, broadcaster_id TEXT NOT NULL, dash_key TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -68,44 +78,73 @@ export async function ensureNowPlayingTables() {
   );
 }
 
-/** !dndbot leave (purge or not): forget the Spotify connection and the Last.fm name. */
+/** !dndbot leave (purge or not): forget the keys, the Spotify connection and the Last.fm name. */
 export async function purgeNowPlayingData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM now_playing WHERE broadcaster_id = ?", [broadcasterId]);
   await sqlite.execute("DELETE FROM spotify_oauth_states WHERE broadcaster_id = ?", [broadcasterId]);
   cache.delete(broadcasterId);
 }
 
-type Settings = { lastfmUser: string; spotifyUser: string; spotifyRefresh: string; spotifyAccess: string; spotifyExpires: number };
+type SetupPath = "spotify" | "apple" | "spotifylastfm";
+const PATHS: SetupPath[] = ["spotify", "apple", "spotifylastfm"];
+
+type Settings = {
+  lastfmUser: string;
+  lastfmKey: string;
+  spotifyUser: string;
+  spotifyRefresh: string;
+  spotifyAccess: string;
+  spotifyExpires: number;
+  spotifyClientId: string;
+  spotifyClientSecret: string;
+  setupPath: string;
+};
 
 async function getSettings(broadcasterId: string): Promise<Settings> {
   const r = (await sqlite.execute("SELECT * FROM now_playing WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
   return {
     lastfmUser: String(r?.lastfm_user ?? ""),
+    lastfmKey: String(r?.lastfm_key ?? ""),
     spotifyUser: String(r?.spotify_user ?? ""),
     spotifyRefresh: String(r?.spotify_refresh ?? ""),
     spotifyAccess: String(r?.spotify_access ?? ""),
     spotifyExpires: Number(r?.spotify_expires ?? 0),
+    spotifyClientId: String(r?.spotify_client_id ?? ""),
+    spotifyClientSecret: String(r?.spotify_client_secret ?? ""),
+    setupPath: String(r?.setup_path ?? ""),
   };
 }
 
 async function saveSettings(broadcasterId: string, patch: Partial<Settings>) {
   const s = { ...(await getSettings(broadcasterId)), ...patch };
   await sqlite.execute(
-    `INSERT INTO now_playing (broadcaster_id, lastfm_user, spotify_user, spotify_refresh, spotify_access, spotify_expires) VALUES (?,?,?,?,?,?)
-     ON CONFLICT(broadcaster_id) DO UPDATE SET lastfm_user = excluded.lastfm_user, spotify_user = excluded.spotify_user,
-       spotify_refresh = excluded.spotify_refresh, spotify_access = excluded.spotify_access, spotify_expires = excluded.spotify_expires`,
-    [broadcasterId, s.lastfmUser, s.spotifyUser, s.spotifyRefresh, s.spotifyAccess, s.spotifyExpires],
+    `INSERT INTO now_playing (broadcaster_id, lastfm_user, lastfm_key, spotify_user, spotify_refresh, spotify_access, spotify_expires, spotify_client_id, spotify_client_secret, setup_path)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET lastfm_user = excluded.lastfm_user, lastfm_key = excluded.lastfm_key, spotify_user = excluded.spotify_user,
+       spotify_refresh = excluded.spotify_refresh, spotify_access = excluded.spotify_access, spotify_expires = excluded.spotify_expires,
+       spotify_client_id = excluded.spotify_client_id, spotify_client_secret = excluded.spotify_client_secret, setup_path = excluded.setup_path`,
+    [broadcasterId, s.lastfmUser, s.lastfmKey, s.spotifyUser, s.spotifyRefresh, s.spotifyAccess, s.spotifyExpires, s.spotifyClientId, s.spotifyClientSecret, s.setupPath],
   );
   cache.delete(broadcasterId);
 }
 
+/** The channel's own Spotify app keys, else the server's (optional), else null. */
+function spotifyCreds(s: Settings): { id: string; secret: string; own: boolean } | null {
+  if (s.spotifyClientId && s.spotifyClientSecret) return { id: s.spotifyClientId, secret: s.spotifyClientSecret, own: true };
+  const id = Deno.env.get("SPOTIFY_CLIENT_ID") ?? "", secret = Deno.env.get("SPOTIFY_CLIENT_SECRET") ?? "";
+  return id && secret ? { id, secret, own: false } : null;
+}
+
+/** The channel's own Last.fm API key, else the server's (optional). */
+const lastfmKeyFor = (s: Settings) => s.lastfmKey || (Deno.env.get("LASTFM_API_KEY") ?? "");
+
 // ── Spotify ──
 
-async function spotifyToken(body: Record<string, string>): Promise<any> {
+async function spotifyToken(creds: { id: string; secret: string }, body: Record<string, string>): Promise<any> {
   const res = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {
-      Authorization: `Basic ${btoa(`${spotifyClientId()}:${spotifyClientSecret()}`)}`,
+      Authorization: `Basic ${btoa(`${creds.id}:${creds.secret}`)}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams(body),
@@ -116,12 +155,23 @@ async function spotifyToken(body: Record<string, string>): Promise<any> {
   return data;
 }
 
+/** Checks a Client ID + secret pair with Spotify (an app-only token request). */
+async function checkSpotifyKeys(id: string, secret: string): Promise<"ok" | "invalid" | "unreachable"> {
+  try {
+    await spotifyToken({ id, secret }, { grant_type: "client_credentials" });
+    return "ok";
+  } catch (e) {
+    return /spotify token 4\d\d/.test(String(e)) ? "invalid" : "unreachable";
+  }
+}
+
 /** A live access token, refreshed when it's within a minute of expiring. "" when not connected or revoked. */
 async function spotifyAccess(broadcasterId: string, s: Settings): Promise<string> {
-  if (!s.spotifyRefresh || !spotifyClientId()) return "";
+  const creds = spotifyCreds(s);
+  if (!s.spotifyRefresh || !creds) return "";
   if (s.spotifyAccess && Date.now() < s.spotifyExpires - 60_000) return s.spotifyAccess;
   try {
-    const t = await spotifyToken({ grant_type: "refresh_token", refresh_token: s.spotifyRefresh });
+    const t = await spotifyToken(creds, { grant_type: "refresh_token", refresh_token: s.spotifyRefresh });
     await saveSettings(broadcasterId, {
       spotifyAccess: String(t.access_token),
       spotifyExpires: Date.now() + Number(t.expires_in ?? 3600) * 1000,
@@ -129,8 +179,8 @@ async function spotifyAccess(broadcasterId: string, s: Settings): Promise<string
     });
     return String(t.access_token);
   } catch (e) {
-    // invalid_grant: the streamer removed access in their Spotify account — forget it.
-    if (/invalid_grant/.test(String(e))) await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
+    // invalid_grant/invalid_client: access was removed in Spotify, or the app changed — forget the connection.
+    if (/invalid_grant|invalid_client/.test(String(e))) await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
     console.error("spotify refresh failed", e);
     return "";
   }
@@ -170,9 +220,26 @@ async function fromSpotify(broadcasterId: string, s: Settings): Promise<NowPlayi
 
 // ── Last.fm (Apple Music and anything else that scrobbles) ──
 
+/** Checks a Last.fm API key and username together (user.getinfo). */
+async function checkLastfm(key: string, user: string): Promise<"ok" | "bad_key" | "no_user" | "unreachable"> {
+  try {
+    const params = new URLSearchParams({ method: "user.getinfo", user, api_key: key, format: "json" });
+    const res = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`, { signal: AbortSignal.timeout(5000) });
+    const d = await res.json().catch(() => null);
+    if (d?.user) return "ok";
+    const code = Number(d?.error ?? 0);
+    if (code === 6) return "no_user";
+    if (code === 10 || code === 26 || code === 4) return "bad_key";
+    return "unreachable";
+  } catch (_) {
+    return "unreachable";
+  }
+}
+
 async function fromLastfm(s: Settings): Promise<NowPlaying | null> {
-  if (!s.lastfmUser || !lastfmKey()) return null;
-  const params = new URLSearchParams({ method: "user.getrecenttracks", user: s.lastfmUser, api_key: lastfmKey(), format: "json", limit: "1" });
+  const key = lastfmKeyFor(s);
+  if (!s.lastfmUser || !key) return null;
+  const params = new URLSearchParams({ method: "user.getrecenttracks", user: s.lastfmUser, api_key: key, format: "json", limit: "1" });
   const res = await fetch(`https://ws.audioscrobbler.com/2.0/?${params}`, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) throw new Error(`lastfm ${res.status}`);
   const d = await res.json().catch(() => null);
@@ -224,17 +291,18 @@ export function getNowPlaying(broadcasterId: string): Promise<NowPlaying | null>
 
 // ── Spotify connection (OAuth) ──
 
-/** The Spotify authorize URL for a dashboard user already checked by the caller. */
+/** The Spotify authorize URL for a dashboard user already checked by the caller; null without keys. */
 export async function startSpotifyConnect(broadcasterId: string, dashKey: string): Promise<string | null> {
-  if (!spotifyClientId() || !spotifyClientSecret()) return null;
+  const creds = spotifyCreds(await getSettings(broadcasterId));
+  if (!creds) return null;
   const state = crypto.randomUUID().replace(/-/g, "");
   await sqlite.execute("DELETE FROM spotify_oauth_states WHERE created_at < ?", [Date.now() - OAUTH_STATE_TTL_MS]);
   await sqlite.execute("INSERT INTO spotify_oauth_states (state, broadcaster_id, dash_key, created_at) VALUES (?,?,?,?)", [state, broadcasterId, dashKey, Date.now()]);
-  const params = new URLSearchParams({ client_id: spotifyClientId(), response_type: "code", redirect_uri: spotifyRedirectUri(), scope: SPOTIFY_SCOPE, state, show_dialog: "true" });
+  const params = new URLSearchParams({ client_id: creds.id, response_type: "code", redirect_uri: spotifyRedirectUri(), scope: SPOTIFY_SCOPE, state, show_dialog: "true" });
   return `https://accounts.spotify.com/authorize?${params}`;
 }
 
-/** GET /spotify/callback — trades the code for tokens, then back to the settings page. */
+/** GET /spotify/callback — trades the code for tokens with the channel's app, then back to the guide. */
 export async function handleSpotifyCallback(url: URL): Promise<Response> {
   const state = url.searchParams.get("state") ?? "";
   const row = state ? (await sqlite.execute("SELECT broadcaster_id, dash_key, created_at FROM spotify_oauth_states WHERE state = ?", [state])).rows[0] as any : null;
@@ -242,96 +310,234 @@ export async function handleSpotifyCallback(url: URL): Promise<Response> {
   if (!row || Date.now() - Number(row.created_at) > OAUTH_STATE_TTL_MS) {
     return new Response("This Spotify link has expired — start again from your dashboard's 🎵 Now playing page.", { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
+  const channelId = String(row.broadcaster_id);
   const back = (k: "notice" | "error", msg: string) => {
-    const p = new URLSearchParams({ channel: String(row.broadcaster_id), key: String(row.dash_key), [k]: msg });
-    return new Response(null, { status: 302, headers: { Location: `${PUBLIC_BASE_URL}/dashboard/music?${p}`, "Cache-Control": "no-store" } });
+    const p = new URLSearchParams({ channel: channelId, key: String(row.dash_key), path: "spotify", [k]: msg });
+    return new Response(null, { status: 302, headers: { Location: `${PUBLIC_BASE_URL}/dashboard/music?${p}#step-connect`, "Cache-Control": "no-store" } });
   };
   const code = url.searchParams.get("code");
-  if (!code) return back("error", url.searchParams.get("error") === "access_denied" ? "Spotify wasn't connected (access was declined)." : "Spotify didn't send a code back — try again.");
+  if (!code) return back("error", url.searchParams.get("error") === "access_denied" ? "Spotify wasn't connected — access was declined. Press Connect Spotify again and choose Agree." : "Spotify didn't send a code back — press Connect Spotify again.");
+  const creds = spotifyCreds(await getSettings(channelId));
+  if (!creds) return back("error", "Your Spotify keys are missing — paste them in step 3 first.");
   try {
-    const t = await spotifyToken({ grant_type: "authorization_code", code, redirect_uri: spotifyRedirectUri() });
+    const t = await spotifyToken(creds, { grant_type: "authorization_code", code, redirect_uri: spotifyRedirectUri() });
     let user = "";
     try {
       const me = await fetch("https://api.spotify.com/v1/me", { headers: { Authorization: `Bearer ${t.access_token}` }, signal: AbortSignal.timeout(5000) });
       if (me.ok) { const m = await me.json(); user = String(m.display_name || m.id || ""); }
     } catch (_) { /* the name is only for show */ }
-    await saveSettings(String(row.broadcaster_id), {
+    await saveSettings(channelId, {
       spotifyRefresh: String(t.refresh_token ?? ""),
       spotifyAccess: String(t.access_token ?? ""),
       spotifyExpires: Date.now() + Number(t.expires_in ?? 3600) * 1000,
       spotifyUser: user,
+      setupPath: "spotify",
     });
-    return back("notice", `Spotify connected${user ? ` (${user})` : ""}.`);
+    return back("notice", `Spotify connected${user ? ` as ${user}` : ""}. Play a song to test it below.`);
   } catch (e) {
     console.error("spotify connect failed", e);
-    return back("error", "Spotify wouldn't connect. Check the app's redirect URI and that your Spotify account is on its user list, then try again.");
+    return back("error", "Spotify wouldn't finish connecting. Check that the Redirect URI in your Spotify app is exactly the one in step 1 and that your account is under User Management (step 2), then press Connect Spotify again.");
   }
 }
 
-// ── Dashboard page (auth is done by the caller; see dashboard.ts) ──
+// ── The setup guide (auth is done by the caller; see dashboard.ts) ──
 
-export async function applyNowPlayingForm(broadcasterId: string, form: FormData): Promise<{ ok: boolean; message: string } | null> {
+const mask = (v: string) => (v ? `••••${v.slice(-4)}` : "");
+
+export async function applyNowPlayingForm(broadcasterId: string, form: FormData): Promise<{ ok: boolean; message: string; path?: string } | null> {
   const intent = String(form.get("intent") ?? "");
-  if (intent === "lastfm_set") {
-    const user = String(form.get("lastfm_user") ?? "").trim();
-    if (!LASTFM_USER_RE.test(user)) return { ok: false, message: "That doesn't look like a Last.fm username (2–15 letters, numbers, _ or -, starting with a letter)." };
-    await saveSettings(broadcasterId, { lastfmUser: user });
-    return { ok: true, message: `Last.fm set to ${user}.` };
+  const s = await getSettings(broadcasterId);
+
+  if (intent === "spotify_keys") {
+    const id = String(form.get("client_id") ?? "").trim();
+    const secret = String(form.get("client_secret") ?? "").trim();
+    if (!KEY_RE.test(id)) return { ok: false, path: "spotify", message: "That Client ID doesn't look right — it's 32 letters and numbers, under Settings → Basic Information in your Spotify app." };
+    if (!KEY_RE.test(secret)) return { ok: false, path: "spotify", message: "That Client secret doesn't look right — press View client secret in your Spotify app and copy all 32 characters." };
+    const check = await checkSpotifyKeys(id, secret);
+    if (check === "invalid") return { ok: false, path: "spotify", message: "Spotify didn't accept that Client ID and secret together. Copy both again from the same app (Settings → Basic Information)." };
+    if (check === "unreachable") return { ok: false, path: "spotify", message: "Couldn't reach Spotify to check the keys — try again in a minute." };
+    // A different app's connection can't carry over: its refresh token belongs to the old app.
+    const sameApp = id === s.spotifyClientId;
+    await saveSettings(broadcasterId, { spotifyClientId: id, spotifyClientSecret: secret, setupPath: "spotify", ...(sameApp ? {} : { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" }) });
+    return { ok: true, path: "spotify", message: "Spotify accepted your keys. Next: press Connect Spotify (step 4)." };
   }
-  if (intent === "lastfm_clear") {
-    await saveSettings(broadcasterId, { lastfmUser: "" });
-    return { ok: true, message: "Last.fm removed." };
+  if (intent === "spotify_keys_clear") {
+    await saveSettings(broadcasterId, { spotifyClientId: "", spotifyClientSecret: "", spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
+    return { ok: true, path: "spotify", message: "Spotify keys removed (and disconnected)." };
   }
   if (intent === "spotify_disconnect") {
     await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
-    return { ok: true, message: "Spotify disconnected." };
+    return { ok: true, path: "spotify", message: "Spotify disconnected." };
+  }
+  if (intent === "lastfm_save") {
+    const path = PATHS.includes(String(form.get("path")) as SetupPath) ? String(form.get("path")) : "apple";
+    const user = String(form.get("lastfm_user") ?? "").trim();
+    // A blank key field keeps the key already saved (it's never shown back).
+    const typedKey = String(form.get("lastfm_key") ?? "").trim();
+    const key = typedKey || lastfmKeyFor(s);
+    if (!KEY_RE.test(key)) return { ok: false, path, message: "That API key doesn't look right — it's the 32-character \"API key\" Last.fm showed after you created it (not the shared secret)." };
+    if (!LASTFM_USER_RE.test(user)) return { ok: false, path, message: "That doesn't look like a Last.fm username (2–15 letters, numbers, _ or -, starting with a letter)." };
+    const check = await checkLastfm(key, user);
+    if (check === "bad_key") return { ok: false, path, message: "Last.fm didn't accept that API key. Copy the \"API key\" again from last.fm/api/accounts." };
+    if (check === "no_user") return { ok: false, path, message: `Last.fm has no user called "${user}". Check the spelling — it's the name in your profile link, last.fm/user/<name>.` };
+    if (check === "unreachable") return { ok: false, path, message: "Couldn't reach Last.fm to check — try again in a minute." };
+    await saveSettings(broadcasterId, { lastfmUser: user, lastfmKey: typedKey || s.lastfmKey, setupPath: path });
+    return { ok: true, path, message: `Last.fm accepted your key and found ${user}. Play a song to test it below.` };
+  }
+  if (intent === "lastfm_clear") {
+    await saveSettings(broadcasterId, { lastfmUser: "", lastfmKey: "" });
+    return { ok: true, path: s.setupPath || "apple", message: "Last.fm removed." };
   }
   return null;
 }
 
-export async function renderNowPlayingPage(d: { broadcasterId: string; broadcasterName: string; key: string; channelKey: string; notice?: string; error?: string }): Promise<string> {
+const COPY = (v: string) => `<button type="button" class="ghost copy" data-copy="${escapeHtml(v)}">Copy</button>`;
+const FIELD = (label: string, v: string, note = "") => `<tr><th>${label}</th><td><code>${escapeHtml(v)}</code>${note ? ` <span class="muted small">${note}</span>` : ""}</td><td>${COPY(v)}</td></tr>`;
+
+function stepHtml(n: number, id: string, title: string, done: boolean, body: string, locked = false): string {
+  return `<section class="step${done ? " done" : ""}${locked ? " locked" : ""}" id="step-${id}"><h3><span class="num">${done ? "✓" : n}</span>${title}</h3><div class="sbody">${body}</div></section>`;
+}
+
+export async function renderNowPlayingPage(d: { broadcasterId: string; broadcasterName: string; key: string; channelKey: string; path?: string; notice?: string; error?: string }): Promise<string> {
   const hidden = `<input type="hidden" name="channel" value="${escapeHtml(d.broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(d.key)}">`;
-  const btn = (intent: string, label: string, cls = "ghost") =>
-    `<form method="post" action="/dashboard/music" class="inline">${hidden}<input type="hidden" name="intent" value="${intent}"><button type="submit" class="${cls}">${label}</button></form>`;
+  const btn = (intent: string, label: string, cls = "ghost", confirm = "") =>
+    `<form method="post" action="/dashboard/music" class="inline"${confirm ? ` onsubmit="return confirm('${confirm}')"` : ""}>${hidden}<input type="hidden" name="intent" value="${intent}"><button type="submit" class="${cls}">${label}</button></form>`;
   const qs = `channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.key)}`;
   const name = escapeHtml(d.broadcasterName);
   const s = await getSettings(d.broadcasterId);
-  const track = await getNowPlaying(d.broadcasterId);
-  const spotifyReady = Boolean(spotifyClientId() && spotifyClientSecret());
-  const lastfmReady = Boolean(lastfmKey());
-  const themeLink = `${PUBLIC_BASE_URL}/overlay?channel=${encodeURIComponent(d.channelKey)}&panel=theme&music=1`;
-  const panelLink = `${PUBLIC_BASE_URL}/overlay?channel=${encodeURIComponent(d.channelKey)}&panel=music`;
+  const creds = spotifyCreds(s);
+  const lastfmKey = lastfmKeyFor(s);
+  const spotifyConnected = Boolean(s.spotifyRefresh && creds);
+  const lastfmReady = Boolean(s.lastfmUser && lastfmKey);
+  const path: SetupPath | "" = PATHS.includes(d.path as SetupPath) ? d.path as SetupPath
+    : PATHS.includes(s.setupPath as SetupPath) ? s.setupPath as SetupPath
+    : spotifyConnected || s.spotifyClientId ? "spotify" : s.lastfmUser ? "apple" : "";
 
-  const nowCard = track
-    ? `<div class="np">${track.art ? `<img src="${escapeHtml(track.art)}" alt="">` : `<div class="noart">♪</div>`}<div><b>${escapeHtml(track.title)}</b><br>${escapeHtml(track.artist)}${track.album ? ` <span class="muted">· ${escapeHtml(track.album)}</span>` : ""}<br><span class="badge">${track.source === "spotify" ? "Spotify" : "Last.fm"}${track.playing ? "" : " · paused"}</span></div></div>`
-    : `<p class="note">Nothing playing right now${s.spotifyRefresh || s.lastfmUser ? "" : " — connect a source below"}. Start a song and reload this page to check.</p>`;
+  const base = `${PUBLIC_BASE_URL}/overlay?channel=${encodeURIComponent(d.channelKey)}`;
+  const overlayLinks = `<table class="kv">${FIELD("Gameplay theme", `${base}&panel=theme&music=1`)}${FIELD("Be right back theme", `${base}&panel=theme&scene=brb&music=1`)}${FIELD("Just chatting theme", `${base}&panel=theme&scene=chat&music=1`)}${FIELD("On its own (520 × 120)", `${base}&panel=music`)}</table>`;
 
-  const spotify = !spotifyReady
-    ? `<p class="note">Not set up on this GuildScribe server yet. The operator needs a Spotify app (developer.spotify.com → Create app, "Web API"), with this redirect URI: <code>${escapeHtml(spotifyRedirectUri())}</code>, and its keys in the <code>SPOTIFY_CLIENT_ID</code> and <code>SPOTIFY_CLIENT_SECRET</code> environment variables. While the app is in development mode, add your Spotify account under its <em>User Management</em>.</p>`
-    : s.spotifyRefresh
-    ? `<div class="controls"><span>✅ Connected${s.spotifyUser ? ` as <strong>${escapeHtml(s.spotifyUser)}</strong>` : ""}.</span>${btn("spotify_disconnect", "Disconnect")}</div>`
-    : `<div class="controls"><a class="btn ember" href="/dashboard/music/spotify?${qs}">Connect Spotify</a><span class="muted small">Sign in with the Spotify account you play music on.</span></div>`;
+  const chooser = `<div class="paths">${[
+    ["spotify", "🟢 Spotify", "Connect your Spotify directly. Instant, with a progress bar. About 10 minutes, one time."],
+    ["apple", "🍎 Apple Music", "Through Last.fm (Apple doesn't share what's playing live). Needs a small free scrobbler app on your computer."],
+    ["spotifylastfm", "🎧 Spotify via Last.fm", "No Spotify app to make — Last.fm reads Spotify for you. Can lag a little, no progress bar."],
+  ].map(([k, t, b]) => `<a class="path${path === k ? " on" : ""}" href="/dashboard/music?${qs}&path=${k}"><b>${t}</b><span>${b}</span></a>`).join("")}</div>`;
 
-  const lastfm = !lastfmReady
-    ? `<p class="note">Not set up on this GuildScribe server yet. The operator needs a free Last.fm API key (last.fm/api/account/create) in the <code>LASTFM_API_KEY</code> environment variable.</p>`
-    : `<form method="post" action="/dashboard/music" class="add">${hidden}<input type="hidden" name="intent" value="lastfm_set"><input name="lastfm_user" value="${escapeHtml(s.lastfmUser)}" placeholder="your Last.fm username" maxlength="15" required aria-label="Last.fm username"><button type="submit" class="ember">${s.lastfmUser ? "Update" : "Save"}</button></form>${s.lastfmUser ? `<div class="controls"><span class="muted small">Reading <a href="https://www.last.fm/user/${encodeURIComponent(s.lastfmUser)}" target="_blank" rel="noopener">last.fm/user/${escapeHtml(s.lastfmUser)}</a></span>${btn("lastfm_clear", "Remove")}</div>` : ""}`;
+  const testStep = (n: number, done: boolean) => stepHtml(n, "test", "Test it", false,
+    `<p>Play a song${path === "apple" ? " in Apple Music" : " on Spotify"}. It shows up here within a few seconds${path === "spotify" ? "" : " (Last.fm can take up to half a minute)"}:</p>
+<div class="live" id="live"><div class="noart">♪</div><div><b id="lt">Checking…</b><br><span id="la" class="muted"></span></div></div>
+${done ? "" : `<p class="muted small">Finish the steps above first.</p>`}`);
+  const streamStep = (n: number) => stepHtml(n, "stream", "Put it on stream", false,
+    `<p>In OBS, open each GuildScribe theme source (right-click → Properties) and paste the matching link below as its URL — it's your theme with <code>&amp;music=1</code> added. If your links already have other extras on them, just add <code>&amp;music=1</code> to the end instead. The song shows top-left in every scene and hides itself while nothing plays.</p>${overlayLinks}
+<p class="muted small">Prefer it somewhere else? Add a new Browser source with the "On its own" link at 520 × 120. All your overlays: <a href="/overlays?channel=${encodeURIComponent(d.broadcasterId)}" target="_blank" rel="noopener">overlay setup page</a>.</p>`);
+
+  const lastfmForm = (p: SetupPath) => `<form method="post" action="/dashboard/music" class="grid2">${hidden}<input type="hidden" name="intent" value="lastfm_save"><input type="hidden" name="path" value="${p}">
+<label>Last.fm username<input name="lastfm_user" value="${escapeHtml(s.lastfmUser)}" placeholder="the name in last.fm/user/…" maxlength="15" required autocomplete="off"></label>
+<label>API key<input name="lastfm_key" placeholder="${s.lastfmKey ? `saved (${mask(s.lastfmKey)}) — leave blank to keep` : "32 letters and numbers"}" maxlength="40" ${s.lastfmKey || Deno.env.get("LASTFM_API_KEY") ? "" : "required"} autocomplete="off" spellcheck="false"></label>
+<button type="submit" class="ember">${lastfmReady ? "Check &amp; update" : "Check &amp; save"}</button></form>
+${lastfmReady ? `<p class="ok-line">✓ Reading <a href="https://www.last.fm/user/${encodeURIComponent(s.lastfmUser)}" target="_blank" rel="noopener">last.fm/user/${escapeHtml(s.lastfmUser)}</a>${s.lastfmKey ? ` with your key ${mask(s.lastfmKey)}` : ""}. ${btn("lastfm_clear", "Remove", "ghost", "Remove the Last.fm setup?")}</p>` : ""}`;
+
+  const lastfmKeyStep = (n: number) => stepHtml(n, "lfmkey", "Get a free Last.fm API key", Boolean(s.lastfmKey || lastfmKey && lastfmReady),
+    `<ol><li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener">last.fm/api/account/create</a> (log in if asked).</li>
+<li>Fill it in like this, then press <strong>Submit</strong>:<table class="kv"><tr><th>Contact email</th><td colspan="2">your own email address</td></tr>${FIELD("Application name", "GuildScribe Now Playing")}${FIELD("Application description", "Shows my current song on stream")}<tr><th>Callback URL</th><td colspan="2" class="muted">leave blank</td></tr><tr><th>Application homepage</th><td colspan="2" class="muted">leave blank</td></tr></table></li>
+<li>Last.fm shows an <strong>API key</strong> and a <strong>Shared secret</strong>. You only need the <strong>API key</strong> — paste it in the next step. (Lost it? It's listed at <a href="https://www.last.fm/api/accounts" target="_blank" rel="noopener">last.fm/api/accounts</a>.)</li></ol>`);
+
+  let guide = "";
+  if (path === "spotify") {
+    const keysSaved = Boolean(s.spotifyClientId && s.spotifyClientSecret);
+    guide = [
+      stepHtml(1, "app", "Create your Spotify app (free)", keysSaved,
+        `<ol><li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> and log in with the Spotify account you play music on. Accept the developer terms if it asks.</li>
+<li>Press <strong>Create app</strong> and fill it in like this:<table class="kv">${FIELD("App name", "GuildScribe Now Playing")}${FIELD("App description", "Shows my current song on stream")}<tr><th>Website</th><td colspan="2" class="muted">leave blank</td></tr>${FIELD("Redirect URIs", spotifyRedirectUri(), "— paste it, then press <strong>Add</strong>")}<tr><th>APIs used</th><td colspan="2">tick <strong>Web API</strong></td></tr></table></li>
+<li>Tick the terms box and press <strong>Save</strong>.</li></ol>
+<p class="muted small">The Redirect URI must match exactly — use the Copy button. If Spotify asks you to verify your email or shows a notice about developer access (it sometimes asks for Premium), do what it says before carrying on.</p>`),
+      stepHtml(2, "users", "Let your own account use it", keysSaved,
+        `<p>In your new app, open <strong>Settings → User Management</strong>, add your name and the <strong>email of your Spotify account</strong>, and save. New apps only let listed accounts connect — this is the only one yours needs.</p>`),
+      stepHtml(3, "keys", "Paste your app's keys", keysSaved,
+        `<p>In your app, open <strong>Settings → Basic Information</strong>. Copy the <strong>Client ID</strong>, then press <strong>View client secret</strong> and copy that too. They're checked with Spotify when you save, and the secret is never shown again.</p>
+${keysSaved ? `<p class="ok-line">✓ Keys saved and accepted by Spotify (Client ID ${mask(s.spotifyClientId)}). ${btn("spotify_keys_clear", "Remove keys", "ghost", "Remove your Spotify keys? This also disconnects Spotify.")}</p><details><summary>Replace the keys</summary>` : ""}
+<form method="post" action="/dashboard/music" class="grid2">${hidden}<input type="hidden" name="intent" value="spotify_keys">
+<label>Client ID<input name="client_id" placeholder="32 letters and numbers" maxlength="40" required autocomplete="off" spellcheck="false"></label>
+<label>Client secret<input name="client_secret" type="password" placeholder="32 letters and numbers" maxlength="40" required autocomplete="off"></label>
+<button type="submit" class="ember">Check &amp; save keys</button></form>${keysSaved ? "</details>" : ""}
+${!keysSaved && creds && !creds.own ? `<p class="muted small">This GuildScribe server also has a shared Spotify app, so you could skip to step 4 — but that only works if the server's owner added your Spotify account to it. Your own app always works.</p>` : ""}`),
+      stepHtml(4, "connect", "Connect Spotify", spotifyConnected,
+        spotifyConnected
+          ? `<p class="ok-line">✓ Connected${s.spotifyUser ? ` as <strong>${escapeHtml(s.spotifyUser)}</strong>` : ""}. ${btn("spotify_disconnect", "Disconnect", "ghost", "Disconnect Spotify?")}</p>`
+          : creds
+          ? `<p>Press the button, sign in to Spotify if asked, and choose <strong>Agree</strong>. You'll come straight back here.</p><p><a class="btn ember" href="/dashboard/music/spotify?${qs}">Connect Spotify</a></p>
+<p class="muted small">If Spotify shows <em>INVALID_CLIENT: Invalid redirect URI</em>, the Redirect URI in step 1 doesn't match — copy it again. If it says your account isn't registered for the app, redo step 2.</p>`
+          : `<p class="muted">Save your keys in step 3 first.</p>`, !creds),
+      testStep(5, spotifyConnected),
+      streamStep(6),
+    ].join("");
+  } else if (path === "apple") {
+    guide = [
+      stepHtml(1, "account", "Make a free Last.fm account", lastfmReady,
+        `<p>Sign up at <a href="https://www.last.fm/join" target="_blank" rel="noopener">last.fm/join</a> (skip if you have one). Your username is the name in your profile link, <code>last.fm/user/&lt;name&gt;</code>.</p>`),
+      stepHtml(2, "scrobbler", "Install a scrobbler for Apple Music", lastfmReady,
+        `<p>A scrobbler is a small app that tells Last.fm what Apple Music is playing. Install one and log it in to your Last.fm account:</p>
+<ul><li><strong>Mac:</strong> <em>Scrobbles for Last.fm</em> (free, Mac App Store) or <em>NepTunes</em>.</li>
+<li><strong>Windows:</strong> <em>AMWin-RP</em> (free, on GitHub) — in its settings, turn on <strong>Last.fm scrobbling</strong> and log in.</li></ul>
+<p class="muted small">Check it works: play a song, then open your Last.fm profile — it should say <em>Scrobbling now</em> at the top of your recent tracks. Keep the scrobbler running while you stream.</p>`),
+      lastfmKeyStep(3),
+      stepHtml(4, "lfm", "Enter your Last.fm details", lastfmReady, lastfmForm("apple")),
+      testStep(5, lastfmReady),
+      streamStep(6),
+    ].join("");
+  } else if (path === "spotifylastfm") {
+    guide = [
+      stepHtml(1, "account", "Make a free Last.fm account", lastfmReady,
+        `<p>Sign up at <a href="https://www.last.fm/join" target="_blank" rel="noopener">last.fm/join</a> (skip if you have one). Your username is the name in your profile link, <code>last.fm/user/&lt;name&gt;</code>.</p>`),
+      stepHtml(2, "link", "Link Spotify to Last.fm", lastfmReady,
+        `<p>Open <a href="https://www.last.fm/settings/applications" target="_blank" rel="noopener">last.fm/settings/applications</a>, find <strong>Spotify Scrobbling</strong> and press <strong>Connect</strong>, then sign in to Spotify and agree. Nothing to install.</p>
+<p class="muted small">Check it works: play a song on Spotify, then open your Last.fm profile — it should say <em>Scrobbling now</em>.</p>`),
+      lastfmKeyStep(3),
+      stepHtml(4, "lfm", "Enter your Last.fm details", lastfmReady, lastfmForm("spotifylastfm")),
+      testStep(5, lastfmReady),
+      streamStep(6),
+    ].join("");
+  }
+
+  const otherSetup = path === "spotify" && lastfmReady
+    ? `<p class="muted small">Last.fm is also set up (${escapeHtml(s.lastfmUser)}) — it shows whenever Spotify isn't playing.</p>`
+    : path && path !== "spotify" && spotifyConnected
+    ? `<p class="muted small">Spotify is also connected — it shows while it's playing, and Last.fm otherwise.</p>`
+    : "";
 
   const body = `<header class="dash-top"><div><span class="pill">Stream · Now playing</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>Show the song you're playing on stream. Connect <strong>Spotify</strong> directly, or use <strong>Last.fm</strong> for <strong>Apple Music</strong> (or any player that scrobbles). With both, Spotify shows while it's playing and Last.fm otherwise.</p>
-<h2>Playing now</h2>${nowCard}
-<h2>Spotify</h2>${spotify}
-<h2>Apple Music (via Last.fm)</h2>
-<p class="muted">Apple doesn't share what's playing live, so Apple Music goes through Last.fm: make a free Last.fm account, install a scrobbler that sends Apple Music to it — on a Mac, <em>NepTunes</em> or <em>Scrobbles for Last.fm</em>; on Windows, <em>AMWin-RP</em> (turn on its Last.fm scrobbling) — then enter your Last.fm username. The song shows a few seconds after it starts.</p>
-${lastfm}
-<h2>Put it on stream</h2>
-<ul><li><strong>In the theme</strong> (every scene, top-left corner): add <code>&amp;music=1</code> to your theme link, or tick <em>Now playing</em> on the overlay setup page. E.g. <code>${escapeHtml(themeLink)}</code></li>
-<li><strong>On its own</strong>, anywhere: a Browser source with <code>${escapeHtml(panelLink)}</code> at 520 × 120.</li></ul>
-<p class="muted small">It hides itself while nothing is playing.</p>`;
+<p>Show the song you're playing on stream. Pick what you listen with and follow the steps — everything is set up right here, no help needed. Each step ticks off once it's done.</p>
+<h2>1 · What do you listen with?</h2>${chooser}
+${path ? `<h2>2 · Set it up</h2>${otherSetup}${guide}` : `<p class="note">Pick one above to see its steps.</p>`}
+<script>
+document.addEventListener("click",async e=>{const b=e.target.closest("button[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied!"}catch(_){b.textContent="Select & copy"}setTimeout(()=>{b.textContent="Copy"},1500)});
+(function(){const t=document.getElementById("lt"),a=document.getElementById("la");if(!t)return;
+  async function poll(){try{const r=await fetch("/overlay/nowplaying?channel=${encodeURIComponent(d.broadcasterId)}",{cache:"no-store"});const j=await r.json();const k=j&&j.track;
+    const box=t.closest(".live");box.classList.toggle("on",!!(k&&k.playing));
+    if(k&&k.playing){t.textContent="✓ "+k.title;a.textContent=k.artist+" · via "+(k.source==="spotify"?"Spotify":"Last.fm")}
+    else if(k){t.textContent="Paused: "+k.title;a.textContent="Press play — the overlay hides while paused."}
+    else{t.textContent="Nothing playing yet";a.textContent="Start a song and wait a few seconds."}}catch(_){}}
+  poll();setInterval(poll,5000)})();
+</script>`;
 
   return scrollDoc(`${name} — Now playing`, body, {
     width: 1000,
-    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button{padding:5px 12px;font-size:.78rem}form.add{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}form.add input{flex:1 1 240px;padding:9px 12px}.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.np{display:flex;gap:16px;align-items:center;padding:12px;border:1px solid var(--edge);border-radius:8px;background:#efe5c8}.np img,.np .noart{width:84px;height:84px;border-radius:6px;object-fit:cover;flex:none}.np .noart{display:flex;align-items:center;justify-content:center;font-size:40px;background:#dccea8}code{word-break:break-all}`,
+    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}
+form.inline{display:inline;margin:0}form.inline button{padding:5px 12px;font-size:.78rem}
+.paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:12px;margin:10px 0 6px}
+.path{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--edge);border-radius:8px;background:#efe5c8;color:inherit;text-decoration:none}
+.path b{font-size:1.1rem}.path span{font-size:.9rem;color:var(--ink-3)}.path.on{border:2px solid var(--seal);background:#f6ecd0;box-shadow:0 3px 10px #6b44182b}
+.step{position:relative;margin:14px 0;padding:14px 18px 10px 58px;border:1px solid var(--edge);border-radius:8px;background:#efe5c8b0}
+.step h3{margin:0 0 6px;font-size:1.1rem}.step .num{position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;background:var(--seal);color:#fff8ee}
+.step.done{background:#e3ebd2b0}.step.done .num{background:var(--ok)}.step.locked{opacity:.6}
+.step ol,.step ul{margin:6px 0 8px;padding-left:1.3em}.step li{margin:4px 0}
+table.kv{border-collapse:collapse;margin:8px 0;width:100%}table.kv th{text-align:left;font-weight:600;padding:5px 10px 5px 0;white-space:nowrap;vertical-align:top;width:1%}table.kv td{padding:5px 6px;vertical-align:top}table.kv td:last-child{width:1%}
+table.kv code{word-break:break-all}button.copy{padding:3px 10px;font-size:.75rem}
+form.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;align-items:end;margin:10px 0}form.grid2 label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.9rem}form.grid2 input{padding:9px 12px;font-weight:400}
+.ok-line{color:var(--ok);font-weight:600}.ok-line form{margin-left:6px}
+.live{display:flex;gap:14px;align-items:center;padding:12px;border:1px dashed var(--edge);border-radius:8px;background:#f3ead0}.live.on{border-style:solid;border-color:var(--ok);background:#e3ebd2}
+.live .noart{width:56px;height:56px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:28px;background:#3a2614;color:#e8c25a;flex:none}
+details summary{cursor:pointer;margin:6px 0}`,
   });
 }
 

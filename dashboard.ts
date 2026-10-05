@@ -681,6 +681,7 @@ export async function handleNowPlayingPage(url: URL, cookieHeader: string | null
     broadcasterName: String(b?.display_name || b?.login || auth.channelId),
     key: auth.key,
     channelKey: String(b?.login || auth.channelId),
+    path: url.searchParams.get("path") ?? undefined,
     notice: url.searchParams.get("notice") ?? undefined,
     error: url.searchParams.get("error") ?? undefined,
   });
@@ -692,6 +693,7 @@ export async function handleNowPlayingForm(form: FormData, baseUrl: string, cook
   if (auth instanceof Response) return auth;
   const result = await applyNowPlayingForm(auth.channelId, form);
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result?.path) params.set("path", result.path);
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/music?${params.toString()}`);
 }
@@ -702,7 +704,7 @@ export async function handleSpotifyConnect(url: URL, cookieHeader: string | null
   if (auth instanceof Response) return auth;
   const to = await startSpotifyConnect(auth.channelId, auth.key);
   if (to) return redirectTo(to);
-  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, error: "Spotify isn't set up on this GuildScribe server yet." });
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, path: "spotify", error: "Paste your Spotify app's keys (step 3) before connecting." });
   return redirectTo(`${url.origin}/dashboard/music?${params.toString()}`);
 }
 
