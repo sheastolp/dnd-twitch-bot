@@ -51,10 +51,11 @@ import {
   transferPoints,
   trySpend,
 } from "./points_db.ts";
+import { optNum } from "./channel_options.ts";
 
 /** Copper earned per qualifying chat message. */
-const POINTS_PER_MESSAGE = Math.min(1000, Math.max(1, Math.floor(Number(Deno.env.get("POINTS_PER_MESSAGE") ?? "1")) || 1));
-const EARN_COOLDOWN_MS = Math.max(10, Math.floor(Number(Deno.env.get("POINTS_EARN_COOLDOWN_SECONDS") ?? "60")) || 60) * 1000;
+// Copper per message and the earning cooldown are per-channel options (channel_options.ts:
+// gold.perMessage, gold.earnEvery), defaulting to POINTS_PER_MESSAGE / POINTS_EARN_COOLDOWN_SECONDS.
 
 const MAX_PRIZE_LENGTH = 120;
 const DEFAULT_MAX_TICKETS = 10;
@@ -123,7 +124,9 @@ export async function maybeAwardChatPoints(
 ): Promise<void> {
   if (chatMessage.trim().length < 2) return;
   if (!(await isPointsEnabled(broadcasterId))) return;
-  await awardChatPoints(broadcasterId, chatter, display, POINTS_PER_MESSAGE, EARN_COOLDOWN_MS);
+  // Per-channel options (dashboard Quick setup → Gold); defaults are the env values above.
+  const [perMessage, everySeconds] = await Promise.all([optNum(broadcasterId, "gold.perMessage"), optNum(broadcasterId, "gold.earnEvery")]);
+  await awardChatPoints(broadcasterId, chatter, display, perMessage, everySeconds * 1000);
 }
 
 // ── Command router ──

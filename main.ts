@@ -31,6 +31,7 @@ import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanDa
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, purgeChannelBotData } from "./channel_bots.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
+import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
@@ -95,6 +96,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureBotDetectTables,
   ensureChannelBotTables,
   ensureNowPlayingTables,
+  ensureChannelOptionTables,
   ensureAdAlertTables,
   ensureSocialTables,
   ensurePointsTables,
@@ -382,6 +384,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeAutoBanData(broadcasterId);
         await purgeBotDetectData(broadcasterId);
         await purgeChannelBotData(broadcasterId);
+        await purgeChannelOptions(broadcasterId);
         await purgeAdAlertData(broadcasterId);
         await purgePointsData(broadcasterId);
         await purgeSwearJarData(broadcasterId);

@@ -18,6 +18,7 @@
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
+import { forgetOptionCache } from "./channel_options.ts";
 
 export const MAX_HUNT_COOLDOWN_SECONDS = 3600;
 const envDefault = Math.floor(Number(Deno.env.get("HUNT_COOLDOWN_SECONDS") ?? "120"));
@@ -52,6 +53,7 @@ export async function setHuntCooldownSeconds(broadcasterId: string, seconds: num
     "INSERT OR REPLACE INTO hunt_settings (broadcaster_id, cooldown_seconds, updated_at) VALUES (?,?,?)",
     [broadcasterId, seconds, Date.now()],
   );
+  forgetOptionCache(broadcasterId); // the dashboard shows it as an option (channel_options.ts)
 }
 
 /** Milliseconds `username` still has to wait before hunting again (0 = free). */

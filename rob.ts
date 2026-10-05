@@ -40,9 +40,10 @@ import {
   transferPoints,
   victimProtectedMs,
 } from "./points_db.ts";
+import { optNum } from "./channel_options.ts";
 
-const ROB_COOLDOWN_MS = Math.max(10, Math.floor(Number(Deno.env.get("ROB_COOLDOWN_SECONDS") ?? "300")) || 300) * 1000;
-const ROB_PROTECT_MS = Math.max(0, Math.floor(Number(Deno.env.get("ROB_PROTECT_SECONDS") ?? "600")) || 0) * 1000;
+// The robbery cooldown and the victim's shield are per-channel options (channel_options.ts:
+// rob.cooldown, rob.protect), defaulting to ROB_COOLDOWN_SECONDS / ROB_PROTECT_SECONDS.
 
 export const MIN_ROB_PERCENT = 1;
 export const MAX_ROB_PERCENT = 9;
@@ -120,6 +121,7 @@ export async function handleRobCommand(
     return true;
   }
 
+  const [ROB_COOLDOWN_MS, ROB_PROTECT_MS] = (await Promise.all([optNum(broadcasterId, "rob.cooldown"), optNum(broadcasterId, "rob.protect")])).map((s) => s * 1000);
   const myWait = await robberWaitMs(broadcasterId, robber, ROB_COOLDOWN_MS);
   if (myWait > 0) {
     await sendChatMessage(`@${display} lie low for ${waitText(myWait)} before your next robbery.`, broadcasterId);

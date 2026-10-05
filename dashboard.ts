@@ -73,6 +73,7 @@ import {
 import { parseIntervalMinutes, sanitizeTimedMessageText, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES } from "./timedmessages.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
+import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
 
 export async function handleDashboardCommand(
   chatMessage: string,
@@ -241,6 +242,7 @@ export async function renderDashboard(
     isPointsEnabled(channelId),
     isHoardEnabled(channelId),
   ]);
+  const options = await optionInputs(channelId);
   const data: DashboardData = {
     broadcasterId: channelId,
     broadcasterName,
@@ -263,6 +265,7 @@ export async function renderDashboard(
     autoBanPermitted,
     pointsEnabled,
     hoardEnabled,
+    options,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
@@ -526,7 +529,7 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
     case "market_on":
     case "market_off": {
       const enabled = intent === "market_on";
-      await setMerchantEnabled(channelId, enabled, enabled ? Date.now() + randomMerchantIntervalMs() : null);
+      await setMerchantEnabled(channelId, enabled, enabled ? Date.now() + await randomMerchantIntervalMs(channelId) : null);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Merchant turned ${enabled ? "on" : "off"}.` }, "toggle-market"));
     }
     case "chronicle_on":
@@ -572,7 +575,9 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
     }
     case "quick": {
       // Quick setup: several feature bundles at once (dashboard_quick.ts).
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: await applyQuickSetup(channelId, form) }, "sec-quick"));
+      const message = await applyQuickSetup(channelId, form);
+      // A typo in an option box shows as an error (red) so it isn't missed; everything else valid was still saved.
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, message.includes("Not saved —") ? { error: message } : { notice: message }, "sec-quick"));
     }
     case "group_on":
     case "group_off": {
@@ -593,7 +598,12 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
 export async function applyQuickSetup(channelId: string, form: FormData): Promise<string> {
   const states = await loadSwitchStates(channelId);
   const changes = quickChanges(form, states);
-  if (!changes.length) return "Nothing changed.";
+  const opts = await saveOptionsFromForm(channelId, form);
+  const optNote = [
+    opts.changed.length ? `Options saved: ${opts.changed.join(", ")}.` : "",
+    opts.errors.length ? `Not saved — ${opts.errors.join(" ")}` : "",
+  ].filter(Boolean).join(" ");
+  if (!changes.length) return optNote || "Nothing changed.";
   for (const [bundle, on] of changes) {
     for (const sw of bundle.switches) {
       if (states[sw] === on) continue;
@@ -603,7 +613,7 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
   }
   const summary = changes.map(([b, on]) => `${b.name} ${on ? "on" : "off"}`).join(", ");
   const needs = missingNeeds(states);
-  return needs.length ? `Saved: ${summary}. Heads-up — ${needs.join("; ")}.` : `Saved: ${summary}.`;
+  return [needs.length ? `Saved: ${summary}. Heads-up — ${needs.join("; ")}.` : `Saved: ${summary}.`, optNote].filter(Boolean).join(" ");
 }
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
@@ -619,7 +629,7 @@ async function loadSwitchStates(channelId: string): Promise<Record<string, boole
 async function setSwitch(channelId: string, sw: string, on: boolean): Promise<void> {
   switch (sw) {
     case "bot": return void await setChannelEnabled(channelId, on);
-    case "market": return void await setMerchantEnabled(channelId, on, on ? Date.now() + randomMerchantIntervalMs() : null);
+    case "market": return void await setMerchantEnabled(channelId, on, on ? Date.now() + await randomMerchantIntervalMs(channelId) : null);
     case "chronicle": return void await setChronicleEnabled(channelId, on);
     case "autoban": return void await setAutoBanEnabled(channelId, on);
     case "points": return void await setPointsEnabled(channelId, on);

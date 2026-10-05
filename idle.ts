@@ -38,6 +38,7 @@
 import { escapeHtml } from "./utils.ts";
 import { listChannelCharacters } from "./db.ts";
 import { listedBotAccounts } from "./bot_accounts.ts";
+import { optNum, optWord } from "./channel_options.ts";
 
 const HERO_TTL_MS = 60_000;
 const heroCache = new Map<string, { at: number; heroes: Record<string, [string, number]> }>();
@@ -56,8 +57,23 @@ export async function getIdleHeroes(channelId: string): Promise<Record<string, [
 }
 
 /** `!delve` in chat: how to play. */
-export function delveHelpText(display: string): string {
-  return `@${display} 🕯️ The Endless Delve is on screen — the guild fights its way down on its own, and chat makes it faster: any message joins you to the party and lands a strike, "fireball" in chat is a big hit (1/min each), "bless" doubles everyone's damage for 20 s. A saved hero (!createchar) hits harder.`;
+export type DelveOptions = { bossSeconds: number; killsPerFloor: number; bigWord: string; bigCooldown: number; buffWord: string; buffCooldown: number };
+
+/** The channel's Delve options (channel_options.ts delve.*; defaults when unset). */
+export async function getDelveOptions(channelId: string): Promise<DelveOptions> {
+  const [bossSeconds, killsPerFloor, bigCooldown, buffCooldown, bigWord, buffWord] = await Promise.all([
+    optNum(channelId, "delve.bossTime"), optNum(channelId, "delve.killsPerFloor"),
+    optNum(channelId, "delve.fireballCooldown"), optNum(channelId, "delve.blessCooldown"),
+    optWord(channelId, "delve.fireballWord"), optWord(channelId, "delve.blessWord"),
+  ]);
+  return { bossSeconds, killsPerFloor, bigWord, bigCooldown, buffWord, buffCooldown };
+}
+
+const DEFAULT_DELVE: DelveOptions = { bossSeconds: 30, killsPerFloor: 5, bigWord: "fireball", bigCooldown: 60, buffWord: "bless", buffCooldown: 90 };
+
+/** `!delve` in chat: how to play, with the channel's own spell words. */
+export function delveHelpText(display: string, o: DelveOptions = DEFAULT_DELVE): string {
+  return `@${display} 🕯️ The Endless Delve is on screen — the guild fights its way down on its own, and chat makes it faster: any message joins you to the party and lands a strike, "${o.bigWord}" in chat is a big hit, "${o.buffWord}" doubles everyone's damage for 20 s. A saved hero (!createchar) hits harder.`;
 }
 
 const STYLE = String.raw`
@@ -154,8 +170,11 @@ function fmt(n){if(!isFinite(n))return "∞";if(n<1000)return String(Math.floor(
   if(e>=SUF.length)return n.toExponential(2).replace("+","");const v=n/Math.pow(1000,e);return (v<10?v.toFixed(2):v<100?v.toFixed(1):Math.floor(v))+SUF[e]}
 
 // ── Tuning ──
-const KILLS_PER_FLOOR=5,BOSS_EVERY=10,BOSS_SECONDS=30,BOSS_HP=6,FARM_KILLS=10,RETREAT_FAILS=3,RETREAT_MIN_FLOOR=15;
-const ACTIVE_MS=10*60000,STRIKE_GAP_MS=1500,FIREBALL_CD_MS=60000,BLESS_MS=20000,BLESS_CD_MS=90000,AWAY_MAX_S=8*3600,AWAY_SHARE=.25;
+// Per-channel options (dashboard Quick setup → The Endless Delve), in CFG.opts.
+const OPT=CFG.opts||{};
+const KILLS_PER_FLOOR=OPT.killsPerFloor||5,BOSS_EVERY=10,BOSS_SECONDS=OPT.bossSeconds||30,BOSS_HP=6,FARM_KILLS=10,RETREAT_FAILS=3,RETREAT_MIN_FLOOR=15;
+const ACTIVE_MS=10*60000,STRIKE_GAP_MS=1500,FIREBALL_CD_MS=(OPT.bigCooldown||60)*1000,BLESS_MS=20000,BLESS_CD_MS=(OPT.buffCooldown||90)*1000,
+  BIG_WORD=OPT.bigWord||"fireball",BUFF_WORD=OPT.buffWord||"bless",firstWord=t=>t.split(/\s+/)[0].replace(/[^a-z0-9]/g,""),AWAY_MAX_S=8*3600,AWAY_SHARE=.25;
 const UPS=[
   {k:"sword",icon:"🗡️",name:"Sellswords",base:10,grow:1.13,what:"+2 party damage/s"},
   {k:"banner",icon:"🚩",name:"War banner",base:30,grow:1.2,what:"+4 to every chat strike"},
@@ -242,10 +261,10 @@ function act(login,name,color,text,isMod){
     const lv=heroLevel(login);say(["🎒 ",{b:name}," joins the delve"+(lv?" — a level "+lv+" "+gsHeroes[login][0]:"")+"!"])}
   x.name=name;x.color=color;x.last=now;
   const tok=document.querySelector('.tok[data-l="'+login+'"]');if(tok){tok.classList.add("swing");setTimeout(()=>tok.classList.remove("swing"),160)}
-  if(/^fireball\b/.test(word)){
+  if(firstWord(word)===BIG_WORD){
     if(now>=x.nextFireball){x.nextFireball=now+FIREBALL_CD_MS;const d=strikeDmg(login)*12;hitMonster(d);mon.classList.remove("hit");void mon.offsetWidth;mon.classList.add("hit");
       float("🔥 "+fmt(d),name,"big");say(["🔥 ",{b:name}," hurls a Fireball for "+fmt(d)+"!"]);addMvp(login,name,d);return}}
-  else if(/^bless\b/.test(word)){
+  else if(firstWord(word)===BUFF_WORD){
     if(now>=blessReady){blessUntil=now+BLESS_MS;blessReady=now+BLESS_CD_MS;say(["✨ ",{b:name}," blesses the party — double damage for 20 s!"]);banner("Blessed!",name+" calls on the gods — ×2 damage")}}
   if(now>=x.nextStrike){x.nextStrike=now+STRIKE_GAP_MS;const d=strikeDmg(login);hitMonster(d);mon.classList.remove("hit");void mon.offsetWidth;mon.classList.add("hit");float(fmt(d),name);addMvp(login,name,d)}}
 function addMvp(login,name,d){const m=S.mvp[login]||(S.mvp[login]={n:name,d:0});m.n=name;m.d+=d}
@@ -318,7 +337,7 @@ if(S.hp<=0||S.hp>hpFor(S.floor))S.hp=hpFor(S.floor);
 if(isBoss(S.floor))bossEnds=Date.now()+BOSS_SECONDS*1000;
 say(["🕯️ The guild descends. ",{b:"Chat to join"}," — every message is a strike."]);
 if(preview){gsHeroes={adventurer:["Wizard",7],grimbold:["Fighter",4]};
-  [["Adventurer","#6fa8ff"],["Grimbold","#e0604f"],["Pip","#7fd17a"],["Morwen","#c58cff"]].forEach((p,i)=>setTimeout(()=>act(p[0].toLowerCase(),p[0],p[1],i===2?"fireball":"hello!",false),400+i*700));
+  [["Adventurer","#6fa8ff"],["Grimbold","#e0604f"],["Pip","#7fd17a"],["Morwen","#c58cff"]].forEach((p,i)=>setTimeout(()=>act(p[0].toLowerCase(),p[0],p[1],i===2?BIG_WORD:"hello!",false),400+i*700));
   setInterval(()=>{const p=["Adventurer","Grimbold","Pip","Morwen"][Math.floor(Math.random()*4)];act(p.toLowerCase(),p,"","huzzah",false)},1800)}
 draw(true);setInterval(step,100);
 loadHeroes();setInterval(loadHeroes,5*60000);
@@ -326,8 +345,8 @@ connect();
 `;
 
 /** channelBots: the channel's own bot list (channel_bots.ts), left out like the built-in bots. */
-export function renderIdlePage(channelKey: string, login: string, name: string, botId = "", channelBots: Iterable<string> = []): string {
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId, bots: [...new Set([...listedBotAccounts(), ...channelBots])] };
+export function renderIdlePage(channelKey: string, login: string, name: string, botId = "", channelBots: Iterable<string> = [], opts: DelveOptions = DEFAULT_DELVE): string {
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId, bots: [...new Set([...listedBotAccounts(), ...channelBots])], opts };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Endless Delve · ${escapeHtml(name)}</title>
@@ -340,7 +359,7 @@ export function renderIdlePage(channelKey: string, login: string, name: string, 
 <section id="arena"><div id="floorline"></div><div id="pips"></div><div id="mon"></div><div id="mname"></div>
 <div class="bar"><i id="hpfill"></i><span id="hptext"></span></div><div id="timer"><i></i></div></section>
 <section class="card" id="log"><h2>Chronicle</h2><div id="feed"></div>
-<div class="how"><b>Chat to join</b> — every message strikes. Type <b>fireball</b> for a big hit (1/min) or <b>bless</b> for ×2 damage.</div></section>
+<div class="how"><b>Chat to join</b> — every message strikes. Type <b>${escapeHtml(opts.bigWord)}</b> for a big hit or <b>${escapeHtml(opts.buffWord)}</b> for ×2 damage.</div></section>
 <section class="card" id="party"><h2>The Party <span id="partyhint"></span></h2><div id="tokens"></div><div id="mvp"></div></section>
 <div id="banner"></div>
 </div><script>window.__IDLE__=${cfgJson};${CLIENT}</script></body></html>`;

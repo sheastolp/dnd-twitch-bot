@@ -40,6 +40,7 @@ import {
   deleteAutohuntSession,
   getAutohuntSession,
 } from "./autohunt_db.ts";
+import { optNum } from "./channel_options.ts";
 
 const MIN = 60_000;
 const envMinutes = (name: string, fallback: number) => {
@@ -51,8 +52,8 @@ export const BOUT_INTERVAL_MS = envMinutes("AUTOHUNT_BOUT_MINUTES", 5) * MIN;
 export const DEFAULT_DURATION_MS = 15 * MIN;
 export const MIN_DURATION_MS = 10 * MIN;
 export const MAX_DURATION_MS = 120 * MIN;
-/** Hunters allowed at once per channel — bounds both chat noise and cron work. */
-export const MAX_ACTIVE_PER_CHANNEL = envMinutes("AUTOHUNT_MAX_ACTIVE", 10);
+/** Hunters allowed at once per channel — bounds both chat noise and cron work.
+ * A per-channel option (channel_options.ts: autohunt.max), default AUTOHUNT_MAX_ACTIVE (10). */
 const MAX_BOUTS_PER_SETTLE = Math.ceil(MAX_DURATION_MS / BOUT_INTERVAL_MS);
 /** Unprompted (cron) reports that @-tag the hunter; later ones use the plain
  * name so a long hunt doesn't ping the same viewer every 15 minutes. Reports
@@ -292,8 +293,9 @@ export async function handleAutohuntCommand(
     );
     return true;
   }
-  if (await countAutohuntSessions(broadcasterId) >= MAX_ACTIVE_PER_CHANNEL) {
-    await say(`@${display} the hunting grounds are crowded (${MAX_ACTIVE_PER_CHANNEL} heroes out already) — try again shortly.`);
+  const maxActive = await optNum(broadcasterId, "autohunt.max");
+  if (await countAutohuntSessions(broadcasterId) >= maxActive) {
+    await say(`@${display} the hunting grounds are crowded (${maxActive} heroes out already) — try again shortly.`);
     return true;
   }
   // Starting a hunt is subject to the same cooldown as every other hunt.

@@ -54,6 +54,7 @@ import {
   trimNpcConversation,
   type NpcCharacterRow,
 } from "./social_db.ts";
+import { optNum } from "./channel_options.ts";
 
 const openai = new OpenAI();
 
@@ -69,11 +70,10 @@ const CONTEXT_TURN_PAIRS = 6;
 // more than we feed as context, so trimming doesn't fire on every message.
 const CONVERSATION_KEEP_ROWS = CONTEXT_TURN_PAIRS * 2 + 6;
 
-// Odds that any single qualifying plain chat message gets an NPC chiming in,
-// once chatter is on. Kept low — an occasional flourish, not commentary.
-const CHATTER_CHANCE_PERCENT = Math.min(100, Math.max(0, Number(Deno.env.get("NPC_CHATTER_CHANCE_PERCENT") ?? "4")));
-// Minimum gap between random chime-ins in a given channel.
-const CHATTER_COOLDOWN_MS = Math.max(60_000, Number(Deno.env.get("NPC_CHATTER_COOLDOWN_MS") ?? "900000"));
+// The odds that a qualifying message gets an NPC chiming in, and the minimum
+// gap between chime-ins, are per-channel options (channel_options.ts:
+// npc.chatterChance, npc.chatterCooldown), defaulting to
+// NPC_CHATTER_CHANCE_PERCENT (4) and NPC_CHATTER_COOLDOWN_MS (15 min).
 // Minimum chat messages (any account, bots included) since the last chime-in
 // before another can fire.
 const CHATTER_MIN_MESSAGES = Math.max(0, Math.floor(Number(Deno.env.get("NPC_CHATTER_MIN_MESSAGES") ?? "20")));
@@ -221,8 +221,8 @@ export async function maybeNpcChatter(
   if (messageCount < CHATTER_MIN_MESSAGES) return false;
 
   if (!isChatterworthy(chatMessage)) return false;
-  if (Math.random() * 100 >= CHATTER_CHANCE_PERCENT) return false;
-  if (!(await checkNpcChatterCooldown(broadcasterId, CHATTER_COOLDOWN_MS))) return false;
+  if (Math.random() * 100 >= await optNum(broadcasterId, "npc.chatterChance")) return false;
+  if (!(await checkNpcChatterCooldown(broadcasterId, (await optNum(broadcasterId, "npc.chatterCooldown")) * 1000))) return false;
 
   const ownerKey = twitchOwnerKey(broadcasterId);
   const roster = await listNpcCharacters(ownerKey);

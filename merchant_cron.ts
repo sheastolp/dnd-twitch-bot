@@ -46,7 +46,7 @@ export default async function () {
     }
     // Always reschedule, even on a send failure, so one bad channel can't
     // wedge the cron into retrying it every tick forever.
-    await rescheduleMerchant(broadcasterId, now + randomMerchantIntervalMs());
+    await rescheduleMerchant(broadcasterId, now + await randomMerchantIntervalMs(broadcasterId));
   }
 
   // Recorded even when nothing was due, so GET /admin/merchant/status can

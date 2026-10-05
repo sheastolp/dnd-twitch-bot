@@ -34,6 +34,8 @@ export interface DashboardData {
   autoBanPermitted: boolean;
   pointsEnabled: boolean;
   hoardEnabled: boolean;
+  /** Per-channel options as typed ("" = default), for Quick setup (channel_options.ts). */
+  options?: Record<string, string>;
 }
 
 /** Every switch's current state, keyed like the dashboard's toggles (for Quick setup). */
@@ -359,7 +361,7 @@ export function renderDashboardPage(d: DashboardData): string {
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
   <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban words</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
-  ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d))}
+  ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {})}
   ${renderDashboardIndex()}
   <div class="board-row">
     ${features.switches}

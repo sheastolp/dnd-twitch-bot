@@ -42,6 +42,7 @@ import { parseCooldown, waitText } from "./huntcooldown.ts";
 import { combatStats } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
+import { forgetOptionCache, optNum } from "./channel_options.ts";
 
 const envNumber = (name: string, fallback: number, min: number, max: number) => {
   const n = Number(Deno.env.get(name) ?? "");
@@ -50,11 +51,15 @@ const envNumber = (name: string, fallback: number, min: number, max: number) => 
 
 export const MAX_RAID_COOLDOWN_SECONDS = 2 * 3600;
 export const DEFAULT_RAID_COOLDOWN_SECONDS = Math.floor(envNumber("RAID_COOLDOWN_SECONDS", 600, 0, MAX_RAID_COOLDOWN_SECONDS));
-export const MUSTER_MS = Math.floor(envNumber("RAID_MUSTER_SECONDS", 60, 15, 600)) * 1000;
-export const RAID_PARTY_MAX = Math.floor(envNumber("RAID_PARTY_MAX", 6, 1, 20));
 export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
-const RAID_HP_MULTIPLIER = envNumber("RAID_HP_MULTIPLIER", 2, 0.1, 20);
-const RAID_LOOT_MULTIPLIER = envNumber("RAID_LOOT_MULTIPLIER", 5, 0, 100);
+// The muster time, party size, boss HP and hoard multipliers are per-channel
+// options (channel_options.ts: raid.muster, raid.party, raid.hp, raid.loot),
+// defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (6),
+// RAID_HP_MULTIPLIER (2) and RAID_LOOT_MULTIPLIER (5).
+const raidOpts = async (broadcasterId: string) => {
+  const [muster, party, hp, loot] = await Promise.all(["raid.muster", "raid.party", "raid.hp", "raid.loot"].map((k) => optNum(broadcasterId, k)));
+  return { musterMs: muster * 1000, partyMax: party, hpMult: hp, lootMult: loot };
+};
 /** Rounds one raid lasts before the party has to fall back. */
 const RAID_MAX_ROUNDS = 20;
 
@@ -145,6 +150,7 @@ async function setRaidCooldownSeconds(broadcasterId: string, seconds: number) {
     "INSERT OR REPLACE INTO raid_settings (broadcaster_id, cooldown_seconds, updated_at) VALUES (?,?,?)",
     [broadcasterId, seconds, Date.now()],
   );
+  forgetOptionCache(broadcasterId); // the dashboard shows it as an option (channel_options.ts)
 }
 
 /** Milliseconds until a new raid can be mustered (0 = ready). */
@@ -157,13 +163,13 @@ async function raidWaitMs(q: RaidQuest, now = Date.now()): Promise<number> {
 /** A random boss from the top of the bestiary (CR RAID_MIN_CR and up). The
  * pool is the channel's live roster (core + learned, see bestiary.ts), so a
  * learned high-CR monster can be posted as a raid boss. */
-export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonster[] = SOLO_MONSTERS): SoloMonster {
+export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonster[] = SOLO_MONSTERS, hpMult = 2): SoloMonster {
   const source = roster.length ? roster : SOLO_MONSTERS;
   let pool = source.filter((m) => m.crValue >= RAID_MIN_CR);
   // Fallback grows with the roster (~3% of it, never fewer than 5).
   if (!pool.length) pool = [...source].sort((a, b) => b.crValue - a.crValue).slice(0, Math.max(5, Math.ceil(source.length * 0.03)));
   const base = stripMeta(pool[Math.floor(rng() * pool.length)]);
-  return { ...base, hp: Math.max(10, Math.round(base.hp * RAID_HP_MULTIPLIER)) };
+  return { ...base, hp: Math.max(10, Math.round(base.hp * hpMult)) };
 }
 
 /**
@@ -177,7 +183,8 @@ export async function createRaidQuest(broadcasterId: string, streamStartedAt: st
   if (streamStartedAt && existing?.stream_started_at === streamStartedAt) return null;
   // Adapted like every other hunt: a boss species the channel keeps slaying
   // comes back having learned from it (bestiary.ts).
-  const picked = pickRaidBoss(Math.random, await getChannelRoster(broadcasterId));
+  const opts = await raidOpts(broadcasterId);
+  const picked = pickRaidBoss(Math.random, await getChannelRoster(broadcasterId), opts.hpMult);
   const boss = applyAdaptation(picked, (await getAdaptation(broadcasterId, picked.name)).tier);
   await sqlite.execute(
     `INSERT OR REPLACE INTO raid_quests (broadcaster_id, stream_started_at, monster_name, monster_cr, monster_ac,
@@ -188,9 +195,9 @@ export async function createRaidQuest(broadcasterId: string, streamStartedAt: st
   );
   const cd = await getRaidCooldownSeconds(broadcasterId);
   return `📯 RAID QUEST posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
-    `far too much for one hero. Type !raid to sound the war horn; anyone with a saved hero can join within ${waitText(MUSTER_MS)} ` +
-    `(up to ${RAID_PARTY_MAX}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
-    `Slay it this stream for its full XP and a ${RAID_LOOT_MULTIPLIER > 0 ? "great hoard" : "place in the chronicle"}!`;
+    `far too much for one hero. Type !raid to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
+    `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
+    `Slay it this stream for its full XP and a ${opts.lootMult > 0 ? "great hoard" : "place in the chronicle"}!`;
 }
 
 /** stream.offline: the quest ends with the stream. */
@@ -478,8 +485,9 @@ async function payRaidRewards(
     if (xp) xpNotes.push(`${u}+${xp.gained}${xp.leveledTo ? `→Lv${xp.leveledTo}` : ""}`);
   }
   let hoard = "";
-  if (RAID_LOOT_MULTIPLIER > 0 && (await isPointsEnabled(broadcasterId))) {
-    const shares = splitLoot(monsterLootCopper(cr, Math.random, RAID_LOOT_MULTIPLIER), heroes.length);
+  const lootMult = await optNum(broadcasterId, "raid.loot");
+  if (lootMult > 0 && (await isPointsEnabled(broadcasterId))) {
+    const shares = splitLoot(monsterLootCopper(cr, Math.random, lootMult), heroes.length);
     for (let i = 0; i < heroes.length; i++) await adjustBalance(broadcasterId, heroes[i], heroes[i], shares[i]);
     hoard = heroes.map((u, i) => `${u} +${formatCoins(shares[i])}`).join(", ");
   }
@@ -504,7 +512,7 @@ export async function getRaidRosterStatus(broadcasterId: string): Promise<RaidRo
     const members = parseJson<Member[]>(q.muster_members, []);
     const wait = await raidWaitMs(q);
     state = q.muster_ends_at
-      ? `Muster open (${musterText(members)}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
+      ? `Muster open (${musterText(members, await optNum(broadcasterId, "raid.party"))}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
       : wait > 0
       ? `Raiders are recovering — the next raid can muster in ${waitText(wait)}.`
       : "Ready — type !raid in chat to sound the war horn.";
@@ -521,8 +529,8 @@ export async function getRaidRosterStatus(broadcasterId: string): Promise<RaidRo
   };
 }
 
-function musterText(members: Member[]): string {
-  return `${members.length}/${RAID_PARTY_MAX}: ${members.map((m) => m.d).join(", ")}`;
+function musterText(members: Member[], partyMax: number): string {
+  return `${members.length}/${partyMax}: ${members.map((m) => m.d).join(", ")}`;
 }
 
 /** Handles !raid and its subcommands. Returns true if it consumed the message. */
@@ -539,6 +547,7 @@ export async function handleRaidCommand(
   const arg = (m[2] ?? "").trim();
   const user = chatter.toLowerCase();
   const say = (t: string) => sendChatMessages(t, broadcasterId);
+  const { musterMs: MUSTER_MS, partyMax: RAID_PARTY_MAX } = await raidOpts(broadcasterId);
 
   if (sub === "cooldown" || sub === "cd") {
     if (arg) {
@@ -591,7 +600,7 @@ export async function handleRaidCommand(
   if (sub === "status") {
     const wait = await raidWaitMs(q);
     const muster = q.muster_ends_at
-      ? `Muster open (${musterText(members)}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
+      ? `Muster open (${musterText(members, RAID_PARTY_MAX)}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
       : wait > 0
       ? `Next raid can muster in ${waitText(wait)}.`
       : "Type !raid to sound the war horn.";
@@ -628,7 +637,7 @@ export async function handleRaidCommand(
 
   if (q.muster_ends_at) {
     if (members.some((x) => x.u === user)) {
-      await say(`@${display} you're already in the raid party (${musterText(members)}).`);
+      await say(`@${display} you're already in the raid party (${musterText(members, RAID_PARTY_MAX)}).`);
       return true;
     }
     if (members.length >= RAID_PARTY_MAX) {
@@ -646,10 +655,10 @@ export async function handleRaidCommand(
       return true;
     }
     if (next.length >= RAID_PARTY_MAX) {
-      await say(`🛡️ ${display} joins — the raid party is full! (${musterText(next)})`);
+      await say(`🛡️ ${display} joins — the raid party is full! (${musterText(next, RAID_PARTY_MAX)})`);
       await maybeLaunchRaid(broadcasterId, { force: true });
     } else {
-      await say(`🛡️ ${display} joins the raid (${musterText(next)}). Launching in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`);
+      await say(`🛡️ ${display} joins the raid (${musterText(next, RAID_PARTY_MAX)}). Launching in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`);
     }
     return true;
   }

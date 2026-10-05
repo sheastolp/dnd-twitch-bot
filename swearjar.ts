@@ -41,6 +41,7 @@ import { pick } from "./utils.ts";
 import { formatCoins, MAX_COPPER, parseCoins } from "./coins.ts";
 import { adjustBalance, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { getBroadcaster } from "./db.ts";
+import { optNum } from "./channel_options.ts";
 
 /** Copper charged per swear word. */
 export const SWEAR_COST_COPPER = Math.min(
@@ -450,7 +451,7 @@ export async function maybeChargeSwearJar(
   if (swears === 0) return false;
   if (!(await isPointsEnabled(broadcasterId))) return false;
 
-  const owed = swears * SWEAR_COST_COPPER;
+  const owed = swears * await optNum(broadcasterId, "jar.cost");
   const bal = await getBalance(broadcasterId, chatter);
   const pay = Math.min(owed, bal?.balance ?? 0);
   if (pay <= 0) return false;
@@ -575,7 +576,7 @@ async function handleFine(display: string, broadcasterId: string): Promise<boole
   const streamer = String(row?.display_name || login);
 
   const bal = await getBalance(broadcasterId, login);
-  const pay = Math.min(SWEAR_COST_COPPER, bal?.balance ?? 0);
+  const pay = Math.min(await optNum(broadcasterId, "jar.cost"), bal?.balance ?? 0);
   if (pay <= 0 || !(await trySpend(broadcasterId, login, pay))) {
     await sendChatMessage(`🫙 @${display} ${streamer} has no coin to put in the swear jar.`, broadcasterId);
     return true;

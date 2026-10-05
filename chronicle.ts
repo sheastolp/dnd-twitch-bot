@@ -22,14 +22,12 @@ import {
 } from "./social_db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
+import { optNum } from "./channel_options.ts";
 
-// Odds that any single qualifying message gets chronicled. Kept low — this
-// is an occasional flourish, not a running commentary.
-const QUOTE_CHANCE_PERCENT = Math.min(100, Math.max(0, Number(Deno.env.get("CHRONICLE_QUOTE_CHANCE_PERCENT") ?? "3")));
-
-// Minimum gap between chronicle quotes in a given channel, regardless of how
-// many messages roll a hit in between.
-const COOLDOWN_MS = Math.max(30_000, Number(Deno.env.get("CHRONICLE_COOLDOWN_MS") ?? "600000"));
+// The odds that a qualifying message gets chronicled, and the minimum gap
+// between quotes, are per-channel options (channel_options.ts: chronicle.chance,
+// chronicle.cooldown), defaulting to CHRONICLE_QUOTE_CHANCE_PERCENT (3) and
+// CHRONICLE_COOLDOWN_MS (10 min). Kept low — an occasional flourish.
 
 // Minimum number of chat messages (any account, bots included) that must
 // have passed since the last quote before another can fire — keeps a quiet
@@ -103,8 +101,8 @@ export async function maybeChronicleQuote(
   if (messageCount < MIN_MESSAGES_BETWEEN_QUOTES) return false;
 
   if (!isQuotable(chatMessage)) return false;
-  if (Math.random() * 100 >= QUOTE_CHANCE_PERCENT) return false;
-  if (!(await checkChronicleCooldown(broadcasterId, COOLDOWN_MS))) return false;
+  if (Math.random() * 100 >= await optNum(broadcasterId, "chronicle.chance")) return false;
+  if (!(await checkChronicleCooldown(broadcasterId, (await optNum(broadcasterId, "chronicle.cooldown")) * 1000))) return false;
 
   const quote = truncateQuote(chatMessage);
   const line = pick(CHRONICLE_LINES)(quote, display);

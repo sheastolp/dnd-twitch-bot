@@ -11,6 +11,7 @@ import { isMerchantEnabled, setMerchantEnabled } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS } from "./gear.ts";
+import { optNum } from "./channel_options.ts";
 
 const MIN_INTERVAL_MINUTES = Math.max(5, Number(Deno.env.get("MERCHANT_MIN_INTERVAL_MINUTES") ?? "25"));
 const MAX_INTERVAL_MINUTES = Math.max(MIN_INTERVAL_MINUTES, Number(Deno.env.get("MERCHANT_MAX_INTERVAL_MINUTES") ?? "60"));
@@ -32,10 +33,13 @@ function resolveLegendaryChance(): number {
 }
 const LEGENDARY_CHANCE = resolveLegendaryChance();
 
-/** A fresh randomized gap (ms) until the merchant's next ad, per channel. */
-export function randomMerchantIntervalMs(): number {
-  const minMs = MIN_INTERVAL_MINUTES * 60_000;
-  const maxMs = MAX_INTERVAL_MINUTES * 60_000;
+/** A fresh randomized gap (ms) until the merchant's next ad. With a channel, its own
+ * shortest/longest gaps (channel_options.ts: merchant.minGap/maxGap) are used. */
+export async function randomMerchantIntervalMs(broadcasterId = ""): Promise<number> {
+  const [minS, maxS] = broadcasterId
+    ? await Promise.all([optNum(broadcasterId, "merchant.minGap"), optNum(broadcasterId, "merchant.maxGap")])
+    : [MIN_INTERVAL_MINUTES * 60, MAX_INTERVAL_MINUTES * 60];
+  const minMs = Math.min(minS, maxS) * 1000, maxMs = Math.max(minS, maxS) * 1000;
   return minMs + Math.floor(Math.random() * (maxMs - minMs + 1));
 }
 
@@ -213,7 +217,7 @@ export async function handleMerchantCommand(
   }
 
   const enabled = action === "on";
-  await setMerchantEnabled(broadcasterId, enabled, enabled ? Date.now() + randomMerchantIntervalMs() : null);
+  await setMerchantEnabled(broadcasterId, enabled, enabled ? Date.now() + await randomMerchantIntervalMs(broadcasterId) : null);
   await sendChatMessage(
     enabled
       ? `@${display} A threadbare peddler has claimed a corner of the market square and will drop by every so often with a sales pitch — small goods, smaller prices, no guild coin required.`

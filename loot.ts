@@ -18,6 +18,7 @@
 import { xpForMonsterCr } from "./characters.ts";
 import { adjustBalance, isPointsEnabled } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
+import { optNum } from "./channel_options.ts";
 
 const LOOT_MULTIPLIER = Math.min(100, Math.max(0, Number(Deno.env.get("HUNT_LOOT_MULTIPLIER") ?? "1")));
 const MAX_LOOT_COPPER = 1_000_000;
@@ -71,7 +72,7 @@ export async function awardMonsterLoot(
 ): Promise<Array<{ username: string; copper: number }> | null> {
   if (!members.length) return null;
   if (!(await isPointsEnabled(broadcasterId))) return null;
-  const total = monsterLootCopper(cr);
+  const total = monsterLootCopper(cr, Math.random, await optNum(broadcasterId, "hunt.loot"));
   if (total <= 0) return null;
   const shares = splitLoot(total, members.length);
   const paid: Array<{ username: string; copper: number }> = [];

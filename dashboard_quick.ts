@@ -14,6 +14,7 @@
 
 import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
+import { OPTIONS, defaultText, type OptionDef } from "./channel_options.ts";
 
 export type QuickBundle = {
   key: string;
@@ -142,7 +143,7 @@ export function missingNeeds(s: SwitchStates): string[] {
 export const QUICK_CSS = `
 .quick{margin:0 0 22px}
 .quick>p{margin:4px 0 12px}
-.qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:12px}
+.qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:12px;align-items:start}
 .qcard{display:flex;flex-direction:column;gap:8px;padding:14px 16px;border:1px solid var(--edge);border-radius:8px;background:linear-gradient(180deg,#e9e0c5,#dfd2ad);box-shadow:0 2px 8px #6b44181f;transition:box-shadow .2s,border-color .2s}
 .qcard.changed{border-color:var(--seal);box-shadow:0 0 0 2px #d9473a40,0 2px 8px #6b44181f}
 .qcard h3{margin:0;font-size:1.08rem;display:flex;align-items:center;gap:8px}
@@ -151,7 +152,7 @@ export const QUICK_CSS = `
 .qcard .yours{margin:0;font-size:.85rem;color:var(--ink-3)}.qcard .yours b{color:var(--ink)}
 .qcard .needs{margin:0;font-size:.8rem;color:var(--ink-3)}
 .qcard .needs.warn{color:var(--seal);font-weight:600}
-.seg{display:inline-flex;margin-top:auto;align-self:flex-start;border:1px solid var(--edge);border-radius:999px;overflow:hidden;background:#efe6c9}
+.seg{display:inline-flex;align-self:flex-start;border:1px solid var(--edge);border-radius:999px;overflow:hidden;background:#efe6c9}
 .seg label{position:relative;cursor:pointer}
 .seg input{position:absolute;opacity:0;pointer-events:none}
 .seg span{display:block;padding:6px 16px;font-size:.85rem;font-weight:600;color:var(--ink-3)}
@@ -160,13 +161,39 @@ export const QUICK_CSS = `
 .seg input[value=off]:checked+span{background:#8a6f55}
 .seg input[value=keep]:checked+span{background:#c9b88e;color:var(--ink)}
 .seg input:focus-visible+span{outline:2px solid var(--seal);outline-offset:-2px}
+.qopts{margin-top:4px;border-top:1px dashed var(--edge);padding-top:8px}
+.qopts summary{cursor:pointer;font-size:.86rem;font-weight:600;color:var(--ink-3)}
+.qfields{display:grid;gap:10px;margin-top:10px}
+.qopt{display:grid;gap:3px}
+.qopt .ql{font-size:.86rem;font-weight:600}
+.qopt input{width:100%;padding:7px 10px;font:inherit;font-size:.92rem;border:1px solid var(--edge);border-radius:6px;background:#fbf6e6}
+.qopt input::placeholder{color:#9a8566;font-style:italic}
+.qopt input.edited{border-color:var(--seal);box-shadow:0 0 0 2px #d9473a30}
+.qopt small{font-size:.76rem;color:var(--ink-3);line-height:1.3}
 .qsave{position:sticky;bottom:10px;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:14px;padding:10px 14px;border:1px solid var(--edge);border-radius:8px;background:#f3ead0f2;box-shadow:0 4px 14px #6b44182b}
 .qsave .count{font-size:.9rem;color:var(--ink-3)}
 `;
 
+/** One option's input: a text box with a suggestion list; blank means the default. */
+function optionField(o: OptionDef, value: string): string {
+  const id = `opt-${o.key.replace(/\./g, "-")}`;
+  const list = `${id}-list`;
+  const kind = o.kind === "duration" ? "e.g. 90s, 10m, 1h;" : "";
+  return `<label class="qopt" for="${id}"><span class="ql">${escapeHtml(o.label)}</span>
+<input id="${id}" name="opt_${escapeHtml(o.key)}" list="${list}" value="${escapeHtml(value)}" data-was="${escapeHtml(value)}" placeholder="${escapeHtml(defaultText(o))}" autocomplete="off" spellcheck="false" inputmode="${o.kind === "word" || o.kind === "duration" ? "text" : "decimal"}" aria-describedby="${id}-hint">
+<datalist id="${list}">${o.suggest.map((v) => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>
+<small id="${id}-hint">${escapeHtml([o.help, kind, `blank = ${defaultText(o)}`].filter(Boolean).join(" "))}</small></label>`;
+}
+
 /** The Quick setup form (posts intent=quick to /dashboard/features). */
-export function renderQuickSetup(hiddenAuth: string, s: SwitchStates): string {
+export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Record<string, string> = {}): string {
   const byKey = Object.fromEntries(QUICK_BUNDLES.map((b) => [b.key, b]));
+  const optionsBox = (b: QuickBundle) => {
+    const list = OPTIONS.filter((o) => o.bundle === b.key);
+    if (!list.length) return "";
+    const custom = list.filter((o) => opts[o.key]).length;
+    return `<details class="qopts"${custom ? " open" : ""}><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
+  };
   const cards = QUICK_BUNDLES.map((b) => {
     const st = bundleState(b, s);
     const opt = (v: string, label: string) =>
@@ -176,17 +203,20 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates): string {
       : "";
     return `<section class="qcard" data-bundle="${b.key}" data-was="${st}"><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3>
 <p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
-<div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div></section>`;
+<div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div>${optionsBox(b)}</section>`;
   }).join("");
   return `<section class="quick" id="sec-quick"><h2>Quick setup</h2>
-<p class="muted">Turn whole features on or off in one go — each card says what it does on stream and what you need to do (usually nothing). Change as many as you like, then press <strong>Save changes</strong>. Fine-tune single commands in <a href="#sec-groups">Command groups</a> below; a feature you've fine-tuned shows as <em>Mixed</em> and is left alone unless you pick On or Off.</p>
+<p class="muted">Turn whole features on or off in one go — each card says what it does on stream and what you need to do (usually nothing). Open <strong>⚙ Options</strong> on a card to tune it: start typing for suggestions, or leave a box blank to use the default shown in it. Change as many as you like, then press <strong>Save changes</strong>. Fine-tune single commands in <a href="#sec-groups">Command groups</a> below; a feature you've fine-tuned shows as <em>Mixed</em> and is left alone unless you pick On or Off.</p>
 <form method="post" action="/dashboard/features" id="quick-form">${hiddenAuth}<input type="hidden" name="intent" value="quick">
 <div class="qgrid">${cards}</div>
 <div class="qsave"><button type="submit" class="ember" id="quick-save">Save changes</button><span class="count" id="quick-count">No changes yet.</span></div></form>
 <script>(function(){var f=document.getElementById("quick-form");if(!f)return;var cards=[].slice.call(f.querySelectorAll(".qcard"));
 function val(c){var i=c.querySelector("input:checked");return i?i.value:"keep"}
-function sync(){var n=0,on={};cards.forEach(function(c){var v=val(c),was=c.getAttribute("data-was");var ch=v!=="keep"&&v!==was;c.classList.toggle("changed",ch);if(ch)n++;on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
+function sync(){var n=0,o=0,on={};cards.forEach(function(c){var v=val(c),was=c.getAttribute("data-was");var ch=v!=="keep"&&v!==was;
+  var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;
+  c.classList.toggle("changed",ch||oc>0);if(ch)n++;on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
   cards.forEach(function(c){var nd=c.querySelector(".needs");if(!nd)return;var miss=nd.getAttribute("data-needs").split(",").filter(function(k){return!on[k]});nd.classList.toggle("warn",on[c.getAttribute("data-bundle")]&&miss.length>0)});
-  document.getElementById("quick-count").textContent=n?n+" feature"+(n===1?"":"s")+" will change.":"No changes yet."}
-f.addEventListener("change",sync);sync()})();</script></section>`;
+  var parts=[];if(n)parts.push(n+" feature"+(n===1?"":"s"));if(o)parts.push(o+" option"+(o===1?"":"s"));
+  document.getElementById("quick-count").textContent=parts.length?parts.join(" and ")+" will change.":"No changes yet."}
+f.addEventListener("change",sync);f.addEventListener("input",sync);sync()})();</script></section>`;
 }

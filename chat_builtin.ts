@@ -21,7 +21,7 @@ import { startGuideText } from "./start.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
-import { delveHelpText } from "./idle.ts";
+import { delveHelpText, getDelveOptions } from "./idle.ts";
 
 const GOODNIGHT_COOLDOWN_MS = Math.max(30_000, Number(Deno.env.get("GOODNIGHT_COOLDOWN_MS") ?? "300000"));
 
@@ -405,7 +405,7 @@ export async function handleBuiltinChatCommand(ctx: {
       broadcasterId,
     );
   } else if (/^!delve$/i.test(chatMessage)) {
-    await sendChatMessage(delveHelpText(display), broadcasterId);
+    await sendChatMessage(delveHelpText(display, await getDelveOptions(broadcasterId)), broadcasterId);
   } else if (chatMessage.startsWith("!hp ")) {
     const delta = Number.parseInt(chatMessage.slice(4).trim());
     if (Number.isNaN(delta)) {
