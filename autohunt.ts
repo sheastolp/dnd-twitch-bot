@@ -4,7 +4,7 @@
 // `!dndduel` (simulateMonsterFight in combat.ts), earning the same XP and
 // loot per win. Modeled on Hunt & Hoard's !autohunt.
 //
-//   !autohunt [20m|1h|1h30m|45]   start (bare number = minutes)
+//   !autohunt [20m|1h|1hr|2hrs|1h30m|45]   start (bare number = minutes)
 //   !autohunt status              or !autohuntstatus — progress so far
 //   !autohunt stop                or !autohuntstop   — recall early, with a report
 //
@@ -62,16 +62,17 @@ export const TAGGED_REPORTS = 2;
 /** Bouts spelled out individually in a report; the rest are summarized. */
 const MAX_LISTED_BOUTS = 6;
 
-/** "20m", "1h", "1h30m" or a bare number of minutes; empty = default.
- * Returns null if unparseable, otherwise clamps to [MIN, MAX]. */
+/** "20m", "1h", "1hr", "2hrs", "1.5 hours", "1hr 30min" or a bare number of
+ * minutes; empty = default. Spaces are ignored. Returns null if unparseable,
+ * otherwise clamps to [MIN, MAX]. */
 export function parseDuration(raw: string): number | null {
-  const t = raw.trim().toLowerCase();
+  const t = raw.trim().toLowerCase().replace(/\s+/g, "");
   if (!t) return DEFAULT_DURATION_MS;
   const clamp = (ms: number) => Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, ms));
   if (/^\d+$/.test(t)) return clamp(parseInt(t, 10) * MIN);
-  const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?$/);
+  const m = t.match(/^(?:(\d+(?:\.\d+)?)(?:h|hr|hrs|hour|hours))?(?:(\d+)(?:m|min|mins|minute|minutes))?$/);
   if (!m || (!m[1] && !m[2])) return null;
-  const ms = (parseInt(m[1] || "0", 10) * 60 + parseInt(m[2] || "0", 10)) * MIN;
+  const ms = Math.round((parseFloat(m[1] || "0") * 60 + parseInt(m[2] || "0", 10)) * MIN);
   return ms > 0 ? clamp(ms) : null;
 }
 
@@ -287,7 +288,7 @@ export async function handleAutohuntCommand(
   const duration = parseDuration(arg);
   if (duration === null) {
     await say(
-      `@${display} I couldn't read that duration. Try !autohunt 20m, !autohunt 1h or just !autohunt (${
+      `@${display} I couldn't read that duration. Try !autohunt 20m, !autohunt 1hr, !autohunt 1h30m or just !autohunt (${
         formatDuration(DEFAULT_DURATION_MS)
       }). Allowed: ${formatDuration(MIN_DURATION_MS)}–${formatDuration(MAX_DURATION_MS)}.`,
     );
