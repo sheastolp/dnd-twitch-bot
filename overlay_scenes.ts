@@ -44,6 +44,9 @@ export type SceneDef = {
   label: string;
   windows: SceneWindow[];
   gate?: Rect;
+  /** The gate's plaque centred on it (Just chatting) instead of sitting right,
+   * clear of the stream title; a long title then stops short of it. */
+  gateCentered?: boolean;
   card?: Rect & { kind: "brb" | "chat" };
   tracker?: Rect;
   /** Just chatting: the tracker's cards may grow past full size (up to this
@@ -80,6 +83,7 @@ export const SCENES: Record<string, SceneDef> = {
     label: "Just chatting",
     windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 864, h: 486, idle: true }],
     gate: { x: 952, y: 112, w: 552, h: 311 },
+    gateCentered: true,
     tracker: { x: 952, y: 447, w: 552, h: 499 },
     trackerGrow: 1.6,
     card: { kind: "chat", x: 300, y: 622, w: 628, h: 324 },
@@ -111,8 +115,10 @@ export const SCENE_CSS = `
 .scard .line{font:italic 30px/1.3 "EB Garamond",Georgia,serif;color:#6b4a22;transition:opacity .6s ease;min-height:1.3em}
 .scard .line.swap{opacity:0}
 .scard .count{margin-top:8px;font:600 28px/1 Cinzel,Georgia,serif;letter-spacing:.06em;color:var(--seal)}
-/* The gate's plaque sits right, clear of the stream-title subtitle centred above. */
+/* The gate's plaque sits right, clear of the stream-title subtitle centred above —
+   except where the scene centres it (gateCentered), and the subtitle is kept short of it instead. */
 .gate .plaque{left:auto;right:18px;transform:none}
+.gate.center .plaque{left:50%;right:auto;transform:translateX(-50%)}
 .scard.sc-chat h1{font-size:52px}.scard.sc-chat .line{font-size:28px}
 `;
 
@@ -120,7 +126,7 @@ export const SCENE_CSS = `
 export function sceneHtml(scene: SceneDef): string {
   const hints = scene.windows.map((w) => `<div class="slot-hint" data-hint${w.idle ? " data-idle" : ""} style="${box(w)}">${w.label}<br>goes here</div>`).join("");
   const gate = scene.gate
-    ? `<div class="gate" style="${box(scene.gate)}"><div class="plaque" id="gatelabel">Dungeon Gate</div><div class="empty"><b>⚔</b><span>Adventures appear here</span></div></div>`
+    ? `<div class="gate${scene.gateCentered ? " center" : ""}" style="${box(scene.gate)}"><div class="plaque" id="gatelabel">Dungeon Gate</div><div class="empty"><b>⚔</b><span>Adventures appear here</span></div></div>`
     : "";
   const tracker = scene.tracker
     ? `<div class="tracker" style="${box(scene.tracker)}"${scene.trackerGrow ? ` data-grow="${scene.trackerGrow}"` : ""}><div class="plaque">Battle Tracker</div><div class="empty"><b>⚔</b><span>No battles yet — !dndduel to start one</span></div><iframe id="tracker" title="Battle Tracker" scrolling="no"></iframe></div>`
@@ -152,6 +158,10 @@ if(!idleOn)idleFrames.forEach(f=>f.remove());else window.setDelve(CFG.idle!==fal
 if(idleOn)document.querySelectorAll("[data-hint][data-idle]").forEach(e=>e.remove());
 if(!preview)document.querySelectorAll("[data-hint]").forEach(e=>e.remove());
 const gl=document.getElementById("gatelabel");if(gl&&Q.get("gate"))gl.textContent=Q.get("gate");
+// A centred gate plaque sits under the end of a long stream title: stop the title (with "…") 16px short of it.
+function clearPlaque(){const sub=document.getElementById("subtitle"),g=gl&&gl.closest(".gate.center");if(!sub||!g)return;
+  const left=g.offsetLeft+gl.offsetLeft-gl.offsetWidth/2;sub.style.maxWidth=Math.max(160,Math.min(600,2*(left-16-960)))+"px"}
+clearPlaque();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(clearPlaque);
 const trackerEl=document.getElementById("tracker");
 if(trackerEl){if(Q.get("tracker")==="0")trackerEl.remove();else{
   trackerEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=battle&align=center&refresh=8"+(preview?"&always=1":"");

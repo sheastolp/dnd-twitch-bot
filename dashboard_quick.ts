@@ -63,8 +63,8 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "delve", icon: "🕯️", name: "The Endless Delve",
-    what: "The idle dungeon game in your Be right back and Just chatting scenes. Chat plays it just by talking; \"fireball\" and \"bless\" are spells.",
-    yourPart: "Nothing if you use the GuildScribe theme. Turning it off clears the window within a minute.",
+    what: "An idle dungeon game chat plays just by talking — a Words on Stream replacement with spells, bosses and upgrades. Use it on its own as an overlay anywhere, or inside the theme's Be right back and Just chatting scenes.",
+    yourPart: "Nothing — add the stand-alone \"The Endless Delve\" overlay from !overlays to any scene (it's already in the theme). Every copy you have open plays the same game. Off hides it everywhere within a minute.",
     switches: ["delve"],
   },
   {

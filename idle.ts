@@ -2,8 +2,9 @@
 // stream (a drop-in replacement for Words on Stream). The guild's party walks
 // down an endless dungeon on its own, floor by floor; chat makes it faster.
 //
-//   GET /overlay?channel=<id|login>&panel=idle   the game (an OBS Browser source, 1280×720;
-//                                                the theme draws it in its brb and chat windows)
+//   GET /overlay?channel=<id|login>&panel=idle   the game — a stand-alone OBS Browser source (1280×720,
+//                                                any size; it scales), also built into the theme's brb
+//                                                and chat windows. Every open copy plays one shared game.
 //   GET /overlay/idle?channel=<id|login>         the channel's GuildScribe heroes (class, level),
 //                                                so chatters with a saved hero show up as one
 //
@@ -201,8 +202,36 @@ const KEY="gs-idle:"+CFG.channel.toLowerCase();
 function fresh(){return {v:1,floor:1,best:1,kills:0,gold:0,renown:0,up:{sword:0,banner:0,whet:0,map:0},hp:hpFor(1),n:0,fails:0,farm:0,mvp:{},savedAt:Date.now(),runs:0}}
 let S=fresh();
 if(!preview){try{const raw=localStorage.getItem(KEY);if(raw){const o=JSON.parse(raw);if(o&&o.v===1)S=Object.assign(fresh(),o,{up:Object.assign(fresh().up,o.up||{})})}}catch(e){}}
-function save(){if(preview)return;S.savedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-addEventListener("pagehide",save);setInterval(save,5000);
+function save(){if(preview||!amLeader)return;S.savedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+// ── One game, any number of copies ──
+// The standalone overlay, the theme's Be right back and Just chatting windows
+// and the setup page's preview can all be open at once, and in OBS they share
+// one localStorage. One copy leads: it hears chat, runs the game and saves.
+// It also publishes the live state and every visual effect (KEY+":live", four
+// times a second); the others mirror it. A lead heartbeat goes stale 3 s after
+// its copy closes, and the next copy to notice takes over where it left off.
+// Previews (&always=1) play a private demo and stay out of all this.
+const ID=Math.random().toString(36).slice(2),LEAD=KEY+":lead",LIVE=KEY+":live",STALE_MS=3000;
+let amLeader=preview;
+const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+function leadHolder(){try{return JSON.parse(ls.get(LEAD)||"null")}catch(e){return null}}
+function tryLead(){if(preview)return true;const l=leadHolder(),now=Date.now();
+  if(!l||l.id===ID||now-l.at>STALE_MS){ls.set(LEAD,JSON.stringify({id:ID,at:now}));return true}return false}
+const LOG=[];let fxSeq=Date.now()*100;const FX=[];
+function emit(type,a,b,c){fx(type,a,b,c);if(!amLeader||preview)return;FX.push([++fxSeq,Date.now(),type,a,b,c]);if(FX.length>40)FX.shift()}
+function publish(){if(preview||!amLeader)return;ls.set(LIVE,JSON.stringify({S,heroes:[...heroes.values()],blessUntil,blessReady,bossEnds,dying,log:LOG,fx:FX,at:Date.now()}))}
+let liveRaw="",lastFx=0,lastLog=0;
+function follow(){const raw=ls.get(LIVE);if(!raw||raw===liveRaw)return;liveRaw=raw;let o;try{o=JSON.parse(raw)}catch(e){return}
+  S=Object.assign(fresh(),o.S,{up:Object.assign(fresh().up,(o.S||{}).up||{})});
+  heroes.clear();for(const x of o.heroes||[])heroes.set(x.login,x);
+  blessUntil=o.blessUntil||0;blessReady=o.blessReady||0;bossEnds=o.bossEnds||0;dying=!!o.dying;
+  for(const e of o.log||[])if(e[0]>lastLog){lastLog=e[0];sayLocal(e[1])}
+  // Replay effects that are new and recent (not a backlog from before this copy joined).
+  for(const e of o.fx||[])if(e[0]>lastFx){lastFx=e[0];if(Date.now()-e[1]<2500)fx(e[2],e[3],e[4],e[5])}
+  fxSeq=Math.max(fxSeq,lastFx);logSeq=Math.max(logSeq,lastLog)}
+addEventListener("pagehide",()=>{if(preview)return;if(amLeader){save();publish();const l=leadHolder();if(l&&l.id===ID)ls.del(LEAD)}});
+setInterval(save,5000);
 
 const heroes=new Map(); // login -> {name,color,last,nextStrike,nextFireball}
 let gsHeroes={};let blessUntil=0,blessReady=0,bossEnds=0;
@@ -219,54 +248,66 @@ function cost(u){return Math.ceil(u.base*Math.pow(u.grow,S.up[u.k]))}
 
 // ── Feed, floats, banner ──
 const feed=$("feed");
-function say(parts){const d=h("div");for(const p of parts){if(typeof p==="string")d.append(document.createTextNode(p));else d.append(h("b",null,p.b))}
+function sayLocal(parts){const d=h("div");for(const p of parts){if(typeof p==="string")d.append(document.createTextNode(p));else d.append(h("b",null,p.b))}
   feed.append(d);while(feed.children.length>14)feed.firstElementChild.remove()}
+let logSeq=Date.now()*100;
+function say(parts){sayLocal(parts);if(preview)return;LOG.push([++logSeq,parts]);if(LOG.length>14)LOG.shift();lastLog=logSeq}
 const arena=$("arena"),mon=$("mon");let floats=0;
 function float(text,who,cls){if(floats>24)return;floats++;const f=h("div","float"+(cls?" "+cls:""),text);if(who)f.append(h("small",null,who));
   f.style.left=(296+(Math.random()-.5)*300)+"px";f.style.top=(70+Math.random()*90)+"px";arena.append(f);setTimeout(()=>{f.remove();floats--},1150)}
+// Visual effects, run here and (when leading) replayed by every other copy.
+function fx(type,a,b,c){
+  if(type==="float")return float(a,b,c);
+  if(type==="banner")return banner(a,b);
+  if(type==="flash")return flashUp(UPS.find(u=>u.k===a));
+  if(type==="swing"){const tok=document.querySelector('.tok[data-l="'+a+'"]');if(tok){tok.classList.add("swing");setTimeout(()=>tok.classList.remove("swing"),160)}return}
+  if(type==="mon"){if(a==="hit"){mon.classList.remove("hit");void mon.offsetWidth;mon.classList.add("hit")}
+    else if(a==="dead")mon.classList.add("dead");
+    else if(a==="spawn"){mon.classList.remove("dead");mon.classList.remove("spawn");void mon.offsetWidth;mon.classList.add("spawn")}}}
 let bannerT=0;function banner(big,small){const b=$("banner");b.replaceChildren(document.createTextNode(big));if(small)b.append(h("small",null,small));b.classList.add("on");clearTimeout(bannerT);bannerT=setTimeout(()=>b.classList.remove("on"),4200)}
 
 // ── Combat ──
 let dying=false;
 function hitMonster(d){if(dying||d<=0)return;S.hp-=d;if(S.hp<=0)kill()}
-function kill(){dying=true;const f=S.floor,g=goldFor(f);S.gold+=g;S.n++;mon.classList.add("dead");float("+"+fmt(g)+" gold",null,"gold");
-  if(isBoss(f)){S.fails=0;S.farm=0;bossEnds=0;const m=monsterFor(f,0);say(["👑 ",{b:m.name}," falls on floor "+f+"! +"+fmt(g)+" gold"]);banner(m.name+" is slain!","Floor "+(f+1)+" awaits");S.floor++;S.kills=0}
+function kill(){dying=true;const f=S.floor,g=goldFor(f);S.gold+=g;S.n++;emit("mon","dead");emit("float","+"+fmt(g)+" gold",null,"gold");
+  if(isBoss(f)){S.fails=0;S.farm=0;bossEnds=0;const m=monsterFor(f,0);say(["👑 ",{b:m.name}," falls on floor "+f+"! +"+fmt(g)+" gold"]);emit("banner",m.name+" is slain!","Floor "+(f+1)+" awaits");S.floor++;S.kills=0}
   else if(S.farm>0){if(--S.farm===0){S.floor++;S.kills=0;say(["⚔️ The party regroups and storms floor "+S.floor+" again."])}}
   else if(++S.kills>=KILLS_PER_FLOOR){S.floor++;S.kills=0}
   if(S.floor>S.best){S.best=S.floor;if(S.best%5===0&&!isBoss(S.best))say(["🕯️ New depth record: floor "+S.best])}
   setTimeout(spawn,420)}
-function spawn(){dying=false;S.hp=hpFor(S.floor);mon.classList.remove("dead");mon.classList.remove("spawn");void mon.offsetWidth;mon.classList.add("spawn");
-  if(isBoss(S.floor)){bossEnds=Date.now()+BOSS_SECONDS*1000;const m=monsterFor(S.floor,0);banner("Boss: "+m.name,"Floor "+S.floor+" — "+BOSS_SECONDS+" seconds! Chat, strike!")}else bossEnds=0;draw(true)}
+function spawn(){dying=false;S.hp=hpFor(S.floor);emit("mon","spawn");
+  if(isBoss(S.floor)){bossEnds=Date.now()+BOSS_SECONDS*1000;const m=monsterFor(S.floor,0);emit("banner","Boss: "+m.name,"Floor "+S.floor+" — "+BOSS_SECONDS+" seconds! Chat, strike!")}else bossEnds=0;draw(true)}
 function bossTimeout(){bossEnds=0;S.fails++;const m=monsterFor(S.floor,0);
   if(S.fails>=RETREAT_FAILS&&S.floor>=RETREAT_MIN_FLOOR){retreat();return}
-  say(["💨 ",{b:m.name}," drove the party back. Regrouping on floor "+(S.floor-1)+"…"]);banner("Driven back!","Farming floor "+(S.floor-1)+" before another try");
+  say(["💨 ",{b:m.name}," drove the party back. Regrouping on floor "+(S.floor-1)+"…"]);emit("banner","Driven back!","Farming floor "+(S.floor-1)+" before another try");
   S.floor--;S.farm=FARM_KILLS;S.kills=0;spawn()}
 function retreat(){const gain=Math.max(1,Math.floor((S.floor-10)/5));const keep={renown:S.renown+gain,best:S.best,mvp:S.mvp,runs:S.runs+1};
   S=Object.assign(fresh(),keep);say(["🍺 The guild retreats to the tavern. +"+gain+" renown (×"+renownMult().toFixed(1)+" damage & gold)."]);
-  banner("Back to the tavern!","+"+gain+" renown — the next delve hits harder");spawn()}
+  emit("banner","Back to the tavern!","+"+gain+" renown — the next delve hits harder");spawn()}
 
 // ── Quartermaster: spends the gold, cheapest upgrade first ──
 function shop(){for(let i=0;i<25;i++){let best=null;for(const u of UPS)if(!best||cost(u)<cost(best))best=u;
-  if(S.gold<cost(best))break;S.gold-=cost(best);S.up[best.k]++;flashUp(best);if(S.up[best.k]%5===0)say(["🛒 Quartermaster: ",{b:best.name}," → level "+S.up[best.k]])}}
+  if(S.gold<cost(best))break;S.gold-=cost(best);S.up[best.k]++;emit("flash",best.k);if(S.up[best.k]%5===0)say(["🛒 Quartermaster: ",{b:best.name}," → level "+S.up[best.k]])}}
 const upEls={};
 function buildShop(){const box=$("ups");for(const u of UPS){const r=h("div","up");r.append(h("i",null,u.icon),h("b",null,u.name),h("em"),h("small"));box.append(r);upEls[u.k]=r}}
-function flashUp(u){const r=upEls[u.k];r.classList.remove("flash");void r.offsetWidth;r.classList.add("flash");setTimeout(()=>r.classList.remove("flash"),500)}
+function flashUp(u){if(!u)return;const r=upEls[u.k];r.classList.remove("flash");void r.offsetWidth;r.classList.add("flash");setTimeout(()=>r.classList.remove("flash"),500)}
 
 // ── Chat ──
 function act(login,name,color,text,isMod){
+  if(!amLeader)return; // the leading copy hears chat; this one mirrors it
   const now=Date.now(),word=text.trim().toLowerCase();
-  if(isMod&&/^!delve\s+reset$/.test(word)){if(!preview){S=fresh();save()}heroes.clear();say(["🧹 A steward reset the delve. Back to floor 1."]);spawn();return}
+  if(isMod&&/^!delve\s+reset$/.test(word)){S=fresh();save();heroes.clear();say(["🧹 A steward reset the delve. Back to floor 1."]);spawn();return}
   let x=heroes.get(login);
   if(!x||now-x.last>=ACTIVE_MS){if(!x){x={login,name,color,last:0,nextStrike:0,nextFireball:0};heroes.set(login,x)}
     const lv=heroLevel(login);say(["🎒 ",{b:name}," joins the delve"+(lv?" — a level "+lv+" "+gsHeroes[login][0]:"")+"!"])}
   x.name=name;x.color=color;x.last=now;
-  const tok=document.querySelector('.tok[data-l="'+login+'"]');if(tok){tok.classList.add("swing");setTimeout(()=>tok.classList.remove("swing"),160)}
+  emit("swing",login);
   if(firstWord(word)===BIG_WORD){
-    if(now>=x.nextFireball){x.nextFireball=now+FIREBALL_CD_MS;const d=strikeDmg(login)*12;hitMonster(d);mon.classList.remove("hit");void mon.offsetWidth;mon.classList.add("hit");
-      float("🔥 "+fmt(d),name,"big");say(["🔥 ",{b:name}," hurls a Fireball for "+fmt(d)+"!"]);addMvp(login,name,d);return}}
+    if(now>=x.nextFireball){x.nextFireball=now+FIREBALL_CD_MS;const d=strikeDmg(login)*12;hitMonster(d);emit("mon","hit");
+      emit("float","🔥 "+fmt(d),name,"big");say(["🔥 ",{b:name}," hurls a Fireball for "+fmt(d)+"!"]);addMvp(login,name,d);return}}
   else if(firstWord(word)===BUFF_WORD){
-    if(now>=blessReady){blessUntil=now+BLESS_MS;blessReady=now+BLESS_CD_MS;say(["✨ ",{b:name}," blesses the party — double damage for 20 s!"]);banner("Blessed!",name+" calls on the gods — ×2 damage")}}
-  if(now>=x.nextStrike){x.nextStrike=now+STRIKE_GAP_MS;const d=strikeDmg(login);hitMonster(d);mon.classList.remove("hit");void mon.offsetWidth;mon.classList.add("hit");float(fmt(d),name);addMvp(login,name,d)}}
+    if(now>=blessReady){blessUntil=now+BLESS_MS;blessReady=now+BLESS_CD_MS;say(["✨ ",{b:name}," blesses the party — double damage for 20 s!"]);emit("banner","Blessed!",name+" calls on the gods — ×2 damage")}}
+  if(now>=x.nextStrike){x.nextStrike=now+STRIKE_GAP_MS;const d=strikeDmg(login);hitMonster(d);emit("mon","hit");emit("float",fmt(d),name);addMvp(login,name,d)}}
 function addMvp(login,name,d){const m=S.mvp[login]||(S.mvp[login]={n:name,d:0});m.n=name;m.d+=d}
 
 const unesc=v=>v.replace(/\\(.)/g,(_,c)=>c==="s"?" ":c===":"?";":c==="r"?"\r":c==="n"?"\n":c);
@@ -325,21 +366,30 @@ function draw(force){const f=S.floor,boss=isBoss(f),m=monsterFor(f,S.n),max=hpFo
 // ── Main loop ──
 let last=Date.now();
 function step(){const now=Date.now(),dt=Math.min(1,(now-last)/1000);last=now;
+  if(!amLeader){draw(false);return} // mirroring the leading copy (follow() below)
   hitMonster(partyDps()*dt);if(bossEnds&&now>=bossEnds&&!dying)bossTimeout();shop();draw(false)}
+// Every second: keep or claim the lead. Taking over picks up the mirrored state as it stood.
+function heartbeat(){if(preview)return;const was=amLeader;amLeader=tryLead();
+  if(amLeader&&!was){follow();last=Date.now();if(dying||S.hp<=0)spawn()}
+  if(!amLeader)follow()}
 
 buildShop();
+amLeader=tryLead();
+if(!preview&&!amLeader)follow(); // another copy is running the game: mirror it
 // Away earnings: a quarter of what the party would have hauled, up to 8 hours.
-if(!preview){const away=Math.min(AWAY_MAX_S,(Date.now()-S.savedAt)/1000);
+if(!preview&&amLeader){const away=Math.min(AWAY_MAX_S,(Date.now()-S.savedAt)/1000);
   if(away>6*3600)S.mvp={}; // a new stream: fresh leaderboard
   if(away>60){const perS=partyDps()/hpFor(Math.max(1,S.floor-1))*goldFor(Math.max(1,S.floor-1));const g=Math.floor(perS*away*AWAY_SHARE);
     if(g>0){S.gold+=g;const hrs=away>=3600?(away/3600).toFixed(1)+" h":Math.round(away/60)+" min";say(["💤 While the hall was dark ("+hrs+"), the guild hauled ",{b:fmt(g)+" gold"},"."])}}}
 if(S.hp<=0||S.hp>hpFor(S.floor))S.hp=hpFor(S.floor);
 if(isBoss(S.floor))bossEnds=Date.now()+BOSS_SECONDS*1000;
-say(["🕯️ The guild descends. ",{b:"Chat to join"}," — every message is a strike."]);
+if(amLeader)say(["🕯️ The guild descends. ",{b:"Chat to join"}," — every message is a strike."]);
 if(preview){gsHeroes={adventurer:["Wizard",7],grimbold:["Fighter",4]};
   [["Adventurer","#6fa8ff"],["Grimbold","#e0604f"],["Pip","#7fd17a"],["Morwen","#c58cff"]].forEach((p,i)=>setTimeout(()=>act(p[0].toLowerCase(),p[0],p[1],i===2?BIG_WORD:"hello!",false),400+i*700));
   setInterval(()=>{const p=["Adventurer","Grimbold","Pip","Morwen"][Math.floor(Math.random()*4)];act(p.toLowerCase(),p,"","huzzah",false)},1800)}
 draw(true);setInterval(step,100);
+if(!preview){setInterval(heartbeat,1000);setInterval(()=>{if(amLeader)publish();else follow()},250);
+  addEventListener("storage",e=>{if(e.key===LIVE&&!amLeader)follow()});publish()}
 loadHeroes();setInterval(loadHeroes,5*60000);
 connect();
 `;
