@@ -338,8 +338,8 @@ export function dataPanelsFor(panel: string): DataPanel[] {
   return [...DATA_PANELS]; // all, rotate
 }
 
-// Several OBS sources (one per panel, plus the theme's embedded Battle
-// Tracker) poll every few seconds; a short per-isolate cache, and sharing
+// Several OBS sources (one per panel, plus the theme's embedded status strip
+// and Battle Tracker) poll every few seconds; a short per-isolate cache, and sharing
 // one in-flight load between identical requests, keep that from multiplying
 // SQLite reads.
 const CACHE_MS = 4_000;

@@ -2,7 +2,8 @@
 // shares the parchment, rollers, title, Tavern Talk chat and emblem; what
 // changes is the middle of the sheet:
 //
-//   game  — one big torn window for the game capture.
+//   game  — one big torn window for the game capture, and the status strip
+//           (with suggested next steps) along the bottom.
 //   brb   — "Be right back": a torn window for Words on Stream, the Dungeon
 //           Gate (a framed spot for pop-up overlays such as Tangia dungeons),
 //           a card with rotating flavour lines and an optional countdown, and
@@ -35,6 +36,8 @@ export type SceneDef = {
   gate?: Rect;
   card?: Rect & { kind: "brb" | "chat" };
   tracker?: Rect;
+  /** The status strip along the bottom, with suggested next steps. */
+  status?: boolean;
   /** Tavern Talk's height when the scene needs it shorter than the full column. */
   chatH?: number;
   rule?: boolean;
@@ -45,6 +48,7 @@ export const SCENES: Record<string, SceneDef> = {
     label: "Gameplay",
     windows: [{ id: "game", label: "Game capture", x: 64, y: 112, w: 1440, h: 810 }],
     rule: true,
+    status: true,
   },
   brb: {
     label: "Be right back",
