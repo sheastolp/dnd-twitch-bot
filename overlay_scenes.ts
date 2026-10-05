@@ -11,7 +11,9 @@
 //           shortened Tavern Talk.
 //   chat  — "Just chatting": a big torn window for Words on Stream, the
 //           Dungeon Gate (16:9, so a full-canvas pop-up source scales into it
-//           exactly), the Battle Tracker under it, and a topic card.
+//           exactly), the Battle Tracker under it (cards drawn larger and
+//           stacked from the bottom up, level with the goldboard's card at the
+//           foot of Tavern Talk), and a topic card.
 //
 // The Battle Tracker (brb and chat) is GuildScribe's battle panel — the fight
 // under way, the raid boss summary and the recent results — drawn by the theme itself (no extra
@@ -36,6 +38,10 @@ export type SceneDef = {
   gate?: Rect;
   card?: Rect & { kind: "brb" | "chat" };
   tracker?: Rect;
+  /** Just chatting: the tracker's cards may grow past full size (up to this
+   * factor) and stack from the bottom up, their bottom level with the
+   * goldboard's card at the foot of Tavern Talk. */
+  trackerGrow?: number;
   /** The status strip along the bottom, with suggested next steps. */
   status?: boolean;
   /** Tavern Talk's height when the scene needs it shorter than the full column. */
@@ -64,6 +70,7 @@ export const SCENES: Record<string, SceneDef> = {
     windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 864, h: 486 }],
     gate: { x: 952, y: 112, w: 552, h: 311 },
     tracker: { x: 952, y: 447, w: 552, h: 499 },
+    trackerGrow: 1.6,
     card: { kind: "chat", x: 300, y: 622, w: 628, h: 324 },
   },
 };
@@ -103,7 +110,7 @@ export function sceneHtml(scene: SceneDef): string {
     ? `<div class="gate" style="${box(scene.gate)}"><div class="plaque" id="gatelabel">Dungeon Gate</div><div class="empty"><b>⚔</b><span>Adventures appear here</span></div></div>`
     : "";
   const tracker = scene.tracker
-    ? `<div class="tracker" style="${box(scene.tracker)}"><div class="plaque">Battle Tracker</div><div class="empty"><b>⚔</b><span>No battles yet — !dndduel to start one</span></div><iframe id="tracker" title="Battle Tracker" scrolling="no"></iframe></div>`
+    ? `<div class="tracker" style="${box(scene.tracker)}"${scene.trackerGrow ? ` data-grow="${scene.trackerGrow}"` : ""}><div class="plaque">Battle Tracker</div><div class="empty"><b>⚔</b><span>No battles yet — !dndduel to start one</span></div><iframe id="tracker" title="Battle Tracker" scrolling="no"></iframe></div>`
     : "";
   let card = "";
   if (scene.card?.kind === "brb") {
@@ -123,17 +130,27 @@ if(trackerEl){if(Q.get("tracker")==="0")trackerEl.remove();else{
   trackerEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=battle&align=center&refresh=8"+(preview?"&always=1":"");
   // Same origin: hide the empty line while a card is up, and fit the cards to
   // the frame — stacked or side by side, whichever needs less shrinking.
-  const trEmpty=trackerEl.parentElement.querySelector(".empty");
+  // In just chatting (data-grow) the cards may grow, stack from the bottom up
+  // (first card lowest) and end level with the goldboard's card beside them.
+  const trBox=trackerEl.parentElement,trEmpty=trBox.querySelector(".empty"),grow=Number(trBox.dataset.grow)||0;
   setInterval(()=>{try{const doc=trackerEl.contentDocument,r=doc&&doc.getElementById("root");if(!r)return;
     trEmpty.hidden=!!r.children.length;if(!r.children.length)return;
+    doc.body.style.minHeight="100vh"; // the body clips; let it span the frame so grown cards aren't cut off
     r.style.transform="none";r.style.maxWidth="none";r.style.margin="0";r.style.transformOrigin="top left";
     const W=trackerEl.clientWidth,H=trackerEl.clientHeight,pad=10; // the panel page's body padding
-    const fit=()=>Math.min(1,(W-2*pad)/Math.max(1,r.scrollWidth),(H-2*pad)/Math.max(1,r.scrollHeight));
-    r.style.flexDirection="column";r.style.alignItems="center";const col=fit();
-    r.style.flexDirection="row";r.style.alignItems="flex-start";const row=fit();
-    if(col>=row){r.style.flexDirection="column";r.style.alignItems="center"}
-    const s=Math.max(col,row),x=(W-r.scrollWidth*s)/2-pad;
-    r.style.transform="translateX("+x.toFixed(1)+"px) scale("+s.toFixed(3)+")"}catch(e){}},1000)}}
+    let bottom=H-pad; // where the cards' bottom edge goes, in the frame's own pixels
+    if(grow){const gb=document.getElementById("goldbox"),gf=document.getElementById("gold");
+      const card=!gb||gb.hidden?null:gf.contentDocument&&gf.contentDocument.querySelector("#root .card");
+      if(card){const k=trackerEl.getBoundingClientRect().width/Math.max(1,W);
+        const b=(gf.getBoundingClientRect().top+card.getBoundingClientRect().bottom*k-trackerEl.getBoundingClientRect().top)/k;
+        if(b>pad*4&&b<=H)bottom=b}}
+    const fit=()=>Math.min(grow||1,(W-2*pad)/Math.max(1,r.scrollWidth),(bottom-pad)/Math.max(1,r.scrollHeight));
+    const dir=grow?"column-reverse":"column";
+    r.style.flexDirection=dir;r.style.alignItems="center";const col=fit();
+    r.style.flexDirection="row";r.style.alignItems=grow?"flex-end":"flex-start";const row=fit();
+    if(col>=row){r.style.flexDirection=dir;r.style.alignItems="center"}
+    const s=Math.max(col,row),x=(W-r.scrollWidth*s)/2-pad,y=grow?bottom-pad-r.scrollHeight*s:0;
+    r.style.transform="translate("+x.toFixed(1)+"px,"+y.toFixed(1)+"px) scale("+s.toFixed(3)+")"}catch(e){}},1000)}}
 const topicEl=document.getElementById("topic");if(topicEl)topicEl.textContent=Q.get("topic")||"Pull up a chair by the hearth — the kettle's on.";
 const brbLine=document.getElementById("brbline");
 if(brbLine){
