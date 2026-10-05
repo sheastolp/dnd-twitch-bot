@@ -4,7 +4,7 @@
 // this source in OBS), the channel's name across the top (with the stream
 // title as a subtitle under it in the brb and chat scenes), "Tavern Talk" chat
 // down the right (messages fade out after a while), a d20 emblem (name
-// banner optional) in the bottom-left, and the status strip in the bottom-right.
+// banner optional) in the bottom-left.
 //
 // Scenes (&scene=game|brb|chat, see overlay_scenes.ts) swap the middle of
 // the sheet: gameplay, "be right back" and "just chatting" layouts with their
@@ -21,7 +21,7 @@
 // channel's current Twitch title, checked every couple of minutes;
 // &subtitle=0 hides it),
 // &hide=<login,login> chatters to leave out (bots),
-// &hidecmds=1 to leave out "!command" messages, &status=0 to drop the strip,
+// &hidecmds=1 to leave out "!command" messages,
 // &mic=<part of the mic's name> to pick which microphone lights the emblem
 // (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
@@ -178,7 +178,6 @@ const STYLE = `
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
 .rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
-.status{position:absolute;right:12px;bottom:46px;width:1200px;height:70px;border:0;background:transparent}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes pulse{50%{opacity:.55;box-shadow:0 0 4px #e9191640}}
 ${SCENE_CSS}`;
@@ -217,10 +216,8 @@ if(Q.get("ribbon")!=="1")rib.remove(); // the name banner is opt-in
 const sizeQ=Number(Q.get("size"));badge.style.setProperty("--size",(Number.isFinite(sizeQ)&&sizeQ>0?Math.max(80,Math.min(520,sizeQ)):idleUrl?240:200)+"px");
 if(Q.get("dim")==="0")badge.classList.add("nodim");
 const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));
-if(Q.get("status")==="0")document.getElementById("status").remove();
-else document.getElementById("status").src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10"+(preview?"&always=1":"");
-// OBS keeps every scene's browser sources running; the embedded panels (status
-// strip, Guild Board) can't hear OBS's events, so park them while this scene
+// OBS keeps every scene's browser sources running; the embedded panel (the
+// Battle Tracker) can't hear OBS's events, so park them while this scene
 // isn't showing and bring them back when it is.
 let obsActive=true,obsVisible=true;
 function obsPark(){const off=!obsActive&&!obsVisible;for(const f of document.querySelectorAll("iframe[src],iframe[data-parked]")){
@@ -340,8 +337,8 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
 <style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage"><div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><div class="name"><i class="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
-<section class="chat"><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
-${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}<iframe class="status" id="status" title="status" scrolling="no"></iframe>
+<section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div></section>
+${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;
