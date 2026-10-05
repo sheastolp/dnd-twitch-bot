@@ -1,7 +1,7 @@
 // Pure helpers and small shared utilities
 
 import type { Ability, Character } from "./types.ts";
-import { abilityNames, abilityAliases, abilityFullNames, skillAbilities, knownBotAccounts, findMonsterByName } from "./data.ts";
+import { abilityNames, abilityAliases, abilityFullNames, skillAbilities, findMonsterByName } from "./data.ts";
 
 export const pick = <T>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
 
@@ -35,19 +35,8 @@ export function combatStats(c: Character) {
   return { attack: 10 + mod + c.proficiency, mod, die: 8 };
 }
 
-export function isBotAccount(username: string, userId: string, botUserId: string) {
-  const normalized = username.toLowerCase();
-  const configured = (Deno.env.get("BOT_USERNAMES") ?? "")
-    .split(",")
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-  return (
-    userId === botUserId ||
-    knownBotAccounts.has(normalized) ||
-    configured.includes(normalized) ||
-    normalized.endsWith("bot")
-  );
-}
+// Which accounts are bots — the list to edit is in bot_accounts.ts.
+export { isBotAccount } from "./bot_accounts.ts";
 
 /** Chat badges that count as "mod or higher" everywhere the bot checks
  * isModerator — including the offline-quiet gate in main.ts, so all of these

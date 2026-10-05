@@ -76,6 +76,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **points.ts** / **points_db.ts** / **coins.ts** | `!gold`, `!goldboard`, `!giveaway` — copper earned from live chat (shown as gp/sp/cp), the coin leaderboard, and giveaways; `!gold on/off/status` toggle (on by default). `points_db.ts` holds persistence (`points_settings`, `points_balances`, `giveaways`, `giveaway_entries`); `coins.ts` has the copper/silver/gold formatting and parsing shared with `haggle.ts` |
 | **chronicle.ts** | `!chronicle on/off/status` — occasionally quotes a plain chat message back with a D&D-flavored reply |
 | **npcs.ts** | `!npc ...` — AI-voiced NPC characters, channel-scoped or global, plus optional passive chatter |
+| **bot_accounts.ts** | Which chat accounts are bots (`isBotAccount`): GuildScribe itself, any login ending in "bot", the built-in `KNOWN_BOT_ACCOUNTS`, **`MY_BOT_ACCOUNTS` — the spot to add your own**, and the `BOT_USERNAMES` env var. Bots never run commands, earn gold or watch time, get thanked, count in `!botcheck`, or play The Endless Delve |
 | **types.ts** | Shared types |
 | **sqlite.ts** | Val Town's `std/sqlite` with a short retry (2 tries, 250/800 ms) on transient service errors — rate limits and overload, which the libSQL client surfaces as `TypeError: resp.body?.cancel is not a function`. SQL errors are never retried. Every module imports `sqlite` from here |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
@@ -128,7 +129,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `TWITCH_CLIENT_SECRET` | Twitch app secret |
 | `TWITCH_BOT_ID` | Bot account numeric user ID |
 | `EVENTSUB_SECRET` | EventSub signature secret |
-| `BOT_USERNAMES` | *(optional)* Extra bot logins to ignore |
+| `BOT_USERNAMES` | *(optional)* Extra bot logins to ignore, comma-separated — or list them in `MY_BOT_ACCOUNTS` at the top of **bot_accounts.ts** |
 | `MAX_PARTIES_PER_CHANNEL` | *(optional)* Party cap per channel; default 50 |
 | `MAX_CHARACTERS_PER_CHANNEL` | *(optional)* Character cap per channel; default 500 |
 | `MAX_MAPS_PER_CHANNEL` | *(optional)* Battle map cap per channel; default 25 |

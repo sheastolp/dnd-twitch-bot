@@ -30,11 +30,13 @@
 // ever goes in through textContent.
 //
 // URL extras: &hide=<login,login> chatters who don't play (bots — the
-// GuildScribe bot and the usual chat bots are always left out), &pad=<px> a
+// GuildScribe bot, logins ending in "bot" and every account listed in
+// bot_accounts.ts are always left out), &pad=<px> a
 // margin inside the frame, &always=1 preview mode (demo party, nothing saved).
 
 import { escapeHtml } from "./utils.ts";
 import { listChannelCharacters } from "./db.ts";
+import { listedBotAccounts } from "./bot_accounts.ts";
 
 const HERO_TTL_MS = 60_000;
 const heroCache = new Map<string, { at: number; heroes: Record<string, [string, number]> }>();
@@ -165,7 +167,8 @@ const TIERS=[
   [["🐉","Young Dragon"],["👁️","Beholder"],["🦑","Mind Flayer"],["😈","Pit Fiend"],["🔥","Fire Elemental"],["🌑","Shadow Demon"],["❄️","Frost Giant"]]];
 const BOSSES=[["👺","Goblin Boss"],["👹","Ogre Chieftain"],["🗿","Hill Giant"],["🐍","Medusa"],["🐉","Young Red Dragon"],["👁️","Beholder"],["🦴","Lich"],["🐲","Ancient Dragon"],["😈","Demon Lord"],["🦖","Tarrasque"]];
 const CLASS_ICON={Barbarian:"🪓",Bard:"🎻",Cleric:"✨",Druid:"🌿",Fighter:"⚔️",Monk:"👊",Paladin:"🛡️",Ranger:"🏹",Rogue:"🗝️",Sorcerer:"🔮",Warlock:"🕯️",Wizard:"🧙"};
-const HIDE=new Set(["nightbot","streamelements","streamlabs","moobot","fossabot","wizebot","soundalerts","sery_bot","kofistreambot","botrixoficial"]);
+// Bots never play: everything bot_accounts.ts lists (passed in), and any login ending in "bot".
+const HIDE=new Set(CFG.bots||[]);
 (Q.get("hide")||"").toLowerCase().split(",").map(s=>s.trim().replace(/^@/,"")).filter(Boolean).forEach(s=>HIDE.add(s));
 
 const isBoss=f=>f%BOSS_EVERY===0;
@@ -260,7 +263,7 @@ function connect(){if(!CFG.login)return;ws=new WebSocket("wss://irc-ws.chat.twit
     if(m.cmd==="RECONNECT"){ws.close();continue}
     if(m.cmd!=="PRIVMSG")continue;
     let text=m.trail||"";const me=/^\u0001ACTION (.*)\u0001$/.exec(text);if(me)text=me[1];
-    const login=(m.tags.login||m.nick||"").toLowerCase();if(!login||HIDE.has(login)||(CFG.botId&&m.tags["user-id"]===CFG.botId))continue;
+    const login=(m.tags.login||m.nick||"").toLowerCase();if(!login||HIDE.has(login)||/bot$/.test(login)||(CFG.botId&&m.tags["user-id"]===CFG.botId))continue;
     const badges=m.tags.badges||"";const isMod=m.tags.mod==="1"||/(^|,)(broadcaster|moderator|lead_moderator)\//.test(badges);
     act(login,m.tags["display-name"]||m.nick,m.tags.color||"",text,isMod)}};
   ws.onclose=()=>{setTimeout(connect,backoff);backoff=Math.min(backoff*2,30000)};
@@ -322,7 +325,7 @@ connect();
 `;
 
 export function renderIdlePage(channelKey: string, login: string, name: string, botId = ""): string {
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, botId, bots: listedBotAccounts() };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Endless Delve · ${escapeHtml(name)}</title>

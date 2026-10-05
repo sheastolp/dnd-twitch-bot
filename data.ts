@@ -2264,18 +2264,6 @@ export function pickMonsterForLevel(
   return scaleMonsterForLevel(base, lv);
 }
 
-export const knownBotAccounts = new Set([
-  "nightbot",
-  "streamelements",
-  "streamlabs",
-  "moobot",
-  "fossabot",
-  "wizebot",
-  "deepbot",
-  "coebot",
-  "ankhbot",
-]);
-
 export const lookupResources: Record<string, string> = {
   spell: "spells",
   item: "equipment",
