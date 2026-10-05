@@ -34,6 +34,10 @@
 // (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
 //
+// Now playing: &music=1 adds the song you're playing (Spotify, or Apple Music
+// through Last.fm — set up on the dashboard's 🎵 Now playing page) top-left
+// in every scene, hidden while nothing plays (nowplaying.ts).
+//
 // Emblem: &emblem=<image URL> (or the older &logo=) replaces the d20 with your
 // own badge or PNGtuber; add &talk=<image URL> and it swaps to that image
 // while you talk (with a little bounce; &bounce=0 to keep it still) — a
@@ -48,6 +52,7 @@
 // the emblem just stays at full brightness.
 
 import { escapeHtml } from "./utils.ts";
+import { NOW_PLAYING_CLIENT } from "./nowplaying.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
 import { SCENES, SCENE_CLIENT, SCENE_CSS, sceneHtml, sceneUnderHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
 
@@ -191,6 +196,15 @@ const STYLE = `
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
+/* Now playing (&music=1): top-left in every scene, between the roller and the windows. */
+.np{position:absolute;left:72px;top:49px;width:520px;height:60px;display:flex;align-items:center;gap:12px;transition:opacity .6s ease,transform .6s ease}
+.np.off{opacity:0;transform:translateY(-6px)}
+.np img{width:56px;height:56px;flex:none;border-radius:5px;object-fit:cover;box-shadow:0 0 0 1px #c99a2e,0 3px 8px #5a3a0f55;background:#e8d49a}
+.np .t{min-width:0;flex:1}
+.np .k{font:600 12px/1 Cinzel,Georgia,serif;letter-spacing:.14em;text-transform:uppercase;color:#a98235}
+.np .song{font:700 21px/1.15 Cinzel,Georgia,serif;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.np .by{font:italic 17px/1.15 "EB Garamond",Georgia,serif;color:#6b4a22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .bar{height:2px;margin-top:4px;background:#c99a2e40;overflow:hidden}.np .bar i{display:block;height:100%;width:0;background:var(--gold)}
 .status{position:absolute;left:290px;bottom:46px;width:${W - 290 - 12}px;height:70px;border:0;background:transparent}
 .rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
@@ -261,6 +275,10 @@ function obsPark(){const off=!obsActive&&!obsVisible;for(const f of document.que
   else if(!off&&f.dataset.parked){f.src=f.dataset.parked;delete f.dataset.parked}}}
 addEventListener("obsSourceActiveChanged",e=>{obsActive=!!(e.detail&&e.detail.active);obsPark()});
 addEventListener("obsSourceVisibleChanged",e=>{obsVisible=!!(e.detail&&e.detail.visible);obsPark()});
+// Now playing (&music=1), top-left; only polled while this scene is showing.
+const npEl=document.getElementById("np");
+if(npEl){if(Q.get("music")!=="1")npEl.remove();else{${NOW_PLAYING_CLIENT}
+  nowPlaying({card:npEl,title:npEl.querySelector(".song"),artist:npEl.querySelector(".by"),art:npEl.querySelector("img"),bar:npEl.querySelector(".bar"),src:npEl.querySelector(".k")},CFG.channel,preview,()=>obsActive||obsVisible)}}
 
 const list=document.getElementById("msgs");
 function h(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e}
@@ -375,6 +393,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
+<div class="np off" id="np"><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;

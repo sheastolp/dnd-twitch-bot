@@ -12,6 +12,7 @@
 //                                                    subtitle and live gem poll it; &title=0 skips the title)
 //   GET /overlay?channel=<id|login>&panel=idle       The Endless Delve, the idle game chat plays (idle.ts)
 //   GET /overlay/idle?channel=<id|login>             its list of the channel's heroes (class, level)
+//   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -33,6 +34,7 @@ import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { getIdleHeroes, renderIdlePage } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
+import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -367,13 +369,18 @@ const json = (body: unknown, status = 200) =>
 
 /** Overlay routes; null when the path isn't one of them. */
 export async function handleOverlayRoute(req: Request, url: URL, path: string): Promise<Response | null> {
-  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle")) return null;
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
 
   if (path === "/overlay/title") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
     const title = url.searchParams.get("title") === "0" ? undefined : await liveStreamTitle(channel.id);
     return json({ ok: true, live: channel.live, title });
+  }
+
+  if (path === "/overlay/nowplaying") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    return json({ ok: true, track: await getNowPlaying(channel.id) });
   }
 
   if (path === "/overlay/idle") {
@@ -418,6 +425,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
     return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live));
   }
+  if (panel === "music") return html(renderNowPlayingOverlay(channelKey));
   if (panel === "idle") {
     const live = await liveChannelName(channel);
     let botId = "";

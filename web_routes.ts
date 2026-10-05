@@ -14,7 +14,8 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
@@ -337,6 +338,17 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Bot viewer check (botdetect.ts) — same key + mod-login gate as /dashboard.
     return await handleBotCheckPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/music") {
+    // Now playing settings (nowplaying.ts) — same gate.
+    return await handleNowPlayingPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/music/spotify") {
+    return await handleSpotifyConnect(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/spotify/callback") {
+    // Spotify's OAuth return; trusted by its one-time state, created behind the dashboard gate.
+    return await handleSpotifyCallback(url);
+  }
   if (req.method === "GET" && path === "/dashboard/bots") {
     // The channel's bot list (channel_bots.ts) — same gate.
     return await handleBotListPage(url, req.headers.get("Cookie"));
@@ -537,6 +549,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/botcheck") {
     return await handleBotCheckForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/music") {
+    return await handleNowPlayingForm(await req.formData(), url.origin, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/bots") {
     return await handleBotListForm(await req.formData(), url.origin, req.headers.get("Cookie"));

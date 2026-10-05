@@ -30,6 +30,7 @@ import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsD
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, purgeChannelBotData } from "./channel_bots.ts";
+import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
@@ -93,6 +94,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAutoBanTables,
   ensureBotDetectTables,
   ensureChannelBotTables,
+  ensureNowPlayingTables,
   ensureAdAlertTables,
   ensureSocialTables,
   ensurePointsTables,
@@ -373,6 +375,7 @@ async function handleRequest(req: Request): Promise<Response> {
       await purgeRaidData(broadcasterId, purge);
       await purgeViewerNames(broadcasterId);
       await purgeReplyPages(broadcasterId);
+      await purgeNowPlayingData(broadcasterId); // Spotify tokens go with the bot, purge or not
       if (purge) {
         await purgeChannelData(broadcasterId);
         await purgeAdData(broadcasterId);

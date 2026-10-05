@@ -21,6 +21,7 @@ export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; widt
   dice: { label: "Roll call", blurb: "Natural 20 and natural 1 leaders. Add &window=hour or &window=week (default: day).", width: 520, height: 260 },
   guild: { label: "Guild summary", blurb: "How many adventurers and parties the guild has, plus its highest-level heroes.", width: 460, height: 320 },
   all: { label: "Everything (stacked)", blurb: "Every panel that has something to show, stacked in one column.", width: 560, height: 1080 },
+  music: { label: "Now playing", blurb: "The song you're playing — from Spotify, or Apple Music through Last.fm — with cover art and (Spotify) a progress bar. Set the source up on your dashboard's 🎵 Now playing page. Hidden while nothing plays. Also available inside the theme: tick \"Now playing\" on the theme card (&music=1).", width: 520, height: 120 },
   idle: { label: "The Endless Delve (idle game)", blurb: "An idle game your chat plays together — a drop-in for Words on Stream. The guild's party fights its way down an endless dungeon on its own; any chat message joins the chatter's hero to the party and lands a strike, \"fireball\" in chat is a big hit and \"bless\" doubles damage. Bosses every 10 floors, a quartermaster who spends the gold, and renown when the party retreats. Saved heroes show their class and hit harder. Progress is kept in OBS between streams. Already inside the theme's Be right back and Just chatting scenes; add it on its own anywhere else. Mods: !delve reset in chat starts it over.", width: 1280, height: 720 },
   rotate: { label: "Everything (rotating)", blurb: "One panel at a time, cycling through whichever have something to show. Change the pace with &cycle=<seconds> (default 12).", width: 560, height: 440 },
 };
@@ -253,6 +254,7 @@ const THEME_BUILDER = `<div class="tb">
 <label>Emblem <select class="tb-mode"><option value="d20">GuildScribe d20</option><option value="d20name">GuildScribe d20 with name banner</option><option value="image">My own image</option><option value="png">PNGtuber (idle + talking images)</option></select></label>
 <label class="tb-img" hidden>Image URL <input type="url" class="tb-idle" placeholder="https://…/emblem.png"></label>
 <label class="tb-png" hidden>Talking image URL <input type="url" class="tb-talk" placeholder="https://…/talking.png"></label>
+<label class="tb-wide"><input type="checkbox" class="tb-music"> Now playing — the song you're playing (Spotify or Apple Music, set up on the dashboard's 🎵 Now playing page), top-left in every scene</label>
 <label>Size <input type="number" class="tb-size" min="80" max="520" step="10" placeholder="auto"> px</label>
 <div class="tb-wide tb-row">Mic <select class="mic-pick"><option value="">Default microphone</option><option value="off">Off (no mic reaction)</option></select><button type="button" class="ghost mic-list">List my microphones</button></div>
 <p class="muted tb-wide">Images need a public link ending in .png, .gif or .webp (a Discord or Imgur image link works). Quiet = dimmer, talking = brighter; a PNGtuber also swaps to the talking image and bobs.</p></div>`;
@@ -295,7 +297,7 @@ function themeLink(ov){const q=(c)=>ov.querySelector(c);const mode=q(".tb-mode")
   q(".tb-img").hidden=mode.startsWith("d20");q(".tb-png").hidden=mode!=="png";
   const idle=q(".tb-idle").value.trim(),talk=q(".tb-talk").value.trim(),size=q(".tb-size").value.trim(),mic=q(".mic-pick").value;
   if(!mode.startsWith("d20")&&idle)link+="&emblem="+encodeURIComponent(idle);if(mode==="d20name")link+="&ribbon=1";if(mode==="png"&&idle&&talk)link+="&talk="+encodeURIComponent(talk);
-  if(size)link+="&size="+encodeURIComponent(size);const view=link;if(mic)link+="&mic="+encodeURIComponent(mic);
+  if(size)link+="&size="+encodeURIComponent(size);if(q(".tb-music").checked)link+="&music=1";const view=link;if(mic)link+="&mic="+encodeURIComponent(mic);
   q(".url code").textContent=link;q("button[data-copy]").dataset.copy=link;
   const fr=q("iframe");const want=view+"&always=1";if(fr.dataset.src!==want){fr.dataset.src=want;fr.src=want}}
 let tbTimer;document.addEventListener("input",(e)=>{const ov=e.target.closest(".ov.full");if(!ov)return;clearTimeout(tbTimer);tbTimer=setTimeout(()=>themeLink(ov),400)});

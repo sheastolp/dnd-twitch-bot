@@ -59,6 +59,7 @@ import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
+import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
@@ -667,6 +668,42 @@ export async function handleBotListForm(form: FormData, baseUrl: string, cookieH
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/bots?${params.toString()}`);
+}
+
+// ── Now playing page (nowplaying.ts), behind the same key + login ──
+
+export async function handleNowPlayingPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderNowPlayingPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    channelKey: String(b?.login || auth.channelId),
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleNowPlayingForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyNowPlayingForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/music?${params.toString()}`);
+}
+
+/** GET /dashboard/music/spotify — off to Spotify to connect (comes back via /spotify/callback). */
+export async function handleSpotifyConnect(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const to = await startSpotifyConnect(auth.channelId, auth.key);
+  if (to) return redirectTo(to);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, error: "Spotify isn't set up on this GuildScribe server yet." });
+  return redirectTo(`${url.origin}/dashboard/music?${params.toString()}`);
 }
 
 // ── Auto-ban word list page (autoban_page.ts), behind the same key + login ──
