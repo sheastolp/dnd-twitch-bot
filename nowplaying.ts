@@ -22,7 +22,8 @@
 //   GET  /dashboard/music/spotify                  starts the Spotify connection
 //   GET  /spotify/callback                         Spotify's OAuth return (the same for every channel)
 //
-// The theme shows it top-left in every scene with &music=1 (overlay_theme.ts).
+// The theme shows it with &music=1 (overlay_theme.ts): top-left in gameplay,
+// under the "Be right back" / "Just chatting" card in those scenes.
 // Lookups are cached a few seconds per channel and shared between identical
 // requests, so any number of open sources cost one Spotify/Last.fm call per
 // NOW_PLAYING_CACHE_MS. Only song details ever leave the server: keys,
@@ -427,7 +428,7 @@ export async function renderNowPlayingPage(d: { broadcasterId: string; broadcast
 <div class="live" id="live"><div class="noart">♪</div><div><b id="lt">Checking…</b><br><span id="la" class="muted"></span></div></div>
 ${done ? "" : `<p class="muted small">Finish the steps above first.</p>`}`);
   const streamStep = (n: number) => stepHtml(n, "stream", "Put it on stream", false,
-    `<p>In OBS, open each GuildScribe theme source (right-click → Properties) and paste the matching link below as its URL — it's your theme with <code>&amp;music=1</code> added. If your links already have other extras on them, just add <code>&amp;music=1</code> to the end instead. The song shows top-left in every scene and hides itself while nothing plays.</p>${overlayLinks}
+    `<p>In OBS, open each GuildScribe theme source (right-click → Properties) and paste the matching link below as its URL — it's your theme with <code>&amp;music=1</code> added. If your links already have other extras on them, just add <code>&amp;music=1</code> to the end instead. The song shows top-left in Gameplay and under the "Be right back" / "Just chatting" message in those scenes, and turns fully transparent while nothing plays.</p>${overlayLinks}
 <p class="muted small">Prefer it somewhere else? Add a new Browser source with the "On its own" link at 520 × 120. All your overlays: <a href="/overlays?channel=${encodeURIComponent(d.broadcasterId)}" target="_blank" rel="noopener">overlay setup page</a>.</p>`);
 
   const lastfmForm = (p: SetupPath) => `<form method="post" action="/dashboard/music" class="grid2">${hidden}<input type="hidden" name="intent" value="lastfm_save"><input type="hidden" name="path" value="${p}">

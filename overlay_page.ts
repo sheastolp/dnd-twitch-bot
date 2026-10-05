@@ -254,7 +254,7 @@ const THEME_BUILDER = `<div class="tb">
 <label>Emblem <select class="tb-mode"><option value="d20">GuildScribe d20</option><option value="d20name">GuildScribe d20 with name banner</option><option value="image">My own image</option><option value="png">PNGtuber (idle + talking images)</option></select></label>
 <label class="tb-img" hidden>Image URL <input type="url" class="tb-idle" placeholder="https://…/emblem.png"></label>
 <label class="tb-png" hidden>Talking image URL <input type="url" class="tb-talk" placeholder="https://…/talking.png"></label>
-<label class="tb-wide"><input type="checkbox" class="tb-music"> Now playing — the song you're playing (Spotify or Apple Music, set up on the dashboard's 🎵 Now playing page), top-left in every scene</label>
+<label class="tb-wide"><input type="checkbox" class="tb-music"> Now playing — the song you're playing (Spotify or Apple Music, set up on the dashboard's 🎵 Now playing page), top-left in Gameplay, under the message in Be right back and Just chatting</label>
 <label>Size <input type="number" class="tb-size" min="80" max="520" step="10" placeholder="auto"> px</label>
 <div class="tb-wide tb-row">Mic <select class="mic-pick"><option value="">Default microphone</option><option value="off">Off (no mic reaction)</option></select><button type="button" class="ghost mic-list">List my microphones</button></div>
 <p class="muted tb-wide">Images need a public link ending in .png, .gif or .webp (a Discord or Imgur image link works). Quiet = dimmer, talking = brighter; a PNGtuber also swaps to the talking image and bobs.</p></div>`;

@@ -55,6 +55,8 @@ export type SceneDef = {
   /** Tavern Talk's height when the scene needs it shorter than the full column. */
   chatH?: number;
   rule?: boolean;
+  /** Now playing (&music=1): centred under the scene's card. Without it, top-left. */
+  music?: Rect;
 };
 
 export const SCENES: Record<string, SceneDef> = {
@@ -69,6 +71,7 @@ export const SCENES: Record<string, SceneDef> = {
     windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
     gate: { x: 1128, y: 112, w: 376, h: 585 },
     card: { kind: "brb", x: 300, y: 722, w: 804, h: 224 },
+    music: { x: 442, y: 936, w: 520, h: 60 }, // under the "Be right back" card, centred on it
     // Under the gate and Tavern Talk, which ends level with the gate.
     tracker: { x: 1128, y: 722, w: 772, h: 224 },
     chatH: 597,
@@ -80,6 +83,7 @@ export const SCENES: Record<string, SceneDef> = {
     tracker: { x: 952, y: 447, w: 552, h: 499 },
     trackerGrow: 1.6,
     card: { kind: "chat", x: 300, y: 622, w: 628, h: 324 },
+    music: { x: 354, y: 876, w: 520, h: 60 }, // under the "Just chatting" card, centred on it
   },
 };
 
