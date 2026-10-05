@@ -132,6 +132,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   botcheck: { section: "Onboarding and support", label: "Bot viewer check (!botcheck)", commands: ["botcheck"] },
   ads: { section: "Onboarding and support", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
   adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
+  // Stream overlays
+  delve: { section: "Stream overlays", label: "The Endless Delve (idle game in the brb & chat scenes, !delve)", commands: ["delve"] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },

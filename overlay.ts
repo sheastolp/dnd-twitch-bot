@@ -22,7 +22,7 @@
 
 import { scrollDoc } from "./scroll_theme.ts";
 import { sqlite } from "./sqlite.ts";
-import { getBroadcaster, getBroadcasterByLogin, getCommandGroupToggles, getDuel, getMonsterDuel, getPartyDuel, getPartyMonsterDuel, isMerchantEnabled, getMerchantListing, listChannelCharacters } from "./db.ts";
+import { getBroadcaster, getBroadcasterByLogin, getCommandGroupToggles, isCommandGroupEnabled, getDuel, getMonsterDuel, getPartyDuel, getPartyMonsterDuel, isMerchantEnabled, getMerchantListing, listChannelCharacters } from "./db.ts";
 import { isPointsEnabled, getTopBalances } from "./points_db.ts";
 import { getDiceLeaderboard } from "./social_db.ts";
 import { getRaidRosterStatus } from "./raid.ts";
@@ -374,8 +374,11 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
 
   if (path === "/overlay/title") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
-    const title = url.searchParams.get("title") === "0" ? undefined : await liveStreamTitle(channel.id);
-    return json({ ok: true, live: channel.live, title });
+    const [title, idle] = await Promise.all([
+      url.searchParams.get("title") === "0" ? undefined : liveStreamTitle(channel.id),
+      isCommandGroupEnabled(channel.id, "delve"), // the theme drops/restores The Endless Delve with the dashboard switch
+    ]);
+    return json({ ok: true, live: channel.live, title, idle });
   }
 
   if (path === "/overlay/nowplaying") {
@@ -423,9 +426,14 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     // The stream title subtitle is only on the brb and chat scenes.
     const withSub = scene === "brb" || scene === "chat";
     const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
-    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live));
+    const idle = await isCommandGroupEnabled(channel.id, "delve");
+    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live, idle));
   }
   if (panel === "music") return html(renderNowPlayingOverlay(channelKey));
+  if (panel === "idle" && !(await isCommandGroupEnabled(channel.id, "delve"))) {
+    // Switched off on the dashboard: an empty, transparent source that checks back every minute.
+    return html(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60"><title>The Endless Delve (off)</title><style>html,body{background:transparent;margin:0}</style></head><body></body></html>`);
+  }
   if (panel === "idle") {
     const live = await liveChannelName(channel);
     let botId = "";

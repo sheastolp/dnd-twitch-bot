@@ -242,7 +242,7 @@ if(subEl&&subQ&&subQ!=="0")setSub(subQ);else if(followSub)setSub(CFG.streamTitle
 let polls=0;
 setInterval(()=>{const withTitle=followSub&&++polls%2===0;
   fetch("/overlay/title?channel="+encodeURIComponent(CFG.channel)+(withTitle?"":"&title=0")).then(r=>r.ok?r.json():null)
-    .then(d=>{if(!d||!d.ok)return;if(!preview)setLive(d.live);if(withTitle)setSub(d.title)}).catch(()=>{})},60000);
+    .then(d=>{if(!d||!d.ok)return;if(!preview)setLive(d.live);if(typeof d.idle==="boolean"&&window.setDelve)window.setDelve(d.idle);if(withTitle)setSub(d.title)}).catch(()=>{})},60000);
 document.getElementById("chatsub").textContent="words from "+CFG.name+"'s common room";
 const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.fontSize=Math.max(12,Math.min(22,330/Math.max(1,title.length)))+"px";
 // The emblem: the d20, or your own image (+ an optional talking image for a PNGtuber).
@@ -367,11 +367,11 @@ async function startMic(){
 startMic();
 ${SCENE_CLIENT}`;
 
-export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = "", live = false): string {
+export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = "", live = false, idle = true): string {
   if (!(sceneKey in SCENES)) sceneKey = "game";
   const scene = SCENES[sceneKey];
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   // Edge shading, all through the same ROUGH filter as the mask: a shadow the

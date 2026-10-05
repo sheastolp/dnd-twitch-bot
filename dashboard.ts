@@ -72,6 +72,7 @@ import {
 } from "./customcommands.ts";
 import { parseIntervalMinutes, sanitizeTimedMessageText, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES } from "./timedmessages.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
+import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
 
 export async function handleDashboardCommand(
   chatMessage: string,
@@ -569,6 +570,10 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       await setNpcChatterEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPC chatter turned ${enabled ? "on" : "off"}.` }, "toggle-npcchatter"));
     }
+    case "quick": {
+      // Quick setup: several feature bundles at once (dashboard_quick.ts).
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: await applyQuickSetup(channelId, form) }, "sec-quick"));
+    }
     case "group_on":
     case "group_off": {
       const group = String(form.get("group") ?? "");
@@ -581,6 +586,48 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
     }
     default:
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Unknown action." }));
+  }
+}
+
+/** Applies a Quick setup form: each bundle whose choice differs from now, switch by switch. Returns the notice. */
+export async function applyQuickSetup(channelId: string, form: FormData): Promise<string> {
+  const states = await loadSwitchStates(channelId);
+  const changes = quickChanges(form, states);
+  if (!changes.length) return "Nothing changed.";
+  for (const [bundle, on] of changes) {
+    for (const sw of bundle.switches) {
+      if (states[sw] === on) continue;
+      await setSwitch(channelId, sw, on);
+      states[sw] = on;
+    }
+  }
+  const summary = changes.map(([b, on]) => `${b.name} ${on ? "on" : "off"}`).join(", ");
+  const needs = missingNeeds(states);
+  return needs.length ? `Saved: ${summary}. Heads-up — ${needs.join("; ")}.` : `Saved: ${summary}.`;
+}
+
+/** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
+async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
+  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard] = await Promise.all([
+    getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
+    isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId), isHoardEnabled(channelId),
+  ]);
+  return { ...groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard };
+}
+
+/** Turns one dashboard switch on or off, dedicated or command group. */
+async function setSwitch(channelId: string, sw: string, on: boolean): Promise<void> {
+  switch (sw) {
+    case "bot": return void await setChannelEnabled(channelId, on);
+    case "market": return void await setMerchantEnabled(channelId, on, on ? Date.now() + randomMerchantIntervalMs() : null);
+    case "chronicle": return void await setChronicleEnabled(channelId, on);
+    case "autoban": return void await setAutoBanEnabled(channelId, on);
+    case "points": return void await setPointsEnabled(channelId, on);
+    case "npc": return void await setNpcEnabled(channelId, on);
+    case "npcchatter": return void await setNpcChatterEnabled(channelId, on);
+    case "hoard": return void await setHoardEnabled(channelId, on);
+    default:
+      if (sw in COMMAND_GROUPS) await setCommandGroupEnabled(channelId, sw, on);
   }
 }
 

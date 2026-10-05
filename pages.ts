@@ -236,4 +236,4 @@ export function renderRosterPage(
 }
 
 // The web dashboard page lives in dashboard_page.ts (size ceiling).
-export { DEDICATED_TOGGLES, renderDashboardLoginGate, renderDashboardPage, type DashboardData } from "./dashboard_page.ts";
+export { DEDICATED_TOGGLES, renderDashboardLoginGate, renderDashboardPage, switchStates, type DashboardData } from "./dashboard_page.ts";

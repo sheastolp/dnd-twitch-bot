@@ -2,6 +2,7 @@
 // to keep files well under Val Town's per-file size ceiling. Re-exported
 // from pages.ts, so importers don't change.
 
+import { QUICK_CSS, renderQuickSetup } from "./dashboard_quick.ts";
 import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
@@ -35,6 +36,15 @@ export interface DashboardData {
   hoardEnabled: boolean;
 }
 
+/** Every switch's current state, keyed like the dashboard's toggles (for Quick setup). */
+export function switchStates(d: DashboardData): Record<string, boolean> {
+  return {
+    ...d.groupToggles,
+    bot: d.botEnabled, market: d.marketEnabled, chronicle: d.chronicleEnabled, autoban: d.autoBanEnabled,
+    points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
+  };
+}
+
 function dashHidden(broadcasterId: string, key: string): string {
   return `<input type="hidden" name="channel" value="${escapeHtml(broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(key)}">`;
 }
@@ -43,7 +53,7 @@ function dashHidden(broadcasterId: string, key: string): string {
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
 export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter", "hoard"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "hug", "logs", "connections"]);
+const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "hug", "logs", "connections", "delve"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
@@ -104,6 +114,7 @@ function renderDashboardIndex(): string {
   return `<nav class="index" aria-label="Dashboard index">
     <div class="index-head"><strong>Index</strong><span class="index-ctl"><button type="button" class="link" data-all="open">Expand all</button> · <button type="button" class="link" data-all="close">Collapse all</button></span></div>
     <ol>
+      <li><a href="#sec-quick">Quick setup</a></li>
       <li><a href="#sec-features">Bot &amp; feature switches</a></li>
       <li><a href="#sec-commands">Custom commands</a></li>
       <li><a href="#sec-triggers">Chat triggers</a></li>
@@ -341,13 +352,14 @@ export function renderDashboardPage(d: DashboardData): string {
     : d.notice
     ? `<p class="banner ok">${escapeHtml(d.notice)}</p>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}${QUICK_CSS}</style></head><body>
   ${scrollOpen()}
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
   <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban words</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
+  ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d))}
   ${renderDashboardIndex()}
   <div class="board-row">
     ${features.switches}

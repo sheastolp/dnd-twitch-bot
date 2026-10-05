@@ -142,9 +142,13 @@ export function sceneUnderHtml(scene: SceneDef): string {
 // Scene behaviour in the client (runs after the theme's own client; h() and Q are in scope).
 export const SCENE_CLIENT = `
 // The Endless Delve in the game window, unless &idle=0 keeps it for a source of your own.
+// The dashboard's switch (CFG.idle, re-checked with the title every minute) drops it and brings it back live.
 const idleOn=Q.get("idle")!=="0";
-for(const f of document.querySelectorAll("[data-idlegame]")){if(!idleOn)f.remove();
-  else f.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=idle&pad=26"+(preview?"&always=1":"")+(Q.get("hide")?"&hide="+encodeURIComponent(Q.get("hide")):"")}
+const idleFrames=[...document.querySelectorAll("[data-idlegame]")];
+const idleSrc="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=idle&pad=26"+(preview?"&always=1":"")+(Q.get("hide")?"&hide="+encodeURIComponent(Q.get("hide")):"");
+window.setDelve=on=>{if(!idleOn)return;on=on||preview;for(const f of idleFrames){f.hidden=!on;
+  if(on&&!f.getAttribute("src")&&!f.dataset.parked)f.src=idleSrc;else if(!on&&f.getAttribute("src")){f.removeAttribute("src");delete f.dataset.parked}}};
+if(!idleOn)idleFrames.forEach(f=>f.remove());else window.setDelve(CFG.idle!==false);
 if(idleOn)document.querySelectorAll("[data-hint][data-idle]").forEach(e=>e.remove());
 if(!preview)document.querySelectorAll("[data-hint]").forEach(e=>e.remove());
 const gl=document.getElementById("gatelabel");if(gl&&Q.get("gate"))gl.textContent=Q.get("gate");
