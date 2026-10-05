@@ -16,8 +16,9 @@
 //     token sits in the party row, +20% party damage each) and lands a strike
 //     (at most one per 1.5 s per chatter). A saved GuildScribe hero hits
 //     harder (+5% per level) and shows its class.
-//   • Plain words in chat: "fireball" (a big hit, once a minute per chatter)
-//     and "bless" (double damage for 20 s, anyone, 90 s cooldown).
+//   • Spell words anywhere in a chat message: "fireball" (a big hit, once a
+//     minute per chatter) and "bless" (double damage for 20 s, anyone, 90 s
+//     cooldown) — both renameable per channel (channel_options.ts).
 //   • The quartermaster spends the gold on his own, cheapest upgrade first.
 //   • Stuck at a boss three times in a row (floor 15+), the party retreats to
 //     the tavern: the run starts over with renown, +20% damage and gold each.
@@ -74,7 +75,7 @@ const DEFAULT_DELVE: DelveOptions = { bossSeconds: 30, killsPerFloor: 5, bigWord
 
 /** `!delve` in chat: how to play, with the channel's own spell words. */
 export function delveHelpText(display: string, o: DelveOptions = DEFAULT_DELVE): string {
-  return `@${display} 🕯️ The Endless Delve is on screen — the guild fights its way down on its own, and chat makes it faster: any message joins you to the party and lands a strike, "${o.bigWord}" in chat is a big hit, "${o.buffWord}" doubles everyone's damage for 20 s. A saved hero (!createchar) hits harder.`;
+  return `@${display} 🕯️ The Endless Delve is on screen — the guild fights its way down on its own, and chat makes it faster: any message joins you to the party and lands a strike, "${o.bigWord}" anywhere in a message is a big hit, "${o.buffWord}" doubles everyone's damage for 20 s. A saved hero (!createchar) hits harder.`;
 }
 
 const STYLE = String.raw`
@@ -175,7 +176,8 @@ function fmt(n){if(!isFinite(n))return "∞";if(n<1000)return String(Math.floor(
 const OPT=CFG.opts||{};
 const KILLS_PER_FLOOR=OPT.killsPerFloor||5,BOSS_EVERY=10,BOSS_SECONDS=OPT.bossSeconds||30,BOSS_HP=6,FARM_KILLS=10,RETREAT_FAILS=3,RETREAT_MIN_FLOOR=15;
 const ACTIVE_MS=10*60000,STRIKE_GAP_MS=1500,FIREBALL_CD_MS=(OPT.bigCooldown||60)*1000,BLESS_MS=20000,BLESS_CD_MS=(OPT.buffCooldown||90)*1000,
-  BIG_WORD=OPT.bigWord||"fireball",BUFF_WORD=OPT.buffWord||"bless",firstWord=t=>t.split(/\s+/)[0].replace(/[^a-z0-9]/g,""),AWAY_MAX_S=8*3600,AWAY_SHARE=.25;
+  BIG_WORD=OPT.bigWord||"fireball",BUFF_WORD=OPT.buffWord||"bless",// A spell word counts anywhere in a message, as a whole word ("ok FIREBALL!" yes, "blessing" no).
+  hasWord=(t,w)=>t.split(/[^a-z0-9]+/).includes(w),AWAY_MAX_S=8*3600,AWAY_SHARE=.25;
 const UPS=[
   {k:"sword",icon:"🗡️",name:"Sellswords",base:10,grow:1.13,what:"+2 party damage/s"},
   {k:"banner",icon:"🚩",name:"War banner",base:30,grow:1.2,what:"+4 to every chat strike"},
@@ -302,11 +304,10 @@ function act(login,name,color,text,isMod){
     const lv=heroLevel(login);say(["🎒 ",{b:name}," joins the delve"+(lv?" — a level "+lv+" "+gsHeroes[login][0]:"")+"!"])}
   x.name=name;x.color=color;x.last=now;
   emit("swing",login);
-  if(firstWord(word)===BIG_WORD){
-    if(now>=x.nextFireball){x.nextFireball=now+FIREBALL_CD_MS;const d=strikeDmg(login)*12;hitMonster(d);emit("mon","hit");
-      emit("float","🔥 "+fmt(d),name,"big");say(["🔥 ",{b:name}," hurls a Fireball for "+fmt(d)+"!"]);addMvp(login,name,d);return}}
-  else if(firstWord(word)===BUFF_WORD){
-    if(now>=blessReady){blessUntil=now+BLESS_MS;blessReady=now+BLESS_CD_MS;say(["✨ ",{b:name}," blesses the party — double damage for 20 s!"]);emit("banner","Blessed!",name+" calls on the gods — ×2 damage")}}
+  // Both spells can land from one message; the buff goes first so the big hit gets its ×2.
+  if(hasWord(word,BUFF_WORD)&&now>=blessReady){blessUntil=now+BLESS_MS;blessReady=now+BLESS_CD_MS;say(["✨ ",{b:name}," blesses the party — double damage for 20 s!"]);emit("banner","Blessed!",name+" calls on the gods — ×2 damage")}
+  if(hasWord(word,BIG_WORD)&&now>=x.nextFireball){x.nextFireball=now+FIREBALL_CD_MS;const d=strikeDmg(login)*12;hitMonster(d);emit("mon","hit");
+    emit("float","🔥 "+fmt(d),name,"big");say(["🔥 ",{b:name}," hurls a Fireball for "+fmt(d)+"!"]);addMvp(login,name,d);return}
   if(now>=x.nextStrike){x.nextStrike=now+STRIKE_GAP_MS;const d=strikeDmg(login);hitMonster(d);emit("mon","hit");emit("float",fmt(d),name);addMvp(login,name,d)}}
 function addMvp(login,name,d){const m=S.mvp[login]||(S.mvp[login]={n:name,d:0});m.n=name;m.d+=d}
 
@@ -409,7 +410,7 @@ export function renderIdlePage(channelKey: string, login: string, name: string, 
 <section id="arena"><div id="floorline"></div><div id="pips"></div><div id="mon"></div><div id="mname"></div>
 <div class="bar"><i id="hpfill"></i><span id="hptext"></span></div><div id="timer"><i></i></div></section>
 <section class="card" id="log"><h2>Chronicle</h2><div id="feed"></div>
-<div class="how"><b>Chat to join</b> — every message strikes. Type <b>${escapeHtml(opts.bigWord)}</b> for a big hit or <b>${escapeHtml(opts.buffWord)}</b> for ×2 damage.</div></section>
+<div class="how"><b>Chat to join</b> — every message strikes. Say <b>${escapeHtml(opts.bigWord)}</b> anywhere in a message for a big hit, or <b>${escapeHtml(opts.buffWord)}</b> for ×2 damage.</div></section>
 <section class="card" id="party"><h2>The Party <span id="partyhint"></span></h2><div id="tokens"></div><div id="mvp"></div></section>
 <div id="banner"></div>
 </div><script>window.__IDLE__=${cfgJson};${CLIENT}</script></body></html>`;
