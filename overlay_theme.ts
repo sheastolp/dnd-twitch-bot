@@ -31,7 +31,8 @@
 // &hidecmds=1 to leave out "!command" messages, &goldboard=0 to drop the
 // goldboard from under Tavern Talk, &status=0 to drop the strip,
 // &sounds=0 to drop Sound Bytes (built into every scene; &volume=0-100 and
-// &caption=0 go to it — it only plays while its scene is showing),
+// &caption=0 go to it — it only plays while its scene is showing; in brb and
+// chat its card pops up in the Dungeon Gate),
 // &mic=<part of the mic's name> to pick which microphone lights the emblem
 // (default: the system default mic; &mic=off turns it off), &micfloor=<dB>
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
@@ -57,7 +58,7 @@
 import { escapeHtml } from "./utils.ts";
 import { NOW_PLAYING_CLIENT } from "./nowplaying.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
-import { SCENES, SCENE_CLIENT, SCENE_CSS, sceneHtml, sceneUnderHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
+import { SCENES, SCENE_CLIENT, SCENE_CSS, box, sceneHtml, sceneUnderHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
 
 const W = 1920, H = 1080;
 
@@ -210,8 +211,10 @@ const STYLE = `
 .np .song{font:700 21px/1.15 Cinzel,Georgia,serif;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 .np .by{font:italic 17px/1.15 "EB Garamond",Georgia,serif;color:#6b4a22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .np .bar{height:2px;margin-top:4px;background:#c99a2e40;overflow:hidden}.np .bar i{display:block;height:100%;width:0;background:var(--gold)}
-/* Sound Bytes (soundbytes.ts): see-through and click-through over the whole sheet; its card pops up just above the status strip. */
+/* Sound Bytes (soundbytes.ts): see-through and click-through over the whole sheet; its card pops up just above the status strip.
+   In scenes with a Dungeon Gate (brb, chat) it sits inside the gate instead (inline style) and its card is centred there. */
 .sfx{position:absolute;left:0;top:0;width:${W}px;height:${H - 130}px;border:0;background:transparent;pointer-events:none;z-index:50}
+.gate .empty{transition:opacity .3s}.gate.sfx-on .empty{opacity:0}
 .status{position:absolute;left:290px;bottom:46px;width:${W - 290 - 12}px;height:70px;border:0;background:transparent}
 .rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
@@ -274,12 +277,16 @@ const statusEl=document.getElementById("status");
 if(statusEl){if(Q.get("status")==="0")statusEl.remove();
   else statusEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10&next=1"+(preview?"&always=1":"")}
 // Sound Bytes, in every scene: plays the sounds chat sets off with !sound and
-// pops its card up over the sheet. &sounds=0 drops it (e.g. when the stand-alone
-// Sound Bytes source is already in the scene); &volume / &caption=0 pass through.
+// pops its card up over the sheet — in the Dungeon Gate where the scene has one
+// (brb, chat), its "Adventures appear here" line fading while a card is up.
+// &sounds=0 drops it (e.g. when the stand-alone Sound Bytes source is already
+// in the scene); &volume / &caption=0 pass through.
 // Left out of the setup-page preview so the sample card doesn't cover the theme.
-const sfxEl=document.getElementById("sfx");
+const sfxEl=document.getElementById("sfx"),sfxGate=sfxEl&&sfxEl.dataset.gate!=null?document.querySelector(".gate"):null;
 if(Q.get("sounds")==="0"||preview)sfxEl.remove();
-else{const vol=Q.get("volume");sfxEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=sounds&quiet=1"+(vol!=null&&/^\\d{1,3}$/.test(vol)?"&volume="+vol:"")+(Q.get("caption")==="0"?"&caption=0":"")}
+else{const vol=Q.get("volume");sfxEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=sounds&quiet=1"+(sfxGate?"&fit=1":"")+(vol!=null&&/^\\d{1,3}$/.test(vol)?"&volume="+vol:"")+(Q.get("caption")==="0"?"&caption=0":"");
+  // A reload (parked off-air and back) never sends the "card gone" message, so clear it then.
+  if(sfxGate){sfxEl.addEventListener("load",()=>sfxGate.classList.remove("sfx-on"));addEventListener("message",e=>{if(e.origin===location.origin&&e.source===sfxEl.contentWindow&&e.data&&"soundbyte" in e.data)sfxGate.classList.toggle("sfx-on",!!e.data.soundbyte)})}}
 // OBS keeps every scene's browser sources running; the embedded panels (the
 // status strip, the Battle Tracker, the goldboard, The Endless Delve, Sound Bytes) can't hear OBS's events, so park them while this scene
 // isn't showing and bring them back when it is.
@@ -410,6 +417,6 @@ ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status
 <div class="np off${scene.music ? " under" : ""}" id="np"${scene.music ? ` style="left:${scene.music.x}px;top:${scene.music.y}px;width:${scene.music.w}px;height:${scene.music.h}px"` : ""}><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
-<iframe class="sfx" id="sfx" title="Sound Bytes" scrolling="no" allow="autoplay"></iframe>
+<iframe class="sfx" id="sfx" title="Sound Bytes" scrolling="no" allow="autoplay"${scene.gate ? ` data-gate style="${box({ x: scene.gate.x + 8, y: scene.gate.y + 18, w: scene.gate.w - 16, h: scene.gate.h - 26 })}"` : ""}></iframe>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;
 }

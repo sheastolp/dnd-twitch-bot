@@ -244,7 +244,9 @@ const SoundSynth=(function(){
 
 /** The Sound Bytes overlay: see-through until a sound plays, then a card at
  * the bottom centre while it plays. `always` (setup-page preview) shows a
- * sample card and never connects to chat. */
+ * sample card and never connects to chat. &fit=1 (the theme's Dungeon Gate)
+ * centres the card in the frame instead, stacked, shrunk to fit if need be,
+ * and tells the parent page while it's up (postMessage {soundbyte: bool}). */
 export function renderSoundBytesOverlay(channelKey: string, login: string, botId: string, always: boolean): string {
   const cfg = {
     login: login.toLowerCase(),
@@ -270,6 +272,8 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
 .pop .icon{font-size:54px;line-height:1;filter:drop-shadow(0 0 14px rgba(245,200,115,.5))}
 .pop .name{font-family:Cinzel,serif;font-weight:800;font-size:30px;line-height:1.1;color:#f5c873}
 .pop .line{font-size:18px;font-weight:500;color:#e9dcc8;margin-top:4px;overflow-wrap:anywhere}
+.fit .stage{top:0;bottom:0;align-items:center;padding:12px}
+.fit .pop{flex-direction:column;text-align:center;gap:10px;padding:18px 22px;max-width:100%}
 .status{position:fixed;top:12px;left:12px;font:600 14px Inter,system-ui,sans-serif;padding:8px 12px;border-radius:10px;background:rgba(0,0,0,.7);color:#b9a68f}
 .status b{color:#f5c873}
 </style></head><body>
@@ -283,11 +287,18 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
   const caption=q.get("caption")!=="0";
   const debug=q.get("debug")==="1";
   const quiet=q.get("quiet")==="1"&&!debug; // embedded in the theme: no connection chip
+  const fit=q.get("fit")==="1";
+  if(fit)document.body.classList.add("fit");
+  const stage=document.querySelector(".stage");
+  const tell=(on)=>{if(fit&&parent!==window)try{parent.postMessage({soundbyte:on},location.origin)}catch(e){}};
   const MAX_QUEUE=5;
   // Anchored to the start of GuildScribe's own message (see soundbytes.ts).
   const TAG=/^\\u{1F50A}\\s*!?([a-z0-9_-]{2,25})/iu;
   const pop=document.getElementById("pop"),status=document.getElementById("status");
-  const show=(id,line)=>{const s=CFG.sounds[id];document.getElementById("pop-icon").textContent=s.icon;document.getElementById("pop-name").textContent=s.name;document.getElementById("pop-line").textContent=line;pop.classList.add("show")};
+  const show=(id,line)=>{const s=CFG.sounds[id];document.getElementById("pop-icon").textContent=s.icon;document.getElementById("pop-name").textContent=s.name;document.getElementById("pop-line").textContent=line;
+    // In a frame (&fit=1), shrink the card until it fits.
+    if(fit){stage.style.transform="none";const k=Math.min(1,(innerWidth-24)/Math.max(1,pop.offsetWidth),(innerHeight-24)/Math.max(1,pop.offsetHeight));stage.style.transform="scale("+k.toFixed(3)+")"}
+    pop.classList.add("show");tell(true)};
   if(CFG.always){show("nat20","A sound plays here, with this card, when chat types !sound <name>.");return}
 
   let hideStatus;
@@ -298,7 +309,7 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
   function enqueue(id,line){if(!CFG.sounds[id]||queue.length>=MAX_QUEUE)return;queue.push({id,line});if(!playing)next()}
   function next(){const item=queue.shift();if(!item){playing=false;return}playing=true;
     const s=CFG.sounds[item.id];SoundSynth.play(item.id,s.len,volume);if(caption)show(item.id,item.line);
-    const shown=Math.max(s.len,3)*1000;setTimeout(()=>pop.classList.remove("show"),shown);setTimeout(next,shown+450)}
+    const shown=Math.max(s.len,3)*1000;setTimeout(()=>{pop.classList.remove("show");tell(false)},shown);setTimeout(next,shown+450)}
 
   // Twitch chat over WebSocket, as an anonymous "justinfan" reader.
   let ws,backoff=1000,pingTimer;

@@ -25,7 +25,8 @@
 // Windows are cut out of the paper, so their sources go *below* the theme in
 // OBS (the torn edge overlaps them). The Dungeon Gate is drawn on the paper,
 // so pop-up overlays go *above* the theme and sit inside it; when nothing is
-// playing the gate is just a quiet frame. Positions are on the 1920×1080
+// playing the gate is just a quiet frame. The theme's own Sound Bytes card
+// (soundbytes.ts) pops up in the gate too. Positions are on the 1920×1080
 // canvas and listed on the /overlays setup page.
 //
 // The Endless Delve is drawn by the theme itself, under the paper in its
