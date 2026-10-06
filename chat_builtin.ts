@@ -11,7 +11,8 @@ import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
-import { formatRaceName, formatStatLine, resolveCheckKind, modifier, logRowText } from "./utils.ts";
+import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText } from "./utils.ts";
+import { DEFAULT_DC, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice } from "./dice.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
@@ -172,7 +173,9 @@ export async function handleBuiltinChatCommand(ctx: {
       rest = targetMatch[2].trim();
     }
 
-    const checkKind = rest ? resolveCheckKind(rest) : null;
+    // A saving throw may name a DC: !roll dex dc15 (or !roll dex 15).
+    const check = rest ? resolveCheckWithDc(rest) : null;
+    const checkKind = check?.kind ?? null;
 
     // Fate question: "!roll is enya going to die this time?" — only once rest
     // has already failed to resolve as a saving throw/skill check, isn't
@@ -188,6 +191,7 @@ export async function handleBuiltinChatCommand(ctx: {
       let expression: string;
       let label: string | undefined;
       let checkOwnerMissing: string | null = null;
+      let saveOwner: { username: string; displayName: string } | null = null;
 
       if (checkKind) {
         const owner = (rollTarget || chatter).toLowerCase();
@@ -201,6 +205,7 @@ export async function handleBuiltinChatCommand(ctx: {
           const total = abilityMod + (proficient ? c.proficiency : 0);
           expression = `1d20${total === 0 ? "" : total > 0 ? `+${total}` : `${total}`}`;
           label = checkKind.label;
+          if (checkKind.type === "save") saveOwner = { username: owner, displayName: rollTarget ?? display };
         }
       } else {
         expression = rest || "1d20";
@@ -229,13 +234,32 @@ export async function handleBuiltinChatCommand(ctx: {
               result.rawD20 === 20 ? "nat20" : "nat1",
             );
           }
+          // Saving throws feed the tally under the theme's brb/chat cards (savingthrows.ts).
+          let verdict = "";
+          if (saveOwner && checkKind && result.rawD20 !== null) {
+            const dc = check?.dc ?? DEFAULT_DC;
+            await recordSavingThrow(broadcasterId, saveOwner, checkKind.ability, result.rawD20, result.total, dc);
+            if (check?.dc) verdict = result.total >= dc ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`;
+          }
           if (rollTarget) {
-            await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result.text}`, broadcasterId);
+            await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result.text}${verdict}`, broadcasterId);
           } else {
-            await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
+            await sendChatMessage(`@${display} ${result.text}${verdict}`, broadcasterId);
           }
         }
       }
+    }
+  } else if (/^!saves(?:\s+.*)?$/i.test(chatMessage)) {
+    // !saves — this stream's saving throws tally; !saves reset (mod) starts it over.
+    if (/^!saves\s+reset\b/i.test(chatMessage)) {
+      if (!isModerator) {
+        await sendChatMessage(`@${display} only the broadcaster or a moderator can reset the saving throws tally.`, broadcasterId);
+      } else {
+        await resetSavingThrowTally(broadcasterId);
+        await sendChatMessage(`@${display} 🛡️ Saving throws tally reset — a fresh page in the ledger.`, broadcasterId);
+      }
+    } else {
+      await sendChatMessage(`@${display} ${savingThrowTallyText(await getSavingThrowTally(broadcasterId))}`, broadcasterId);
     }
   } else if (/^!rollcall(?:\s+.*)?$/i.test(chatMessage)) {
     // !rollcall [nat1|nat20] [hour|day|week] — natural 1/20 standings

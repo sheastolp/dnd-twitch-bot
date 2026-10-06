@@ -139,5 +139,5 @@ export function rollDice(input = "1d20", customLabel?: string) {
   // change it, since the modifier isn't part of the natural result. null for
   // anything that isn't a single d20 (e.g. 2d6, 4d8). Callers use this to
   // log leaderboard events without re-parsing the formatted text.
-  return { text, rawD20 };
+  return { text, rawD20, total };
 }
