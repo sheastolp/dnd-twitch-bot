@@ -39,8 +39,9 @@
 //
 // Now playing: &music=1 adds the song you're playing (Spotify, or Apple Music
 // through Last.fm — set up on the dashboard's 🎵 Now playing page): top-left
-// in gameplay, centred under the "Be right back" / "Just chatting" card in
-// those scenes; fully transparent while nothing plays (nowplaying.ts).
+// in gameplay, under the Battle Tracker in "Be right back", and above the
+// emblem, left of the card, in "Just chatting"; fully transparent while
+// nothing plays (nowplaying.ts).
 //
 // Emblem: &emblem=<image URL> (or the older &logo=) replaces the d20 with your
 // own badge or PNGtuber; add &talk=<image URL> and it swaps to that image
@@ -200,11 +201,14 @@ const STYLE = `
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
   font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
-/* Now playing (&music=1): top-left in gameplay; under the card in brb and chat (scene.music).
+/* Now playing (&music=1): top-left in gameplay; where brb and chat put it (scene.music) — under the tracker in brb,
+   stacked (art over the song) above the emblem in chat.
    Fully transparent while nothing plays — faded out, then hidden. */
 .np{position:absolute;left:72px;top:49px;width:520px;height:60px;display:flex;align-items:center;gap:12px;transition:opacity .6s ease,transform .6s ease,visibility 0s}
 .np.off{opacity:0;visibility:hidden;transform:translateY(-6px);transition:opacity .6s ease,transform .6s ease,visibility 0s .6s}
 .np.under{justify-content:center}.np.under .t{flex:0 1 auto}
+.np.stack{flex-direction:column;gap:8px;text-align:center}.np.stack .t{flex:none;width:100%}
+.np.stack img{width:72px;height:72px}.np.stack .song{font-size:19px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .np img{width:56px;height:56px;flex:none;border-radius:5px;object-fit:cover;box-shadow:0 0 0 1px #c99a2e,0 3px 8px #5a3a0f55;background:#e8d49a}
 .np .t{min-width:0;flex:1}
 .np .k{font:600 12px/1 Cinzel,Georgia,serif;letter-spacing:.14em;text-transform:uppercase;color:#a98235}
@@ -414,7 +418,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
-<div class="np off${scene.music ? " under" : ""}" id="np"${scene.music ? ` style="left:${scene.music.x}px;top:${scene.music.y}px;width:${scene.music.w}px;height:${scene.music.h}px"` : ""}><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>
+<div class="np off${scene.music ? " under" : ""}${scene.music?.stack ? " stack" : ""}" id="np"${scene.music ? ` style="left:${scene.music.x}px;top:${scene.music.y}px;width:${scene.music.w}px;height:${scene.music.h}px"` : ""}><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>
 <div class="roller top"></div><div class="roller bot"></div>
 <div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
 <iframe class="sfx" id="sfx" title="Sound Bytes" scrolling="no" allow="autoplay"${scene.gate ? ` data-gate style="${box({ x: scene.gate.x + 8, y: scene.gate.y + 18, w: scene.gate.w - 16, h: scene.gate.h - 26 })}"` : ""}></iframe>

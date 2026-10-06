@@ -59,8 +59,9 @@ export type SceneDef = {
   /** Tavern Talk's height when the scene needs it shorter than the full column. */
   chatH?: number;
   rule?: boolean;
-  /** Now playing (&music=1): centred under the scene's card. Without it, top-left. */
-  music?: Rect;
+  /** Now playing (&music=1): where the scene puts it, centred in this box —
+   * stacked (art above the song) when the box is narrow. Without it, top-left. */
+  music?: Rect & { stack?: boolean };
 };
 
 export const SCENES: Record<string, SceneDef> = {
@@ -76,7 +77,7 @@ export const SCENES: Record<string, SceneDef> = {
     gate: { x: 1128, y: 112, w: 376, h: 585 },
     gateCentered: true,
     card: { kind: "brb", x: 300, y: 722, w: 804, h: 224 },
-    music: { x: 442, y: 936, w: 520, h: 60 }, // under the "Be right back" card, centred on it
+    music: { x: 1254, y: 960, w: 520, h: 60 }, // under the Battle Tracker, centred on it
     // Under the gate and Tavern Talk, which ends level with the gate.
     tracker: { x: 1128, y: 722, w: 772, h: 224 },
     chatH: 597,
@@ -89,7 +90,8 @@ export const SCENES: Record<string, SceneDef> = {
     tracker: { x: 952, y: 447, w: 552, h: 499 },
     trackerGrow: 1.6,
     card: { kind: "chat", x: 300, y: 622, w: 628, h: 324 },
-    music: { x: 354, y: 876, w: 520, h: 60 }, // under the "Just chatting" card, centred on it
+    // Left of the "Just chatting" card, above the emblem (centred on it), art over the song.
+    music: { x: 27, y: 636, w: 240, h: 156, stack: true },
   },
 };
 
