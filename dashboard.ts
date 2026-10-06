@@ -60,6 +60,7 @@ import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
+import { applySoundsForm, renderSoundsPage } from "./soundbytes_page.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
@@ -823,6 +824,36 @@ export async function handleNowPlayingForm(form: FormData, baseUrl: string, cook
   if (result?.path) params.set("path", result.path);
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/music?${params.toString()}`);
+}
+
+// ── Sound Bytes: the channel's own sounds (soundbytes_page.ts), behind the same key + login ──
+
+export async function handleSoundsPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderSoundsPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    q: url.searchParams.get("q") ?? undefined,
+    repo: url.searchParams.get("repo") ?? undefined,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleSoundsForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applySoundsForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  const q = String(form.get("q") ?? "").trim();
+  if (q) params.set("q", q);
+  if (form.get("repo")) params.set("repo", String(form.get("repo")));
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/sounds?${params.toString()}`);
 }
 
 /** GET /dashboard/music/spotify — off to Spotify to connect (comes back via /spotify/callback). */

@@ -54,6 +54,7 @@ import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
+import { ensureCustomSoundTables, purgeCustomSounds } from "./soundbytes_library.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -115,6 +116,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureBestiaryTables,
   ensureChecklistTables,
   ensureSoundByteTables,
+  ensureCustomSoundTables,
   ensureHoardTables,
   ensureBattleLogTables,
   ensureSavingThrowTables,
@@ -400,6 +402,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeBestiaryData(broadcasterId);
         await purgeChecklistData(broadcasterId);
         await purgeSoundByteData(broadcasterId);
+        await purgeCustomSounds(broadcasterId);
         await purgeHoardData(broadcasterId);
         await purgeSavingThrowData(broadcasterId);
       } else {

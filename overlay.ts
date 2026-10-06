@@ -14,6 +14,8 @@
 //   GET /overlay/idle?channel=<id|login>             its list of the channel's heroes (class, level)
 //   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
+//   GET /overlay/sounds?channel=<id|login>           the channel's own sounds (soundbytes_library.ts), for an open Sound Bytes overlay
+//   GET /overlay/soundfile?channel=<id|login>&name=<sound>   one of them, when its file is stored here
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -38,6 +40,7 @@ import { getDelveOptions, getIdleHeroes, renderIdlePage } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
+import { customSoundSrc, listCustomSounds, serveCustomSoundFile } from "./soundbytes_library.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
@@ -376,8 +379,12 @@ const json = (body: unknown, status = 200) =>
   });
 
 /** Overlay routes; null when the path isn't one of them. */
+async function customSoundsForOverlay(channelId: string) {
+  return (await listCustomSounds(channelId)).map((c) => ({ id: c.name, name: c.title, icon: c.icon, src: customSoundSrc(channelId, c) }));
+}
+
 export async function handleOverlayRoute(req: Request, url: URL, path: string): Promise<Response | null> {
-  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying")) return null;
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying" || path === "/overlay/sounds" || path === "/overlay/soundfile")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
 
   if (path === "/overlay/title") {
@@ -392,6 +399,16 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   if (path === "/overlay/nowplaying") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
     return json({ ok: true, track: await getNowPlaying(channel.id) });
+  }
+
+  if (path === "/overlay/sounds") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    return json({ ok: true, sounds: await customSoundsForOverlay(channel.id) });
+  }
+
+  if (path === "/overlay/soundfile") {
+    if (!channel) return new Response("Unknown or disconnected channel.", { status: 404 });
+    return await serveCustomSoundFile(channel.id, String(url.searchParams.get("name") ?? "").toLowerCase());
   }
 
   if (path === "/overlay/idle") {
@@ -450,7 +467,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const live = await liveChannelName(channel);
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: nothing can be recognized as GuildScribe, so nothing plays */ }
-    return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1"));
+    return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1", channel.id, await customSoundsForOverlay(channel.id)));
   }
   if (panel === "idle") {
     const live = await liveChannelName(channel);

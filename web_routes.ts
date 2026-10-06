@@ -14,7 +14,7 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleSoundsPage, handleSoundsForm } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
@@ -356,6 +356,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Now playing settings (nowplaying.ts) — same gate.
     return await handleNowPlayingPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/sounds") {
+    // Sound Bytes: the channel's own sounds (soundbytes_page.ts) — same gate.
+    return await handleSoundsPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/music/spotify") {
     return await handleSpotifyConnect(url, req.headers.get("Cookie"));
   }
@@ -585,6 +589,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/music") {
     return await handleNowPlayingForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/sounds") {
+    return await handleSoundsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/bots") {
     return await handleBotListForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

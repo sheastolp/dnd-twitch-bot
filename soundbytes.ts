@@ -20,11 +20,17 @@
 // Tavernworks page's setup working unchanged. Dashboard switch "soundbytes"
 // (on by default): off silences !sound and turns the overlay into an empty
 // source that checks back every minute.
+//
+// Channels add their own sounds too (soundbytes_library.ts): picked from
+// online sound repositories or added as a file on /dashboard/sounds, then
+// played with !sound <name> like the built-in ones. !sound credit <name>
+// posts where a sound came from (Creative Commons BY needs the credit).
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { getCustomCommand, isCommandGroupEnabled } from "./db.ts";
 import { escapeHtml } from "./utils.ts";
+import { getCustomSound, listCustomSounds, MAX_PLAY_SECONDS, type CustomSound } from "./soundbytes_library.ts";
 
 export type SoundByte = { id: string; cmd: string; name: string; icon: string; blurb: string; line: string; len: number };
 
@@ -56,6 +62,12 @@ export function findSoundByte(word: string): SoundByte | undefined {
   if (!w) return undefined;
   return SOUND_BYTES.find((s) => s.id === w || s.cmd === w || s.name.toLowerCase().replace(/\s+/g, "") === w);
 }
+
+/** Words !sound takes itself, so a channel's own sound can't be called them. */
+const SUBCOMMANDS = new Set(["list", "help", "cooldown", "cd", "credit", "credits"]);
+
+/** True when a custom sound can't use `name`: a built-in sound or a !sound word. */
+export const isReservedSoundName = (name: string) => SUBCOMMANDS.has(name) || Boolean(findSoundByte(name));
 
 export async function ensureSoundByteTables() {
   await sqlite.execute(
@@ -106,7 +118,11 @@ async function setCooldown(broadcasterId: string, seconds: number) {
   );
 }
 
-const soundList = () => SOUND_BYTES.map((s) => `${s.icon} ${s.cmd}`).join(" | ");
+const soundList = (custom: CustomSound[] = []) =>
+  [...SOUND_BYTES.map((s) => `${s.icon} ${s.cmd}`), ...custom.map((c) => `${c.icon} ${c.name}`)].join(" | ");
+
+/** The chat line that plays a channel's own sound. */
+export const customSoundLine = (c: CustomSound, display: string) => `🔊 ${c.name} ${display} plays ${c.title}!`;
 
 /** The chat line that plays `s` on the overlay. The tag must lead the message. */
 export const soundByteLine = (s: SoundByte, display: string) => `🔊 ${s.id} ${s.line.replaceAll("{user}", display)}`;
@@ -129,7 +145,30 @@ export async function handleSoundByteCommand(
   const overlayHint = `Plays on stream through the Sound Bytes overlay (mods: !overlays).`;
 
   if (!arg || /^(list|help)$/i.test(arg)) {
-    await sendChatMessage(`@${display} 🔊 Sound Bytes — !sound <name>: ${soundList()}. ${overlayHint}`, broadcasterId);
+    const custom = await listCustomSounds(broadcasterId);
+    await sendChatMessage(`@${display} 🔊 Sound Bytes — !sound <name>: ${soundList(custom)}. ${overlayHint}`, broadcasterId);
+    return true;
+  }
+
+  const credit = arg.match(/^credits?(?:\s+(\S+))?$/i);
+  if (credit) {
+    const custom = await listCustomSounds(broadcasterId);
+    if (!credit[1]) {
+      const credited = custom.filter((c) => c.credit);
+      await sendChatMessage(
+        credited.length
+          ? `@${display} 🔊 Sound credits: ${credited.map((c) => `${c.name}: ${c.credit}`).join(" · ")}`.slice(0, 480)
+          : `@${display} 🔊 The built-in sounds are GuildScribe's own${custom.length ? ", and this channel's own sounds carry no credits" : ""}.`,
+        broadcasterId,
+      );
+      return true;
+    }
+    const name = credit[1].toLowerCase();
+    const c = custom.find((x) => x.name === name);
+    await sendChatMessage(
+      c ? `@${display} 🔊 ${c.name}: ${c.credit || "no credit given"}${c.pageUrl ? ` — ${c.pageUrl}` : ""}` : findSoundByte(name) ? `@${display} 🔊 ${name} is one of GuildScribe's own built-in sounds.` : `@${display} no sound by that name.`,
+      broadcasterId,
+    );
     return true;
   }
 
@@ -156,8 +195,9 @@ export async function handleSoundByteCommand(
   }
 
   const sound = findSoundByte(arg) ?? findSoundByte(arg.split(/\s+/)[0]);
-  if (!sound) {
-    await sendChatMessage(`@${display} no sound by that name. Try: ${soundList()}.`, broadcasterId);
+  const own = sound ? null : await getCustomSound(broadcasterId, arg.split(/\s+/)[0].toLowerCase().replace(/^🔊/, ""));
+  if (!sound && !own) {
+    await sendChatMessage(`@${display} no sound by that name. Try: ${soundList(await listCustomSounds(broadcasterId))}.`, broadcasterId);
     return true;
   }
   const { cooldown, lastAt } = await getSettings(broadcasterId);
@@ -168,7 +208,7 @@ export async function handleSoundByteCommand(
     await sendChatMessage(`@${display} the bard is catching their breath — next sound in ${wait}s.`, broadcasterId);
     return true;
   }
-  await sendChatMessage(soundByteLine(sound, display), broadcasterId);
+  await sendChatMessage(sound ? soundByteLine(sound, display) : customSoundLine(own!, display), broadcasterId);
   return true;
 }
 
@@ -246,13 +286,27 @@ const SoundSynth=(function(){
  * the bottom centre while it plays. `always` (setup-page preview) shows a
  * sample card and never connects to chat. &fit=1 (the theme's Dungeon Gate)
  * centres the card in the frame instead, stacked, shrunk to fit if need be,
- * and tells the parent page while it's up (postMessage {soundbyte: bool}). */
-export function renderSoundBytesOverlay(channelKey: string, login: string, botId: string, always: boolean): string {
+ * and tells the parent page while it's up (postMessage {soundbyte: bool}).
+ * `custom` are the channel's own sounds (soundbytes_library.ts), played from
+ * `src`; one added after the page loaded is fetched from /overlay/sounds. */
+export function renderSoundBytesOverlay(
+  channelKey: string,
+  login: string,
+  botId: string,
+  always: boolean,
+  channelId = "",
+  custom: Array<{ id: string; name: string; icon: string; src: string }> = [],
+): string {
   const cfg = {
     login: login.toLowerCase(),
     botId,
     always,
-    sounds: Object.fromEntries(SOUND_BYTES.map((s) => [s.id, { name: s.name, icon: s.icon, len: s.len }])),
+    channel: channelId,
+    maxPlay: MAX_PLAY_SECONDS,
+    sounds: {
+      ...Object.fromEntries(custom.map((c) => [c.id, { name: c.name, icon: c.icon, src: c.src }])),
+      ...Object.fromEntries(SOUND_BYTES.map((s) => [s.id, { name: s.name, icon: s.icon, len: s.len }])),
+    },
   };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
@@ -304,12 +358,25 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
   let hideStatus;
   const setStatus=(text,sticky)=>{if(quiet)return;status.textContent=text;status.hidden=false;clearTimeout(hideStatus);if(!sticky&&!debug)hideStatus=setTimeout(()=>status.hidden=true,5000)};
 
+  // A sound the channel added after this page loaded: fetch the list again (at most every 10 s).
+  let lastRefresh=0;
+  async function refresh(){if(!CFG.channel||Date.now()-lastRefresh<10000)return;lastRefresh=Date.now();
+    try{const r=await fetch("/overlay/sounds?channel="+encodeURIComponent(CFG.channel),{cache:"no-store"});const j=await r.json();
+      if(j&&j.ok)j.sounds.forEach((c)=>{if(!CFG.sounds[c.id]||CFG.sounds[c.id].src)CFG.sounds[c.id]={name:c.name,icon:c.icon,src:c.src}})}catch(e){}}
+  // A channel's own sound: an audio file, cut off after CFG.maxPlay seconds.
+  function playFile(s,done){const a=new Audio(s.src);a.volume=volume;let fin=false;
+    const end=()=>{if(fin)return;fin=true;clearTimeout(cap);try{a.pause()}catch(e){}done()};
+    const cap=setTimeout(end,CFG.maxPlay*1000);a.addEventListener("ended",end);a.addEventListener("error",end);a.play().catch(end)}
+
   // One sound at a time, in the order chat fired them; past MAX_QUEUE waiting, skip.
   const queue=[];let playing=false;
-  function enqueue(id,line){if(!CFG.sounds[id]||queue.length>=MAX_QUEUE)return;queue.push({id,line});if(!playing)next()}
+  function enqueue(id,line){if(!CFG.sounds[id]){refresh().then(()=>{if(CFG.sounds[id])enqueue(id,line)});return}
+    if(queue.length>=MAX_QUEUE)return;queue.push({id,line});if(!playing)next()}
   function next(){const item=queue.shift();if(!item){playing=false;return}playing=true;
-    const s=CFG.sounds[item.id];SoundSynth.play(item.id,s.len,volume);if(caption)show(item.id,item.line);
-    const shown=Math.max(s.len,3)*1000;setTimeout(()=>{pop.classList.remove("show");tell(false)},shown);setTimeout(next,shown+450)}
+    const s=CFG.sounds[item.id],t0=Date.now();if(caption)show(item.id,item.line);
+    // The card stays at least 3 s, then the next sound follows.
+    const finish=()=>setTimeout(()=>{pop.classList.remove("show");tell(false);setTimeout(next,450)},Math.max(0,3000-(Date.now()-t0)));
+    if(s.src)playFile(s,finish);else{SoundSynth.play(item.id,s.len,volume);setTimeout(finish,s.len*1000)}}
 
   // Twitch chat over WebSocket, as an anonymous "justinfan" reader.
   let ws,backoff=1000,pingTimer;
