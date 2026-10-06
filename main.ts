@@ -334,9 +334,9 @@ async function handleRequest(req: Request): Promise<Response> {
     // current by the stream.online/offline notifications below, so this
     // check costs nothing extra (no Twitch API call in this hot path) for a
     // channel that's already caught up.
-    // Exception: !roster / !bestiary only post a read-only link to their web
+    // Exception: !roster / !bestiary / !gear list only post a read-only link to their web
     // page, so they answer anyone even while offline (viewers browse between streams).
-    const offlineExempt = /^!(?:roster|bestiary)$/i.test(chatMessage);
+    const offlineExempt = /^!(?:roster|bestiary|gear\s+(?:list|all|page))$/i.test(chatMessage);
     if (!isModerator && !offlineExempt && Number(connection.is_live) !== 1) {
       // Channel connected before this feature existed — one-time backfill,
       // then re-check; every later message for this channel skips straight

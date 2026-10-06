@@ -37,6 +37,7 @@
 import { OpenAI } from "https://esm.town/v/std/openai";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
+import { PUBLIC_BASE_URL } from "./config.ts";
 import {
   countListingHaggles,
   getCharacter,
@@ -342,7 +343,13 @@ async function giveGear(chatter: string, broadcasterId: string, itemDesc: string
   }
 }
 
-/** Handles !gear [@user] — lists the peddler gear on a character sheet.
+/** The public /gear page: every ware the peddler can sell and who carries it. */
+export function gearUrl(broadcasterId: string): string {
+  return `${PUBLIC_BASE_URL}/gear?channel=${encodeURIComponent(broadcasterId)}`;
+}
+
+/** Handles !gear [@user] — lists the peddler gear on a character sheet —
+ * and !gear list / !gear all, which link the channel's gear page.
  * Works whether or not the market is open. Returns true if it matched. */
 export async function handleGearCommand(
   chatMessage: string,
@@ -352,6 +359,10 @@ export async function handleGearCommand(
 ): Promise<boolean> {
   const m = chatMessage.trim().match(/^!gear(?:\s+@?(\S+))?\s*$/i);
   if (!m) return false;
+  if (m[1] && /^(?:list|all|page)$/i.test(m[1])) {
+    await sendChatMessages(`🎒 @${display} every ware the peddler can sell, what it does and who here carries it: ${gearUrl(broadcasterId)}`, broadcasterId);
+    return true;
+  }
   const target = m[1] ? m[1].toLowerCase().replace(/[,:]+$/, "") : chatter;
   const self = target === chatter;
   const c = await getCharacter(target, broadcasterId);
@@ -365,8 +376,8 @@ export async function handleGearCommand(
   const items = c.items ?? [];
   await sendChatMessages(
     items.length
-      ? `🎒 @${display} ${self ? "your" : `@${target}'s`} gear: ${items.join(" · ")}`
-      : `🎒 @${display} ${self ? "you carry" : `@${target} carries`} no gear yet. Buy from the market stall with !haggle (see !stall) — every ware boosts your sheet.`,
+      ? `🎒 @${display} ${self ? "your" : `@${target}'s`} gear: ${items.join(" · ")} — all gear: !gear list`
+      : `🎒 @${display} ${self ? "you carry" : `@${target} carries`} no gear yet. Buy from the market stall with !haggle (see !stall) — every ware boosts your sheet. See it all: ${gearUrl(broadcasterId)}`,
     broadcasterId,
   );
   return true;
