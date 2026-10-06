@@ -180,6 +180,9 @@ export const QUICK_CSS = `
 .qsave .count{font-size:.9rem;color:var(--ink-3)}
 `;
 
+/** Bundles whose ⚙ Options box starts minimized even when options are customized. */
+const COLLAPSED_OPTIONS = new Set(["fighting"]);
+
 /** One option's input: a text box with a suggestion list; blank means the default. */
 function optionField(o: OptionDef, value: string): string {
   const id = `opt-${o.key.replace(/\./g, "-")}`;
@@ -198,7 +201,9 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
     const list = OPTIONS.filter((o) => o.bundle === b.key);
     if (!list.length) return "";
     const custom = list.filter((o) => opts[o.key]).length;
-    return `<details class="qopts"${custom ? " open" : ""}><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
+    // Fighting & hunts has a long option list, so it always starts folded up.
+    const open = custom && !COLLAPSED_OPTIONS.has(b.key);
+    return `<details class="qopts"${open ? " open" : ""}><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
   };
   const cards = QUICK_BUNDLES.map((b) => {
     const st = bundleState(b, s);

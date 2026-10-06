@@ -24,7 +24,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
       `<code>!roster</code> lists every adventurer and party; <code>!bestiary</code> lists every monster you can hunt.`,
     ],
     codex: "parchment",
-    pages: [["Guild roster", "/go/roster"], ["Bestiary", "/go/bestiary"]],
+    pages: [["Guild roster", "/go/roster"], ["Bestiary", "/go/bestiary"], ["Gear", "/go/gear"]],
   },
   {
     slug: "gold",

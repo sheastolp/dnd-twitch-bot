@@ -2,7 +2,7 @@
 //
 //   GET /howto                      index of every how-to guide
 //   GET /howto/<slug>               one step-by-step guide (content in howto_pages*.ts)
-//   GET /go/<page>?channel=<login>  roster / bestiary / maps / overlays for a channel
+//   GET /go/<page>?channel=<login>  roster / bestiary / gear / maps / overlays for a channel
 //                                   by Twitch login (those pages take the numeric
 //                                   id); with no channel it asks for one.
 //
@@ -22,6 +22,7 @@ const GO_PAGES: Record<string, { label: string; path: string }> = {
   overlays: { label: "OBS overlays", path: "/overlays" },
   roster: { label: "Guild roster", path: "/roster" },
   bestiary: { label: "Bestiary", path: "/bestiary" },
+  gear: { label: "Gear", path: "/gear" },
   maps: { label: "Battle maps", path: "/maps" },
 };
 
@@ -116,6 +117,7 @@ ${item("Web dashboard", "/dashboard/go", "Feature on/off switches plus custom co
 ${item("OBS overlays", "/go/overlays", "Every stream overlay with its URL, suggested size and a live preview. Also posted by <code>!overlays</code>.", "Set up overlays", "overlays")}
 ${item("Guild roster", "/go/roster", "Every adventurer, party and party member in the channel, with gold and the raid boss's status.", "Open the roster", "roster")}
 ${item("Bestiary", "/go/bestiary", "Every monster the channel can hunt, its record, and what it has learned from fights.", "Open the bestiary", "bestiary")}
+${item("Gear", "/go/gear", "Every item the peddler can sell, what it does to a character sheet, and which heroes carry it.", "Open the gear list", "gear")}
 ${item("Battle maps", "/go/maps", "The channel's grid maps, each with a live view to share or put on stream.", "Open the maps", "maps")}
 ${item("Reconnect your channel", "/connect", "Broadcaster only: grants permissions for newly added features. Safe to run any time; nothing is lost.", "Reconnect")}
 ${item("How-to guides", "/howto", "Every step-by-step guide on one page.", "Browse the guides")}
