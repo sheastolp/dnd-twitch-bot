@@ -19,6 +19,16 @@
 //           stacked from the bottom up, level with the goldboard's card at the
 //           foot of Tavern Talk), and a topic card with the Saving Throws
 //           tally under it.
+//   start — "Starting soon": the brb layout (The Endless Delve, the Dungeon
+//           Gate, the Battle Tracker) with a tall "Starting Soon" card — a
+//           big countdown to the stream (&minutes=<n>, or &at=<HH:MM> local
+//           time so a reloaded source keeps the same deadline) and rotating
+//           "getting ready" lines (&text=<line> for your own). No Saving
+//           Throws tally: it would only be empty before the stream starts.
+//   end   — "Ending soon": the brb layout with an "Ending Soon" card
+//           (farewell lines, &text=<line>; an optional countdown, and
+//           &raid=<channel> for a "Raiding … next" line) and the stream's
+//           Saving Throws tally under it as a recap.
 //
 // The Battle Tracker (brb and chat) is GuildScribe's battle panel — the fight
 // under way, the raid boss summary and the recent results — drawn by the theme itself (no extra
@@ -41,11 +51,15 @@
 // window (an iframe of /overlay?panel=idle), so it needs no OBS source.
 //
 // Scene extras: &idle=0 leaves the game window empty for a source of your
-// own; &gate=<label> renames the Dungeon Gate; brb: &minutes=<n>
-// counts down ("Back in 4:59"), &brbtext=<line> replaces the rotating lines;
-// chat: &topic=<text> for the topic card; both: &tracker=0 to leave the
-// Battle Tracker empty, &saves=0 to drop the Saving Throws tally.
+// own; &gate=<label> renames the Dungeon Gate; brb, start and end:
+// &minutes=<n> or &at=<HH:MM> counts down ("Back in 4:59", "Starting in
+// 4:59", "Ending in 4:59"), &text=<line> (brb also &brbtext=) replaces the
+// rotating lines; end: &raid=<channel>; chat: &topic=<text> for the topic
+// card; all but gameplay: &tracker=0 to leave the Battle Tracker empty,
+// &saves=0 to drop the Saving Throws tally.
 
+/** The scene's card: brb / start / end are countdown cards with rotating lines (CARDS), chat the topic card. */
+export type CardKind = "brb" | "chat" | "start" | "end";
 export type Rect = { x: number; y: number; w: number; h: number };
 /** idle: the theme fills this window with The Endless Delve unless &idle=0. */
 export type SceneWindow = Rect & { id: string; label: string; idle?: boolean };
@@ -56,7 +70,7 @@ export type SceneDef = {
   /** The gate's plaque centred on it (brb and Just chatting) instead of sitting right,
    * clear of the stream title; a long title then stops short of it. */
   gateCentered?: boolean;
-  card?: Rect & { kind: "brb" | "chat" };
+  card?: Rect & { kind: CardKind };
   tracker?: Rect;
   /** The Saving Throws tally, under the card. */
   saves?: Rect;
@@ -105,6 +119,51 @@ export const SCENES: Record<string, SceneDef> = {
     // Left of the "Just chatting" card, above the emblem (centred on it), art over the song.
     music: { x: 27, y: 636, w: 240, h: 156, stack: true },
   },
+  start: {
+    label: "Starting soon",
+    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
+    gate: { x: 1128, y: 112, w: 376, h: 585 },
+    gateCentered: true,
+    // Taller than brb's: no Saving Throws tally under it, and the countdown is the star.
+    card: { kind: "start", x: 300, y: 712, w: 804, h: 300 },
+    music: { x: 1254, y: 960, w: 520, h: 60 },
+    tracker: { x: 1128, y: 722, w: 772, h: 224 },
+    chatH: 597,
+  },
+  end: {
+    label: "Ending soon",
+    windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
+    gate: { x: 1128, y: 112, w: 376, h: 585 },
+    gateCentered: true,
+    card: { kind: "end", x: 300, y: 706, w: 804, h: 200 },
+    saves: { x: 300, y: 922, w: 804, h: 98 }, // the stream's recap
+    music: { x: 1254, y: 960, w: 520, h: 60 },
+    tracker: { x: 1128, y: 722, w: 772, h: 224 },
+    chatH: 597,
+  },
+};
+
+/** The countdown cards: heading, rotating lines, and the countdown's wording
+ * (shown with &minutes=<n> or &at=<HH:MM>). */
+export const CARDS: Record<"brb" | "start" | "end", { title: string; counting: string; done: string; lines: string[] }> = {
+  brb: {
+    title: "Be Right Back",
+    counting: "Back in",
+    done: "Any moment now…",
+    lines: ["The party is taking a short rest.", "The bard went to restring the lute.", "The DM is fetching more dice.", "Spending hit dice on snacks.", "The wizard is re-reading their spellbook.", "Someone has to feed the owlbear.", "Rolling initiative against the kettle.", "The rogue is “just checking” the other room."],
+  },
+  start: {
+    title: "Starting Soon",
+    counting: "Starting in",
+    done: "The adventure begins…",
+    lines: ["The tavern doors are creaking open.", "Sharpening swords and tuning lutes.", "The DM is hiding the good loot.", "Rolling up a fresh character sheet.", "The barkeep is pouring the first round.", "Lighting the torches along the dungeon stair.", "The party is arguing over the marching order.", "The wizard is still preparing spells."],
+  },
+  end: {
+    title: "Ending Soon",
+    counting: "Ending in",
+    done: "Farewell, adventurers!",
+    lines: ["The hearth is burning low.", "Thanks for adventuring with us tonight.", "The bard is playing the last song.", "Counting the loot and splitting the gold.", "The party makes camp for a long rest.", "May your next roll be a natural 20.", "Last orders at the bar, friends.", "The DM is closing the screen… for now."],
+  },
 };
 
 export const box = (r: Rect) => `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
@@ -137,6 +196,14 @@ export const SCENE_CSS = `
 .gate.center .plaque{left:50%;right:auto;transform:translateX(-50%)}
 .scard.sc-chat h1{font-size:52px}.scard.sc-chat .line{font-size:28px}
 .scard.sc-brb{padding:4px 28px}
+/* Starting soon: a taller card with the countdown as its centrepiece. */
+.scard.sc-start h1{font-size:76px;white-space:nowrap}
+.scard.sc-start .count{margin-top:16px;font-size:54px}
+.scard.sc-start .count.done{font-size:40px}
+.scard .raid{margin-top:8px;font:600 24px/1.1 Cinzel,Georgia,serif;letter-spacing:.05em;color:var(--ink2)}
+.scard .raid[hidden]{display:none}
+/* Ending soon with a raid line: a smaller heading so all four lines clear the Saving Throws plaque. */
+.scard.has-raid h1{font-size:56px}.scard.has-raid .flourish{margin:6px 0 4px}.scard.has-raid .line{font-size:26px}.scard.has-raid .count{margin-top:4px;font-size:24px}
 /* The Saving Throws tally under the card: saved / failed per ability, the latest roll below. */
 .saves{position:absolute;border:1px solid #c99a2e80;border-radius:10px;box-shadow:inset 0 0 0 5px #fff2,inset 0 0 0 6px #c99a2e40}
 .saves .plaque{position:absolute;left:50%;top:-16px;transform:translateX(-50%);padding:5px 22px 6px;white-space:nowrap;
@@ -166,8 +233,9 @@ export function sceneHtml(scene: SceneDef): string {
     ? `<div class="tracker" style="${box(scene.tracker)}"${scene.trackerGrow ? ` data-grow="${scene.trackerGrow}"` : ""}><div class="plaque">Battle Tracker</div><div class="empty"><b>⚔</b><span>No battles yet — !dndduel to start one</span></div><iframe id="tracker" title="Battle Tracker" scrolling="no"></iframe></div>`
     : "";
   let card = "";
-  if (scene.card?.kind === "brb") {
-    card = `<div class="scard sc-brb" style="${box(scene.card)}"><h1>Be Right Back</h1><div class="flourish"></div><div class="line" id="brbline"></div><div class="count" id="brbcount" hidden></div></div>`;
+  const kind = scene.card?.kind;
+  if (scene.card && kind && kind !== "chat") {
+    card = `<div class="scard sc-brb sc-${kind}" style="${box(scene.card)}" data-card="${kind}"><h1>${CARDS[kind].title}</h1><div class="flourish"></div><div class="line" id="brbline"></div><div class="count" id="brbcount" hidden></div>${kind === "end" ? `<div class="raid" id="raidline" hidden></div>` : ""}</div>`;
   } else if (scene.card?.kind === "chat") {
     card = `<div class="scard sc-chat" style="${box(scene.card)}"><h1>Just Chatting</h1><div class="flourish"></div><div class="line" id="topic"></div></div>`;
   }
@@ -184,6 +252,7 @@ export function sceneUnderHtml(scene: SceneDef): string {
 
 // Scene behaviour in the client (runs after the theme's own client; h() and Q are in scope).
 export const SCENE_CLIENT = `
+const __CARDS__=${JSON.stringify(CARDS).replace(/</g, "\\u003c")};
 // The Endless Delve in the game window, unless &idle=0 keeps it for a source of your own.
 // The dashboard's switch (CFG.idle, re-checked with the title every minute) drops it and brings it back live.
 const idleOn=Q.get("idle")!=="0";
@@ -243,11 +312,18 @@ if(savesEl){if(Q.get("saves")==="0")savesEl.remove();else{
 const topicEl=document.getElementById("topic");if(topicEl)topicEl.textContent=Q.get("topic")||"Pull up a chair by the hearth — the kettle's on.";
 const brbLine=document.getElementById("brbline");
 if(brbLine){
-  const LINES=["The party is taking a short rest.","The bard went to restring the lute.","The DM is fetching more dice.","Spending hit dice on snacks.","The wizard is re-reading their spellbook.","Someone has to feed the owlbear.","Rolling initiative against the kettle.","The rogue is “just checking” the other room."];
-  const own=Q.get("brbtext");let i=Math.floor(Math.random()*LINES.length);brbLine.textContent=own||LINES[i];
+  // brb, start and end: rotating lines (or &text= / &brbtext= for your own) and an optional countdown.
+  const C=__CARDS__[brbLine.parentElement.dataset.card]||__CARDS__.brb,LINES=C.lines;
+  const own=Q.get("text")||Q.get("brbtext");let i=Math.floor(Math.random()*LINES.length);brbLine.textContent=own||LINES[i];
   if(!own)setInterval(()=>{brbLine.classList.add("swap");setTimeout(()=>{i=(i+1)%LINES.length;brbLine.textContent=LINES[i];brbLine.classList.remove("swap")},650)},12000);
-  const mins=Number(Q.get("minutes"));
-  if(Number.isFinite(mins)&&mins>0){const end=Date.now()+Math.min(mins,600)*60000;const c=document.getElementById("brbcount");c.hidden=false;
-    const tick=()=>{const s=Math.max(0,Math.round((end-Date.now())/1000));c.textContent=s?"⌛ Back in "+Math.floor(s/60)+":"+String(s%60).padStart(2,"0"):"⌛ Any moment now…"};tick();setInterval(tick,1000)}
+  // &at=HH:MM (local time; the next one, so 00:30 after 23:00 is tomorrow) keeps the deadline across reloads; &minutes=<n> counts from load.
+  let end=0;const at=/^(\\d{1,2}):(\\d{2})$/.exec(Q.get("at")||""),mins=Number(Q.get("minutes"));
+  if(at&&+at[1]<24&&+at[2]<60){const d=new Date();d.setHours(+at[1],+at[2],0,0);if(d.getTime()<Date.now()-5*60000)d.setDate(d.getDate()+1);end=d.getTime()}
+  else if(Number.isFinite(mins)&&mins>0)end=Date.now()+Math.min(mins,600)*60000;
+  if(end){const c=document.getElementById("brbcount");c.hidden=false;
+    const tick=()=>{const s=Math.max(0,Math.round((end-Date.now())/1000)),hh=Math.floor(s/3600),mm=Math.floor(s%3600/60),ss=String(s%60).padStart(2,"0");
+      c.classList.toggle("done",!s);c.textContent=s?"⌛ "+C.counting+" "+(hh?hh+":"+String(mm).padStart(2,"0"):mm)+":"+ss:"⌛ "+C.done};tick();setInterval(tick,1000)}
+  const raidEl=document.getElementById("raidline"),raid=(Q.get("raid")||"").trim().replace(/^@/,"");
+  if(raidEl&&raid){raidEl.textContent="⚔ Raiding "+raid+" next";raidEl.hidden=false;raidEl.parentElement.classList.add("has-raid")}
 }
 `;
