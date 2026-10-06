@@ -329,7 +329,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // Also requires a live Twitch-login mod session cookie; renderDashboard
   // shows a login gate instead of the real page when that's missing.
   if (req.method === "GET" && path === "/dashboard") {
-    return await renderDashboard(url.searchParams.get("channel"), url.searchParams.get("key"), req.headers.get("Cookie"), url.origin, {
+    return await renderDashboard(url.searchParams.get("channel"), url.searchParams.get("key"), req.headers.get("Cookie"), PUBLIC_ORIGIN, {
       notice: url.searchParams.get("notice") ?? undefined,
       error: url.searchParams.get("error") ?? undefined,
     });
@@ -359,7 +359,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "GET" && path === "/dashboard/go") {
     // Guide cards' "Dashboard switch" links (see handleDashboardGo).
-    return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), url.origin);
+    return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), PUBLIC_ORIGIN);
   }
   // Home page "Mod Dashboard" link: Twitch login first, then pick a channel.
   if (req.method === "GET" && path === "/dashboard/start") {
@@ -558,28 +558,28 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // see dashboard.ts. Auth is the dashboard_key form field, not an operator
   // secret, so unlike /admin/* above these don't check ADMIN_API_SECRET.
   if (req.method === "POST" && path === "/dashboard/commands") {
-    return await handleDashboardCommandsForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleDashboardCommandsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/triggers") {
-    return await handleDashboardTriggersForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleDashboardTriggersForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/timedmessages") {
-    return await handleDashboardTimedMessagesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleDashboardTimedMessagesForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/botcheck") {
-    return await handleBotCheckForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleBotCheckForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/music") {
-    return await handleNowPlayingForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleNowPlayingForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/bots") {
-    return await handleBotListForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleBotListForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/autoban") {
-    return await handleAutoBanForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleAutoBanForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/features") {
-    return await handleDashboardFeaturesForm(await req.formData(), url.origin, req.headers.get("Cookie"));
+    return await handleDashboardFeaturesForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   return null;
 }

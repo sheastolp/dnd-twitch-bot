@@ -71,6 +71,7 @@ import {
   parseCooldownSeconds,
 } from "./customcommands.ts";
 import { parseIntervalMinutes, sanitizeTimedMessageText, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES } from "./timedmessages.ts";
+import { PUBLIC_ORIGIN } from "./config.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
 import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
@@ -749,7 +750,7 @@ export async function handleDashboardGo(toggle: string | null, cookieHeader: str
 // ── Bot viewer check page (botdetect.ts), behind the same key + login ──
 
 export async function handleBotCheckPage(url: URL, cookieHeader: string | null): Promise<Response> {
-  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
   if (auth instanceof Response) return auth;
   const b = await getBroadcaster(auth.channelId);
   const html = await renderBotCheckPage({
@@ -774,7 +775,7 @@ export async function handleBotCheckForm(form: FormData, baseUrl: string, cookie
 // ── Bot list page (channel_bots.ts), behind the same key + login ──
 
 export async function handleBotListPage(url: URL, cookieHeader: string | null): Promise<Response> {
-  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
   if (auth instanceof Response) return auth;
   const b = await getBroadcaster(auth.channelId);
   const html = await renderBotListPage({
@@ -799,7 +800,7 @@ export async function handleBotListForm(form: FormData, baseUrl: string, cookieH
 // ── Now playing page (nowplaying.ts), behind the same key + login ──
 
 export async function handleNowPlayingPage(url: URL, cookieHeader: string | null): Promise<Response> {
-  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
   if (auth instanceof Response) return auth;
   const b = await getBroadcaster(auth.channelId);
   const html = await renderNowPlayingPage({
@@ -826,18 +827,18 @@ export async function handleNowPlayingForm(form: FormData, baseUrl: string, cook
 
 /** GET /dashboard/music/spotify — off to Spotify to connect (comes back via /spotify/callback). */
 export async function handleSpotifyConnect(url: URL, cookieHeader: string | null): Promise<Response> {
-  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
   if (auth instanceof Response) return auth;
   const to = await startSpotifyConnect(auth.channelId, auth.key);
   if (to) return redirectTo(to);
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, path: "spotify", error: "Paste your Spotify app's keys (step 3) before connecting." });
-  return redirectTo(`${url.origin}/dashboard/music?${params.toString()}`);
+  return redirectTo(`${PUBLIC_ORIGIN}/dashboard/music?${params.toString()}`);
 }
 
 // ── Auto-ban word list page (autoban_page.ts), behind the same key + login ──
 
 export async function handleAutoBanPage(url: URL, cookieHeader: string | null): Promise<Response> {
-  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", url.origin, cookieHeader);
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
   if (auth instanceof Response) return auth;
   const b = await getBroadcaster(auth.channelId);
   const html = await renderAutoBanPage({
