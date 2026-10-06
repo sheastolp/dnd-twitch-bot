@@ -68,6 +68,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["delve"],
   },
   {
+    key: "soundbytes", icon: "🔊", name: "Sound Bytes",
+    what: "Tavern sound effects chat sets off with !sound — a nat 20 fanfare, the sad trombone of a nat 1, a dragon roar and more — played on stream with a card on screen.",
+    yourPart: "Add the \"Sound Bytes\" overlay from !overlays to your scenes and tick Control audio via OBS. Mods tune the gap between sounds with !sound cooldown.",
+    switches: ["soundbytes"],
+  },
+  {
     key: "hoard", icon: "💰", name: "Hunt and Hoard",
     what: "A deeper hunting game: wounds carry between fights, a shared bounty board, and a potion shop — !hunt, !bounties, !shop.",
     yourPart: "Nothing.",

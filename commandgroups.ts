@@ -136,8 +136,11 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // public channel list (GET /api/channels in web_routes.ts). On by default;
   // also switched from chat with !dndbot showcase on/off (main.ts).
   showcase: { section: "Onboarding and support", label: "Listed on tavernworks.dev (public channel list)", commands: [] },
-  // Stream overlays
+  // Stream overlays. Sound Bytes' words (!sound, !sounds) aren't listed:
+  // soundbytes.ts checks its switch itself, so a channel's own !sound custom
+  // command still works (same as Hunt and Hoard above).
   delve: { section: "Stream overlays", label: "The Endless Delve (idle game overlay, on its own or in the theme; !delve)", commands: ["delve"] },
+  soundbytes: { section: "Stream overlays", label: "Sound Bytes (!sound — tavern sound effects on stream)", commands: [] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },

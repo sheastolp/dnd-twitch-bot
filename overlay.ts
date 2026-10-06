@@ -13,6 +13,7 @@
 //   GET /overlay?channel=<id|login>&panel=idle       The Endless Delve, the idle game chat plays (idle.ts)
 //   GET /overlay/idle?channel=<id|login>             its list of the channel's heroes (class, level)
 //   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
+//   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -35,6 +36,7 @@ import { renderThemePage } from "./overlay_theme.ts";
 import { getDelveOptions, getIdleHeroes, renderIdlePage } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
+import { renderSoundBytesOverlay } from "./soundbytes.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -433,6 +435,16 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   if (panel === "idle" && !(await isCommandGroupEnabled(channel.id, "delve"))) {
     // Switched off on the dashboard: an empty, transparent source that checks back every minute.
     return html(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60"><title>The Endless Delve (off)</title><style>html,body{background:transparent;margin:0}</style></head><body></body></html>`);
+  }
+  if (panel === "sounds") {
+    if (!(await isCommandGroupEnabled(channel.id, "soundbytes"))) {
+      // Switched off on the dashboard: an empty, transparent source that checks back every minute.
+      return html(`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="60"><title>Sound Bytes (off)</title><style>html,body{background:transparent;margin:0}</style></head><body></body></html>`);
+    }
+    const live = await liveChannelName(channel);
+    let botId = "";
+    try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: nothing can be recognized as GuildScribe, so nothing plays */ }
+    return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1"));
   }
   if (panel === "idle") {
     const live = await liveChannelName(channel);

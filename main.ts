@@ -52,6 +52,7 @@ import { handleBg3Command } from "./bg3.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
+import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -112,6 +113,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureWatchtimeTables,
   ensureBestiaryTables,
   ensureChecklistTables,
+  ensureSoundByteTables,
   ensureHoardTables,
   ensureBattleLogTables,
 ];
@@ -393,6 +395,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeWatchtimeData(broadcasterId);
         await purgeBestiaryData(broadcasterId);
         await purgeChecklistData(broadcasterId);
+        await purgeSoundByteData(broadcasterId);
         await purgeHoardData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
@@ -551,6 +554,7 @@ async function handleRequest(req: Request): Promise<Response> {
       await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
     ) return new Response("OK");
     if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
 
     await handleBuiltinChatCommand({ chatMessage, chatter, display, broadcasterId, isModerator, baseUrl });
   }
