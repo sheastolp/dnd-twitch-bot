@@ -1,7 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Val Town / Deno HTTP handler
 
-import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
+import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
@@ -399,6 +399,28 @@ async function handleRequest(req: Request): Promise<Response> {
         await disconnectPointsData(broadcasterId);
         await disconnectRedemptionData(broadcasterId);
         await disconnectAdToken(broadcasterId);
+      }
+      return new Response("OK");
+    }
+
+    // Public channel list on tavernworks.dev (the "showcase" command group,
+    // also on the dashboard). Matched before the group check so it can't be
+    // swallowed by the "customcmds" switch that shares the !dndbot word.
+    const showcaseToggle = chatMessage.trim().match(/^!dndbot\s+showcase(?:\s+(on|off|status))?$/i);
+    if (showcaseToggle) {
+      const action = (showcaseToggle[1] ?? "status").toLowerCase();
+      if (action === "status") {
+        const listed = await isCommandGroupEnabled(broadcasterId, "showcase");
+        await sendChatMessage(`@${display} This channel is ${listed ? "listed" : "not listed"} on tavernworks.dev.`, broadcasterId);
+      } else if (!isModerator) {
+        await sendChatMessage(`@${display} only the broadcaster or a moderator can change that setting.`, broadcasterId);
+      } else {
+        const on = action === "on";
+        await setCommandGroupEnabled(broadcasterId, "showcase", on);
+        await sendChatMessage(
+          `@${display} ${on ? "This channel is now listed on tavernworks.dev." : "This channel is no longer listed on tavernworks.dev."} (The site refreshes within a few minutes.)`,
+          broadcasterId,
+        );
       }
       return new Response("OK");
     }

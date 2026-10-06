@@ -263,6 +263,22 @@ export async function getBroadcaster(broadcasterId: string) {
   return res.rows.length ? res.rows[0] : null;
 }
 
+/** Connected, unblocked channels that haven't switched the "showcase" group
+ * off — the public channel list on tavernworks.dev (GET /api/channels).
+ * No toggle row means listed, same as every other command group. */
+export async function listShowcaseChannels(): Promise<Array<{ login: string; display_name: string; is_live: boolean }>> {
+  const res = await sqlite.execute(
+    `SELECT b.login, b.display_name, b.is_live FROM broadcasters b
+     WHERE b.connected = 1
+       AND NOT EXISTS (SELECT 1 FROM channel_blocks k WHERE k.broadcaster_id = b.broadcaster_id)
+       AND NOT EXISTS (SELECT 1 FROM command_toggles t WHERE t.broadcaster_id = b.broadcaster_id AND t.group_name = 'showcase' AND t.enabled = 0)
+     ORDER BY b.display_name COLLATE NOCASE`,
+  );
+  return res.rows
+    .filter((r: any) => r.login)
+    .map((r: any) => ({ login: String(r.login), display_name: String(r.display_name || r.login), is_live: Number(r.is_live) === 1 }));
+}
+
 // Lets operator-only routes (e.g. /admin/dashboard-link) accept a Twitch
 // login instead of the numeric broadcaster_id, since that's what a human
 // actually has memorized.

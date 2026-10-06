@@ -7,7 +7,7 @@
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
 import { sqlite } from "./sqlite.ts";
-import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
+import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
 import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
@@ -46,6 +46,20 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // They contain per-channel usernames and command text; the only way to see
   // them is the in-chat `!logs` command, which is restricted to the
   // broadcaster/moderators of that specific channel (see below).
+  // Public channel list for tavernworks.dev (fetched cross-origin by its home
+  // page). Only Twitch names and live status, the same thing anyone sees in
+  // these channels' chat; a channel leaves the list with !dndbot showcase off
+  // or the dashboard's "Listed on tavernworks.dev" switch.
+  if (req.method === "GET" && path === "/api/channels") {
+    try {
+      return new Response(JSON.stringify({ channels: await listShowcaseChannels() }), {
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" },
+      });
+    } catch (e) {
+      await recordMonitorEvent("api_channels_error", String(e));
+      return new Response(JSON.stringify({ channels: [] }), { status: 503, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" } });
+    }
+  }
   if (req.method === "GET" && path === "/healthz") {
     try {
       try { await retryPendingEventSubCancellations(); } catch (e) { await recordMonitorEvent("eventsub_retry_loop_error", String(e)); }
