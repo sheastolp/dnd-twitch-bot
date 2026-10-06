@@ -3,7 +3,7 @@
 // Split out of utils.ts to keep every file well under Val Town's per-file
 // size ceiling.
 
-import { resolveCheckKind } from "./utils.ts";
+import { resolveCheckWithDc } from "./utils.ts";
 import { findMonsterByName, type SoloMonster } from "./data.ts";
 
 // ── Dashboard feature groups ──────────────────────────────────────────────
@@ -71,7 +71,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // Fate's dice
   d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r)", commands: ["d20"], parent: "dice" },
   diceroll: { section: "Fate's dice", label: "Dice expressions (!roll NdS, !roll @user)", commands: [], parent: "dice" },
-  rollchecks: { section: "Fate's dice", label: "Saves & skill checks (!roll dex, !roll stealth)", commands: [], parent: "dice" },
+  rollchecks: { section: "Fate's dice", label: "Saves & skill checks (!roll dex, !roll stealth, !saves tally)", commands: ["saves"], parent: "dice" },
   rollfate: { section: "Fate's dice", label: "Ask fate (!roll <question>?)", commands: [], parent: "dice" },
   rollcall: { section: "Fate's dice", label: "Roll call (!rollcall)", commands: ["rollcall"], parent: "misc" },
   // Baldur's Gate 3
@@ -243,7 +243,7 @@ export function groupForMessage(
         rest = t[2].trim();
       }
       if (!rest) return target ? "diceroll" : "d20";
-      if (resolveCheckKind(rest)) return "rollchecks";
+      if (resolveCheckWithDc(rest)) return "rollchecks";
       if (!target && !/^\d+d\d+([+-]\d+)?$/i.test(rest) && (/\s/.test(rest) || /\?$/.test(rest))) return "rollfate";
       return "diceroll";
     }

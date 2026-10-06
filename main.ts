@@ -17,6 +17,7 @@ import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
+import { ensureSavingThrowTables, purgeSavingThrowData, resetSavingThrowTally } from "./savingthrows.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
@@ -116,6 +117,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureSoundByteTables,
   ensureHoardTables,
   ensureBattleLogTables,
+  ensureSavingThrowTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -253,6 +255,8 @@ async function handleRequest(req: Request): Promise<Response> {
       if (liveBroadcasterId) {
         await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
         await onRaidStreamStatus(liveBroadcasterId, subscriptionType === "stream.online", body.event?.started_at);
+        // A new stream starts a fresh saving throws tally (savingthrows.ts).
+        if (subscriptionType === "stream.online") await resetSavingThrowTally(liveBroadcasterId);
         // Start-of-stream checklist for the streamer (checklist.ts).
         if (subscriptionType === "stream.online" && !(await isChannelBlocked(liveBroadcasterId))) {
           await onChecklistStreamOnline(liveBroadcasterId);
@@ -397,6 +401,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeChecklistData(broadcasterId);
         await purgeSoundByteData(broadcasterId);
         await purgeHoardData(broadcasterId);
+        await purgeSavingThrowData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
         await disconnectPointsData(broadcasterId);

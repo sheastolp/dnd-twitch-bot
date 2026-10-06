@@ -8,15 +8,17 @@
 //           idle game chat plays, idle.ts — or, with &idle=0, an empty
 //           window for your own source such as Words on Stream), the Dungeon
 //           Gate (a framed spot for pop-up overlays such as Tangia dungeons),
-//           a card with rotating flavour lines and an optional countdown, and
-//           the Battle Tracker across the bottom right, under the gate and a
-//           shortened Tavern Talk.
+//           a card with rotating flavour lines and an optional countdown,
+//           the Saving Throws tally under the card, and the Battle Tracker
+//           across the bottom right, under the gate and a shortened Tavern
+//           Talk.
 //   chat  — "Just chatting": a big torn window with The Endless Delve (or,
 //           with &idle=0, for Words on Stream or another source), the
 //           Dungeon Gate (16:9, so a full-canvas pop-up source scales into it
 //           exactly), the Battle Tracker under it (cards drawn larger and
 //           stacked from the bottom up, level with the goldboard's card at the
-//           foot of Tavern Talk), and a topic card.
+//           foot of Tavern Talk), and a topic card with the Saving Throws
+//           tally under it.
 //
 // The Battle Tracker (brb and chat) is GuildScribe's battle panel — the fight
 // under way, the raid boss summary and the recent results — drawn by the theme itself (no extra
@@ -29,6 +31,12 @@
 // (soundbytes.ts) pops up in the gate too. Positions are on the 1920×1080
 // canvas and listed on the /overlays setup page.
 //
+// The Saving Throws tally (brb and chat) is this stream's saving throws from
+// chat (savingthrows.ts: !roll dex, !roll wis dc15) — saved / failed for each
+// ability and the latest roll — drawn by the theme from /overlay/data. It
+// starts fresh when the stream goes live (or on !saves reset) and is hidden
+// with the Saves & skill checks dashboard switch.
+//
 // The Endless Delve is drawn by the theme itself, under the paper in its
 // window (an iframe of /overlay?panel=idle), so it needs no OBS source.
 //
@@ -36,7 +44,7 @@
 // own; &gate=<label> renames the Dungeon Gate; brb: &minutes=<n>
 // counts down ("Back in 4:59"), &brbtext=<line> replaces the rotating lines;
 // chat: &topic=<text> for the topic card; both: &tracker=0 to leave the
-// Battle Tracker empty.
+// Battle Tracker empty, &saves=0 to drop the Saving Throws tally.
 
 export type Rect = { x: number; y: number; w: number; h: number };
 /** idle: the theme fills this window with The Endless Delve unless &idle=0. */
@@ -50,6 +58,8 @@ export type SceneDef = {
   gateCentered?: boolean;
   card?: Rect & { kind: "brb" | "chat" };
   tracker?: Rect;
+  /** The Saving Throws tally, under the card. */
+  saves?: Rect;
   /** Just chatting: the tracker's cards may grow past full size (up to this
    * factor) and stack from the bottom up, their bottom level with the
    * goldboard's card at the foot of Tavern Talk. */
@@ -75,8 +85,8 @@ export const SCENES: Record<string, SceneDef> = {
     windows: [{ id: "wos", label: "Words on Stream", x: 64, y: 112, w: 1040, h: 585, idle: true }],
     gate: { x: 1128, y: 112, w: 376, h: 585 },
     gateCentered: true,
-    card: { kind: "brb", x: 300, y: 722, w: 804, h: 224 },
-    music: { x: 442, y: 936, w: 520, h: 60 }, // under the "Be right back" card, centred on it
+    card: { kind: "brb", x: 300, y: 706, w: 804, h: 200 },
+    saves: { x: 300, y: 922, w: 804, h: 98 }, // under the card; Now playing moves top-left to make room
     // Under the gate and Tavern Talk, which ends level with the gate.
     tracker: { x: 1128, y: 722, w: 772, h: 224 },
     chatH: 597,
@@ -88,8 +98,9 @@ export const SCENES: Record<string, SceneDef> = {
     gateCentered: true,
     tracker: { x: 952, y: 447, w: 552, h: 499 },
     trackerGrow: 1.6,
-    card: { kind: "chat", x: 300, y: 622, w: 628, h: 324 },
-    music: { x: 354, y: 876, w: 520, h: 60 }, // under the "Just chatting" card, centred on it
+    card: { kind: "chat", x: 300, y: 606, w: 628, h: 190 },
+    saves: { x: 300, y: 814, w: 628, h: 98 }, // under the card
+    music: { x: 354, y: 930, w: 520, h: 60 }, // under the Saving Throws tally, centred on the card
   },
 };
 
@@ -122,6 +133,24 @@ export const SCENE_CSS = `
 .gate .plaque{left:auto;right:18px;transform:none}
 .gate.center .plaque{left:50%;right:auto;transform:translateX(-50%)}
 .scard.sc-chat h1{font-size:52px}.scard.sc-chat .line{font-size:28px}
+.scard.sc-brb{padding:4px 28px}
+/* The Saving Throws tally under the card: saved / failed per ability, the latest roll below. */
+.saves{position:absolute;border:1px solid #c99a2e80;border-radius:10px;box-shadow:inset 0 0 0 5px #fff2,inset 0 0 0 6px #c99a2e40}
+.saves .plaque{position:absolute;left:50%;top:-16px;transform:translateX(-50%);padding:5px 22px 6px;white-space:nowrap;
+  background:linear-gradient(180deg,#fffaf0,#f6e3a6);border:1px solid #c99a2e;border-radius:4px;box-shadow:0 2px 6px #8a5a1830;
+  font:700 15px/1 Cinzel,Georgia,serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
+.saves .row{position:absolute;left:10px;right:10px;top:20px;height:46px;display:flex;justify-content:space-around;align-items:stretch}
+.saves .cell{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0}
+.saves .cell+.cell{border-left:1px solid #c99a2e40}
+.saves .cell.all{flex:1.25}
+.saves .ab{font:700 14px/1 Cinzel,Georgia,serif;letter-spacing:.12em;color:#a98235}
+.saves .n{font:600 21px/1 "EB Garamond",Georgia,serif;white-space:nowrap;color:var(--ink2)}
+.saves .ok{color:#3f6b2a}.saves .no{color:#b8302a}
+.saves .cell.zero .n{opacity:.4}
+.saves .latest{position:absolute;left:12px;right:12px;bottom:7px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font:italic 17px/1.1 "EB Garamond",Georgia,serif;color:#6b4a22}
+.saves .empty{position:absolute;inset:14px 10px 4px;display:flex;align-items:center;justify-content:center;color:#a98235;opacity:.7;font:italic 21px/1.2 "EB Garamond",Georgia,serif;text-align:center}
+.saves .empty[hidden],.saves .row[hidden],.saves .latest[hidden]{display:none}
 `;
 
 /** The scene's panels (drawn on the paper) and, in previews, labels for its windows. */
@@ -139,7 +168,10 @@ export function sceneHtml(scene: SceneDef): string {
   } else if (scene.card?.kind === "chat") {
     card = `<div class="scard sc-chat" style="${box(scene.card)}"><h1>Just Chatting</h1><div class="flourish"></div><div class="line" id="topic"></div></div>`;
   }
-  return hints + gate + tracker + card;
+  const saves = scene.saves
+    ? `<div class="saves" id="saves" style="${box(scene.saves)}"><div class="plaque">Saving Throws</div><div class="empty">No saving throws yet — !roll dex to make one</div><div class="row" hidden></div><div class="latest" hidden></div></div>`
+    : "";
+  return hints + gate + tracker + card + saves;
 }
 
 /** The Endless Delve's frames, drawn *under* the paper so the torn edge overlaps them like a capture. */
@@ -191,6 +223,20 @@ if(trackerEl){if(Q.get("tracker")==="0")trackerEl.remove();else{
     if(col>=row){r.style.flexDirection=dir;r.style.alignItems="stretch"}
     const s=Math.max(col,row),x=(W-r.scrollWidth*s)/2-pad,y=grow?bottom-pad-r.scrollHeight*s:0;
     r.style.transform="translate("+x.toFixed(1)+"px,"+y.toFixed(1)+"px) scale("+s.toFixed(3)+")"}catch(e){}},1000)}}
+// The Saving Throws tally under the card: polled while this scene is showing; hidden with the dashboard's Saves & skill checks switch.
+const savesEl=document.getElementById("saves");
+if(savesEl){if(Q.get("saves")==="0")savesEl.remove();else{
+  const sRow=savesEl.querySelector(".row"),sLast=savesEl.querySelector(".latest"),sEmpty=savesEl.querySelector(".empty");
+  const DEMO={passed:9,failed:4,abilities:[["STR",1,1],["DEX",3,1],["CON",2,0],["INT",0,1],["WIS",2,1],["CHA",1,0]].map(a=>({ability:a[0],passed:a[1],failed:a[2]})),latest:{name:"Adventurer",ability:"WIS",total:17,dc:15,passed:true,raw:14}};
+  const cell=(ab,p,f,cls)=>{const c=h("div","cell"+(cls?" "+cls:"")+(p+f?"":" zero")),n=h("div","n");
+    n.append(h("span","ok","✔"+p),document.createTextNode(" "),h("span","no","✘"+f));c.append(h("div","ab",ab),n);return c};
+  const drawSaves=t=>{savesEl.hidden=!t;if(!t)return;const any=t.passed+t.failed>0;
+    sEmpty.hidden=any;sRow.hidden=!any;sLast.hidden=!any||!t.latest;if(!any)return;
+    sRow.replaceChildren(cell("All",t.passed,t.failed,"all"),...t.abilities.map(a=>cell(a.ability,a.passed,a.failed)));
+    const l=t.latest;if(l)sLast.textContent="Latest: "+l.name+" · "+l.ability+" "+l.total+(l.raw===20?" (nat 20)":l.raw===1?" (nat 1)":"")+" vs DC "+l.dc+(l.passed?" — saved ✔":" — failed ✘")};
+  const pollSaves=()=>{if(preview){drawSaves(DEMO);return}if(!obsActive&&!obsVisible)return;
+    fetch("/overlay/data?channel="+encodeURIComponent(CFG.channel)+"&panels=saves").then(r=>r.ok?r.json():null).then(d=>{if(d&&d.ok)drawSaves(d.saves||null)}).catch(()=>{})};
+  pollSaves();setInterval(pollSaves,10000)}}
 const topicEl=document.getElementById("topic");if(topicEl)topicEl.textContent=Q.get("topic")||"Pull up a chair by the hearth — the kettle's on.";
 const brbLine=document.getElementById("brbline");
 if(brbLine){

@@ -81,6 +81,19 @@ export function resolveCheckKind(input: string): CheckKind | null {
   return null;
 }
 
+/**
+ * resolveCheckKind, plus an optional DC on a saving throw: "dex dc15",
+ * "dex dc 15" or "dex 15" (DC 1–30). Skill checks take no DC.
+ */
+export function resolveCheckWithDc(input: string): { kind: CheckKind; dc: number | null } | null {
+  const kind = resolveCheckKind(input);
+  if (kind) return { kind, dc: null };
+  const m = input.trim().match(/^(.+?)\s+(?:dc\s*)?(\d{1,2})$/i);
+  const save = m ? resolveCheckKind(m[1]) : null;
+  const dc = m ? Number(m[2]) : 0;
+  return save?.type === "save" && dc >= 1 && dc <= 30 ? { kind: save, dc } : null;
+}
+
 export function compactText(value: unknown, max = 240) {
   return String(value ?? "")
     .replace(/\s+/g, " ")
