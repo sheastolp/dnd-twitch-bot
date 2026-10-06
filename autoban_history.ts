@@ -46,6 +46,10 @@ export async function ensureAutoBanHistoryTables() {
       banned_at INTEGER NOT NULL, PRIMARY KEY (broadcaster_id, user_id)
     )`,
     `CREATE TABLE IF NOT EXISTS autoban_history_sync (broadcaster_id TEXT PRIMARY KEY, synced_at INTEGER NOT NULL, count INTEGER NOT NULL DEFAULT 0)`,
+    `CREATE TABLE IF NOT EXISTS autoban_recent (
+      broadcaster_id TEXT NOT NULL, user_id TEXT NOT NULL, login TEXT NOT NULL, display TEXT NOT NULL,
+      message TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (broadcaster_id, user_id)
+    )`,
   ]);
 }
 
@@ -53,6 +57,7 @@ export async function purgeAutoBanHistory(broadcasterId: string) {
   await sqlite.batch([
     { sql: "DELETE FROM autoban_history WHERE broadcaster_id = ?", args: [broadcasterId] },
     { sql: "DELETE FROM autoban_history_sync WHERE broadcaster_id = ?", args: [broadcasterId] },
+    { sql: "DELETE FROM autoban_recent WHERE broadcaster_id = ?", args: [broadcasterId] },
   ]);
   cache.delete(broadcasterId);
 }
@@ -184,6 +189,8 @@ interface Refs {
   at: number;
 }
 const CACHE_TTL_MS = 60_000;
+/** Look back this far before the cache load for bans it may have missed. */
+const FRESH_OVERLAP_MS = 5_000;
 const cache = new Map<string, Refs>();
 
 async function loadRefs(broadcasterId: string): Promise<Refs> {
@@ -209,25 +216,98 @@ async function loadRefs(broadcasterId: string): Promise<Refs> {
 
 export type HistoryMatch = { kind: "message" | "name"; ref: string };
 
+function matchesRef(sk: string, w: Set<string>, ref: { sk: string; words: Set<string> }): boolean {
+  if (ref.sk === sk || (ref.sk.length >= 20 && sk.includes(ref.sk))) return true;
+  return w.size >= MIN_WORDS && ref.words.size >= MIN_WORDS && jaccard(w, ref.words) >= SIMILARITY;
+}
+
+/** Whether `message` is the same pitch as `banned` (the history's message rule). */
+export function sameMessage(banned: string, message: string): boolean {
+  const a = skeleton(banned);
+  const b = skeleton(message);
+  if (a.length < MIN_SKELETON || b.length < MIN_SKELETON) return false;
+  return matchesRef(b, words(b), { sk: a, words: words(a) });
+}
+
 /** Whether this message/chatter matches someone banned before. */
 export async function findHistoryMatch(broadcasterId: string, chatMessage: string, chatterLogin: string): Promise<HistoryMatch | null> {
-  const refs = await loadRefs(broadcasterId);
-  if (!refs.messages.length && !refs.stems.size) return null;
   const sk = skeleton(chatMessage);
+  const stem = nameStem(chatterLogin);
+  if (sk.length < MIN_SKELETON && !stem) return null;
+  const refs = await loadRefs(broadcasterId);
+  // Bans made since the cache was loaded — possibly by another request
+  // handling a spammer who posted at the same moment as this one, which a
+  // per-instance cache can't hear about. Without this the second of two
+  // simultaneous bots slips through.
+  const fresh = await sqlite.execute(
+    "SELECT login, message FROM autoban_history WHERE broadcaster_id = ? AND banned_at >= ?",
+    [broadcasterId, refs.at - FRESH_OVERLAP_MS],
+  );
+  const messages = [...refs.messages];
+  const stems = new Map(refs.stems);
+  for (const r of fresh.rows) {
+    const login = String(r.login);
+    const msk = skeleton(String(r.message ?? ""));
+    if (msk.length >= MIN_SKELETON) messages.unshift({ login, sk: msk, words: words(msk) });
+    const s = nameStem(login);
+    if (s && !stems.has(s)) stems.set(s, login);
+  }
   if (sk.length >= MIN_SKELETON) {
     const w = words(sk);
-    for (const ref of refs.messages) {
-      if (ref.sk === sk || (ref.sk.length >= 20 && sk.includes(ref.sk))) return { kind: "message", ref: ref.login };
-      if (w.size >= MIN_WORDS && ref.words.size >= MIN_WORDS && jaccard(w, ref.words) >= SIMILARITY) return { kind: "message", ref: ref.login };
-    }
+    for (const ref of messages) if (matchesRef(sk, w, ref)) return { kind: "message", ref: ref.login };
   }
-  const stem = nameStem(chatterLogin);
-  if (stem && refs.stems.has(stem) && refs.stems.get(stem) !== chatterLogin.toLowerCase() && spamScore(normalizeText(chatMessage)).score >= 1) {
-    return { kind: "name", ref: refs.stems.get(stem)! };
+  if (stem && stems.has(stem) && stems.get(stem) !== chatterLogin.toLowerCase() && spamScore(normalizeText(chatMessage)).score >= 1) {
+    return { kind: "name", ref: stems.get(stem)! };
   }
   return null;
 }
 
 export function describeMatch(m: HistoryMatch): string {
   return m.kind === "message" ? `same message as banned ${m.ref}` : `named like banned ${m.ref}`;
+}
+
+// ── Recent messages (the sweep) ──
+//
+// Bot farms post in bursts: two or three accounts drop the same pitch within
+// a second of each other. Each message is handled by its own request, and a
+// request that checks the history a moment before another request records its
+// ban sees nothing to match. So non-mod messages that could be spam are kept
+// for RECENT_WINDOW_MS, and every ban sweeps them for the same pitch
+// (autoban.ts) — whichever request finishes last catches the other one.
+
+export const RECENT_WINDOW_MS = 2 * 60_000;
+
+export interface RecentMessage {
+  userId: string;
+  login: string;
+  display: string;
+  message: string;
+}
+
+/** Only messages a sweep could ever match are worth a write. */
+export function worthRemembering(message: string): boolean {
+  return skeleton(message).length >= MIN_SKELETON || spamScore(normalizeText(message)).score >= 1;
+}
+
+export async function rememberMessage(broadcasterId: string, m: RecentMessage) {
+  const now = Date.now();
+  await sqlite.batch([
+    { sql: "DELETE FROM autoban_recent WHERE broadcaster_id = ? AND at < ?", args: [broadcasterId, now - RECENT_WINDOW_MS] },
+    {
+      sql: "INSERT OR REPLACE INTO autoban_recent (broadcaster_id, user_id, login, display, message, at) VALUES (?,?,?,?,?,?)",
+      args: [broadcasterId, m.userId, m.login.toLowerCase(), m.display, m.message.slice(0, MAX_MESSAGE_LEN), now],
+    },
+  ]);
+}
+
+export async function recentMessages(broadcasterId: string, excludeUserId: string): Promise<RecentMessage[]> {
+  const res = await sqlite.execute(
+    "SELECT user_id, login, display, message FROM autoban_recent WHERE broadcaster_id = ? AND user_id != ? AND at >= ?",
+    [broadcasterId, excludeUserId, Date.now() - RECENT_WINDOW_MS],
+  );
+  return res.rows.map((r: any) => ({ userId: String(r.user_id), login: String(r.login), display: String(r.display), message: String(r.message) }));
+}
+
+export async function forgetRecent(broadcasterId: string, userId: string) {
+  await sqlite.execute("DELETE FROM autoban_recent WHERE broadcaster_id = ? AND user_id = ?", [broadcasterId, userId]);
 }

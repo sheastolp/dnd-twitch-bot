@@ -7,7 +7,9 @@
 // The list is per channel and starts with "ai viewers"; mods edit it, and the
 // ignore list, on /dashboard/autoban (autoban_page.ts). It also learns: domains
 // in banned messages, and promo pitches sent by several chatters, are added
-// on their own (see autoban_words.ts).
+// on their own (see autoban_words.ts). Bots post in waves, often at the same
+// instant, so every ban also sweeps the last couple of minutes of chat for
+// other chatters who sent the same thing (sweepRecent below).
 //
 // Off by default per channel (toggle: !autoban on|off|status; on/off are
 // broadcaster or mod) because a permanent ban is not something to switch on for
@@ -28,8 +30,31 @@ import { getBroadcasterAdToken } from "./ads_db.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { banChatUser, sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
-import { describeMatch, ensureAutoBanHistoryTables, findHistoryMatch, purgeAutoBanHistory, recordBan } from "./autoban_history.ts";
-import { currentLearnMode, ensureAutoBanWordTables, findMatch, isUserIgnored, purgeAutoBanWordData, suggestFromHistory, learnFromBannedMessage, learnFromMessage, recordHit } from "./autoban_words.ts";
+import {
+  describeMatch,
+  ensureAutoBanHistoryTables,
+  findHistoryMatch,
+  forgetRecent,
+  purgeAutoBanHistory,
+  recentMessages,
+  recordBan,
+  rememberMessage,
+  sameMessage,
+  worthRemembering,
+} from "./autoban_history.ts";
+import {
+  currentLearnMode,
+  ensureAutoBanWordTables,
+  findMatch,
+  isUserIgnored,
+  learnFromBannedMessage,
+  learnFromMessage,
+  normalizeText,
+  phraseMatches,
+  purgeAutoBanWordData,
+  recordHit,
+  suggestFromHistory,
+} from "./autoban_words.ts";
 
 export const BAN_SCOPE = "moderator:manage:banned_users";
 
@@ -176,19 +201,26 @@ export async function maybeAutoBan(
   if (isModerator || !chatterId || chatterId === broadcasterId) return false;
   if (!(await isAutoBanEnabledCached(broadcasterId))) return false;
   if (await isUserIgnored(broadcasterId, chatterLogin)) return false;
-  const match = await findMatch(broadcasterId, chatMessage);
+  let match = await findMatch(broadcasterId, chatMessage);
   // No phrase matched: check the ban history (autoban_history.ts) — a repeat
   // of a banned message, or a bot-farm name with a promo message. Learning
   // mode decides: auto bans, suggest queues it for review, off skips it.
   let history: Awaited<ReturnType<typeof findHistoryMatch>> = null;
   if (!match) {
+    // Remembered *before* the history check, so a ban that lands a moment
+    // later — another bot of the same wave, handled by another request — can
+    // still sweep this one up (sweepRecent below).
+    if (worthRemembering(chatMessage)) {
+      await rememberMessage(broadcasterId, { userId: chatterId, login: chatterLogin, display, message: chatMessage });
+    }
     const mode = await currentLearnMode(broadcasterId);
     history = mode === "off" ? null : await findHistoryMatch(broadcasterId, chatMessage, chatterLogin);
     if (!history) {
-      await learnFromMessage(broadcasterId, chatMessage, chatterId);
-      return false;
-    }
-    if (mode === "suggest") {
+      // The learner bans too once a pitch goes active — including when this
+      // very message is the sighting that promoted it.
+      match = await learnFromMessage(broadcasterId, chatMessage, chatterId);
+      if (!match) return false;
+    } else if (mode === "suggest") {
       await suggestFromHistory(broadcasterId, chatMessage, chatterId);
       return false;
     }
@@ -212,15 +244,14 @@ export async function maybeAutoBan(
       learnFromBannedMessage(broadcasterId, chatMessage, chatterId),
       // Every ban becomes a reference for the next ones.
       recordBan(broadcasterId, { userId: chatterId, login: chatterLogin, message: chatMessage, reason, source: match ? "autoban" : "history" }),
+      forgetRecent(broadcasterId, chatterId),
     ]);
-    const now = Date.now();
-    const last = recentlyAnnounced.get(chatterId) ?? 0;
-    recentlyAnnounced.set(chatterId, now);
-    for (const [id, at] of recentlyAnnounced) {
-      if (now - at > ANNOUNCE_DEDUPE_MS) recentlyAnnounced.delete(id);
-    }
-    if (isLive && now - last > ANNOUNCE_DEDUPE_MS) {
-      await sendChatMessage(pick(BAN_LINES)(display), broadcasterId);
+    // After recordBan: any bot of the same wave that posts from here on
+    // matches the history; the ones that posted before are in the sweep.
+    const swept = await sweepRecent(auth.token, broadcasterId, chatterId, chatMessage, match?.phrase ?? null);
+    const names = [display, ...swept].filter((n) => shouldAnnounce(n));
+    if (isLive && names.length) {
+      await sendChatMessage(pick(BAN_LINES)(names.join(", ")), broadcasterId);
     }
     return true;
   }
@@ -239,6 +270,48 @@ export async function maybeAutoBan(
     await sendPermissionHint(broadcasterId, baseUrl);
   }
   return false;
+}
+
+/** Announce-dedupe by display name: true the first time in the window. */
+function shouldAnnounce(name: string): boolean {
+  const now = Date.now();
+  const key = name.toLowerCase();
+  const last = recentlyAnnounced.get(key) ?? 0;
+  recentlyAnnounced.set(key, now);
+  for (const [id, at] of recentlyAnnounced) {
+    if (now - at > ANNOUNCE_DEDUPE_MS) recentlyAnnounced.delete(id);
+  }
+  return now - last > ANNOUNCE_DEDUPE_MS;
+}
+
+/** After a ban: bans the other chatters who sent the same thing in the last
+ * couple of minutes (see "Recent messages" in autoban_history.ts). A list
+ * phrase sweeps whatever mode learning is in, since it would have banned them
+ * anyway; matching by "same message" follows the history's rule and only
+ * runs when learning is on auto. Returns the display names banned. */
+async function sweepRecent(token: string, broadcasterId: string, bannedId: string, bannedMessage: string, phrase: string | null): Promise<string[]> {
+  const recent = await recentMessages(broadcasterId, bannedId);
+  if (!recent.length) return [];
+  const byMessage = (await currentLearnMode(broadcasterId)) === "auto";
+  const banned: string[] = [];
+  for (const m of recent) {
+    const viaPhrase = !!phrase && phraseMatches(normalizeText(m.message), phrase);
+    if (!viaPhrase && !(byMessage && sameMessage(bannedMessage, m.message))) continue;
+    if (await isUserIgnored(broadcasterId, m.login)) continue;
+    const reason = viaPhrase ? banReason(phrase!) : "Auto-ban: same message as a chatter banned with it (GuildScribe)";
+    const result = await banChatUser(token, broadcasterId, broadcasterId, m.userId, reason);
+    await forgetRecent(broadcasterId, m.userId);
+    if (!result.ok) {
+      await recordMonitorEvent(result.status === 400 ? "autoban_skipped" : "autoban_failed", `${broadcasterId}: sweep ${m.userId}: ${result.status} ${result.message}`);
+      continue;
+    }
+    await Promise.all([
+      recordMonitorEvent("autoban", `${broadcasterId}: banned ${m.userId} — sweep after ${bannedId}`),
+      recordBan(broadcasterId, { userId: m.userId, login: m.login, message: m.message, reason, source: "history" }),
+    ]);
+    banned.push(m.display);
+  }
+  return banned;
 }
 
 // ── Command ──

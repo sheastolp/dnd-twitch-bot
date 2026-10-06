@@ -563,18 +563,25 @@ export async function learnFromBannedMessage(broadcasterId: string, chatMessage:
 }
 
 /** For a message that wasn't banned: if it reads like promo spam, record it
- * as a learned suggestion (and promote it once enough chatters send it). */
-export async function learnFromMessage(broadcasterId: string, chatMessage: string, chatterId: string) {
+ * as a learned suggestion (and promote it once enough chatters send it).
+ * Returns the entry when this message is the one that promoted it, so the
+ * caller bans its sender too. */
+export async function learnFromMessage(broadcasterId: string, chatMessage: string, chatterId: string): Promise<{ id: number; phrase: string } | null> {
   const normalized = normalizeText(chatMessage);
   const { score, domains } = spamScore(normalized);
-  if (score < LEARN_THRESHOLD) return;
+  if (score < LEARN_THRESHOLD) return null;
   const state = await loadState(broadcasterId);
-  if (state.mode === "off") return;
+  if (state.mode === "off") return null;
   // Without a domain, the pitch itself is the key — minus @mentions, which
   // bots vary per target.
   const pitch = normalized.replace(/@\w+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_PITCH_LEN);
   const keys = domains.length ? domains : pitch.length >= MIN_LEARNED_MESSAGE_LEN ? [pitch] : [];
-  for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
+  let promoted: { id: number; phrase: string } | null = null;
+  for (const key of keys) {
+    const hit = await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
+    promoted ??= hit;
+  }
+  return promoted;
 }
 
 /** A message that matched the ban history in suggest-only mode: queue its
@@ -588,31 +595,46 @@ export async function suggestFromHistory(broadcasterId: string, chatMessage: str
   for (const key of keys) await upsertLearned(broadcasterId, key, chatMessage, chatterId, "pending");
 }
 
-async function upsertLearned(broadcasterId: string, phrase: string, example: string, chatterId: string, initial: WordStatus) {
-  const res = await sqlite.execute("SELECT id, status, seen_by FROM autoban_words WHERE broadcaster_id = ? AND phrase = ?", [broadcasterId, phrase]);
+/** Returns the entry if it is active now (made so by this call, or already
+ * active although this instance's cached list didn't have it yet). */
+async function upsertLearned(broadcasterId: string, phrase: string, example: string, chatterId: string, initial: WordStatus): Promise<{ id: number; phrase: string } | null> {
+  const select = () => sqlite.execute("SELECT id, status, seen_by FROM autoban_words WHERE broadcaster_id = ? AND phrase = ?", [broadcasterId, phrase]);
+  let res = await select();
   const ex = example.slice(0, MAX_EXAMPLE_LEN);
   if (!res.rows.length) {
     const count = await sqlite.execute("SELECT COUNT(*) AS n FROM autoban_words WHERE broadcaster_id = ?", [broadcasterId]);
-    if (Number(count.rows[0]?.n ?? 0) >= MAX_PHRASES) return;
-    await sqlite.execute(
+    if (Number(count.rows[0]?.n ?? 0) >= MAX_PHRASES) return null;
+    const ins = await sqlite.execute(
       "INSERT OR IGNORE INTO autoban_words (broadcaster_id, phrase, source, status, seen_by, example, created_at) VALUES (?,?,?,?,?,?,?)",
       [broadcasterId, phrase, "learned", initial, chatterId, ex, Date.now()],
     );
     stateCache.delete(broadcasterId);
-    return;
+    if (ins.rowsAffected) return null;
+    // Another chatter's message inserted it a moment ago (two bots posting at
+    // once) — count this sighting on that row instead of dropping it.
+    res = await select();
+    if (!res.rows.length) return null;
   }
   const row = res.rows[0];
-  if (String(row.status) !== "pending") return; // active already, or a mod switched it off
+  // Active already (another request promoted it a moment ago), or a mod switched it off.
+  if (String(row.status) === "active") return { id: Number(row.id), phrase };
+  if (String(row.status) !== "pending") return null;
   const seen = new Set(String(row.seen_by ?? "").split(",").filter(Boolean));
   seen.add(chatterId);
   const seenBy = [...seen].slice(-10).join(",");
   const mode = (await loadState(broadcasterId)).mode;
   const promote = initial === "active" || (mode === "auto" && seen.size >= LEARN_PROMOTE_CHATTERS);
-  await sqlite.execute("UPDATE autoban_words SET seen_by = ?, example = ?, status = ? WHERE id = ?", [
+  // Only promote from 'pending', so one request wins when two promote at once.
+  const upd = await sqlite.execute("UPDATE autoban_words SET seen_by = ?, example = ?, status = ? WHERE id = ? AND status = 'pending'", [
     seenBy,
     ex,
     promote ? "active" : "pending",
     row.id,
   ]);
-  if (promote) stateCache.delete(broadcasterId);
+  if (upd.rowsAffected && !promote) return null;
+  stateCache.delete(broadcasterId);
+  if (upd.rowsAffected) return { id: Number(row.id), phrase };
+  // Lost a race with another request that changed the row first.
+  const now = await select();
+  return String(now.rows[0]?.status) === "active" ? { id: Number(now.rows[0].id), phrase } : null;
 }
