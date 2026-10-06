@@ -282,6 +282,7 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
   const volume=Math.max(0,Math.min(100,Number(q.get("volume")??70)||0))/100;
   const caption=q.get("caption")!=="0";
   const debug=q.get("debug")==="1";
+  const quiet=q.get("quiet")==="1"&&!debug; // embedded in the theme: no connection chip
   const MAX_QUEUE=5;
   // Anchored to the start of GuildScribe's own message (see soundbytes.ts).
   const TAG=/^\\u{1F50A}\\s*!?([a-z0-9_-]{2,25})/iu;
@@ -290,7 +291,7 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
   if(CFG.always){show("nat20","A sound plays here, with this card, when chat types !sound <name>.");return}
 
   let hideStatus;
-  const setStatus=(text,sticky)=>{status.textContent=text;status.hidden=false;clearTimeout(hideStatus);if(!sticky&&!debug)hideStatus=setTimeout(()=>status.hidden=true,5000)};
+  const setStatus=(text,sticky)=>{if(quiet)return;status.textContent=text;status.hidden=false;clearTimeout(hideStatus);if(!sticky&&!debug)hideStatus=setTimeout(()=>status.hidden=true,5000)};
 
   // One sound at a time, in the order chat fired them; past MAX_QUEUE waiting, skip.
   const queue=[];let playing=false;
