@@ -52,7 +52,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // or the dashboard's "Listed on tavernworks.dev" switch.
   if (req.method === "GET" && path === "/api/channels") {
     try {
-      return new Response(JSON.stringify({ channels: await listShowcaseChannels() }), {
+      return new Response(JSON.stringify({ channels: await listShowcaseChannels(Deno.env.get("TWITCH_BOT_ID") ?? "") }), {
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" },
       });
     } catch (e) {

@@ -265,14 +265,17 @@ export async function getBroadcaster(broadcasterId: string) {
 
 /** Connected, unblocked channels that haven't switched the "showcase" group
  * off — the public channel list on tavernworks.dev (GET /api/channels).
- * No toggle row means listed, same as every other command group. */
-export async function listShowcaseChannels(): Promise<Array<{ login: string; display_name: string; is_live: boolean }>> {
+ * No toggle row means listed, same as every other command group.
+ * `excludeId` drops the bot's own account (connected for testing), which
+ * isn't a guild. */
+export async function listShowcaseChannels(excludeId = ""): Promise<Array<{ login: string; display_name: string; is_live: boolean }>> {
   const res = await sqlite.execute(
     `SELECT b.login, b.display_name, b.is_live FROM broadcasters b
-     WHERE b.connected = 1
+     WHERE b.connected = 1 AND b.broadcaster_id != ?
        AND NOT EXISTS (SELECT 1 FROM channel_blocks k WHERE k.broadcaster_id = b.broadcaster_id)
        AND NOT EXISTS (SELECT 1 FROM command_toggles t WHERE t.broadcaster_id = b.broadcaster_id AND t.group_name = 'showcase' AND t.enabled = 0)
      ORDER BY b.display_name COLLATE NOCASE`,
+    [excludeId],
   );
   return res.rows
     .filter((r: any) => r.login)
