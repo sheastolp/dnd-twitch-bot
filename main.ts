@@ -3,6 +3,7 @@
 
 import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
+import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
 import { handleHaggleCommand } from "./haggle.ts";
@@ -281,7 +282,7 @@ async function handleRequest(req: Request): Promise<Response> {
       chatterId === eventBroadcasterId ||
       chatterId === moderatorId ||
       hasModeratorBadge(body.event);
-    const baseUrl = url.origin;
+    const baseUrl = PUBLIC_ORIGIN;
 
     if (await isChannelBot(broadcasterId, chatter, chatterId, env("TWITCH_BOT_ID"))) {
       // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
@@ -335,7 +336,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // then re-check; every later message for this channel skips straight
       // to the column read above.
       if (Number(connection.stream_status_subscribed) !== 1) {
-        await backfillStreamStatusSubscription(broadcasterId, url.origin);
+        await backfillStreamStatusSubscription(broadcasterId, PUBLIC_ORIGIN);
         const refreshed = await getBroadcaster(broadcasterId);
         if (!refreshed || Number(refreshed.is_live) !== 1) return new Response("OK");
       } else {

@@ -20,6 +20,7 @@
 // only the chat summary and link are sent.
 
 import { scrollDoc } from "./scroll_theme.ts";
+import { PUBLIC_ORIGIN } from "./config.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sqlite } from "./sqlite.ts";
 
@@ -296,7 +297,7 @@ export function hpLeft(entries: Array<[string, number, number]>): string {
 /** Handles GET /connect-bot and /connect-bot/callback; null for any other path. */
 export async function handleBotConnectRoute(req: Request, url: URL, path: string): Promise<Response | null> {
   if (req.method !== "GET") return null;
-  const redirectUri = `${url.origin}/connect-bot/callback`;
+  const redirectUri = `${PUBLIC_ORIGIN}/connect-bot/callback`;
   const html = (title: string, body: string, status = 200) =>
     new Response(scrollDoc(title, `<span class="pill">GuildScribe · Bot account</span><h1>${title}</h1><p>${body}</p>`, { width: 600 }), {
       status,

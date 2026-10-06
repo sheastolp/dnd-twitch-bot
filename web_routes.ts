@@ -19,7 +19,7 @@ import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
-import { PUBLIC_BASE_URL } from "./config.ts";
+import { PUBLIC_BASE_URL, PUBLIC_ORIGIN } from "./config.ts";
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleOverlayRoute } from "./overlay.ts";
@@ -98,7 +98,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const auth = new URL("https://id.twitch.tv/oauth2/authorize");
     auth.search = new URLSearchParams({
       client_id: env("TWITCH_CLIENT_ID"),
-      redirect_uri: `${url.origin}/callback`,
+      redirect_uri: `${PUBLIC_ORIGIN}/callback`,
       response_type: "code",
       scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users moderator:read:followers moderator:read:chatters",
       state,
@@ -124,7 +124,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     if (!check.rows.length) return new Response("Invalid or expired OAuth state", { status: 400 });
     await sqlite.execute("DELETE FROM oauth_states WHERE state = ?", [state]);
     try {
-      const token = await exchangeCode(code, `${url.origin}/callback`);
+      const token = await exchangeCode(code, `${PUBLIC_ORIGIN}/callback`);
       const userRes = await fetch("https://api.twitch.tv/helix/users", {
         headers: {
           Authorization: `Bearer ${token.access_token}`,
@@ -158,7 +158,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
         await deleteExtraEventSubSubscriptions(user.id);
       }
 
-      const sub = await createChatSubscription(user.id, url.origin);
+      const sub = await createChatSubscription(user.id, PUBLIC_ORIGIN);
       await sqlite.execute(
         "INSERT OR REPLACE INTO broadcasters (broadcaster_id,login,display_name,subscription_id,connected_at,connected,disconnected_at,disconnect_reason) VALUES (?,?,?,?,?,?,?,?)",
         [user.id, user.login, user.display_name, sub.id, Date.now(), 1, null, null],
@@ -184,7 +184,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       // above, but shouldn't block the core chat connection if it fails
       // (e.g. a re-auth that hasn't re-granted the scope yet).
       try {
-        const { newSub, resub, gift } = await createSubEventSubscriptions(user.id, url.origin);
+        const { newSub, resub, gift } = await createSubEventSubscriptions(user.id, PUBLIC_ORIGIN);
         await saveExtraEventSubSubscription(user.id, "sub", newSub.id);
         await saveExtraEventSubSubscription(user.id, "resub", resub.id);
         await saveExtraEventSubSubscription(user.id, "gift", gift.id);
@@ -196,7 +196,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       // so this should reliably succeed, but it's kept non-blocking and
       // independent of the sub subscriptions above just in case.
       try {
-        const raidSub = await createRaidEventSubscription(user.id, url.origin);
+        const raidSub = await createRaidEventSubscription(user.id, PUBLIC_ORIGIN);
         await saveExtraEventSubSubscription(user.id, "raid", raidSub.id);
       } catch (e) {
         await recordMonitorEvent("eventsub_raid_subscription_failed", `${user.id}: ${String(e)}`);
@@ -208,7 +208,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       // stream.online/offline event — after that, these subscriptions keep
       // it current with no further Twitch API calls.
       try {
-        const { online, offline } = await createStreamStatusEventSubscriptions(user.id, url.origin);
+        const { online, offline } = await createStreamStatusEventSubscriptions(user.id, PUBLIC_ORIGIN);
         await saveExtraEventSubSubscription(user.id, "stream_online", online.id);
         await saveExtraEventSubSubscription(user.id, "stream_offline", offline.id);
         await markStreamStatusSubscribed(user.id, await fetchIsChannelLiveNow(user.id));
@@ -218,14 +218,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       // Best-effort: ad-break start alerts (adalerts.ts). Needs
       // channel:read:ads, requested above; adalerts.ts retries lazily.
       try {
-        await subscribeToAdBreaks(user.id, url.origin);
+        await subscribeToAdBreaks(user.id, PUBLIC_ORIGIN);
       } catch (e) {
         await recordMonitorEvent("eventsub_ad_break_subscription_failed", `${user.id}: ${String(e)}`);
       }
       // Best-effort: channel-point rewards that shield/hex players (see
       // redemptions.ts). Needs channel:read:redemptions, requested above.
       try {
-        await subscribeToRedemptions(user.id, url.origin);
+        await subscribeToRedemptions(user.id, PUBLIC_ORIGIN);
       } catch (e) {
         await recordMonitorEvent("eventsub_redemption_subscription_failed", `${user.id}: ${String(e)}`);
       }
@@ -362,14 +362,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), url.origin);
   }
   if (req.method === "GET" && path === "/dashboard/login") {
-    return await handleDashboardLogin(url.searchParams.get("channel"), url.searchParams.get("key"), url.origin);
+    return await handleDashboardLogin(url.searchParams.get("channel"), url.searchParams.get("key"), PUBLIC_ORIGIN);
   }
   if (req.method === "GET" && path === "/dashboard/callback") {
     return await handleDashboardCallback(
       url.searchParams.get("code"),
       url.searchParams.get("state"),
       url.searchParams.get("error"),
-      url.origin,
+      PUBLIC_ORIGIN,
     );
   }
 
@@ -480,7 +480,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const broadcasterId = (broadcaster as any).broadcaster_id as string;
     const reset = url.searchParams.get("reset") === "1";
     const dashKey = reset ? await regenerateDashboardKey(broadcasterId) : await getOrCreateDashboardKey(broadcasterId);
-    const link = `${url.origin}/dashboard?channel=${broadcasterId}&key=${dashKey}`;
+    const link = `${PUBLIC_ORIGIN}/dashboard?channel=${broadcasterId}&key=${dashKey}`;
     // Default behavior: redirect straight to the live dashboard page, since
     // that's what someone opening this in a browser actually wants. Append
     // &json=1 to get the {ok, broadcaster_id, login, link} JSON instead
