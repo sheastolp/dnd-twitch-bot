@@ -271,11 +271,12 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
     // The idle game fills its frame like the theme: a 16:9 preview, no edge options.
     const wide = full || key === "idle" || key === "sounds";
     const opts = full ? THEME_BUILDER : key === "idle" || key === "sounds" ? "" : `<label class="side-opt"><input type="checkbox" class="side-right"> Hang from the right <span class="muted">(mirrored — anchored to the right edge, bars drain to the right)</span></label><label class="side-opt"><input type="checkbox" class="from-bottom"> Feed from the bottom up <span class="muted">(anchored to the bottom edge — new panels stack upward)</span></label>`;
-    return `<section class="ov${full ? " full" : ""}" data-link="${escapeHtml(link)}"><div class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></div><p>${escapeHtml(p.blurb)}</p>${opts}<div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="${wide ? "aspect-ratio:16/9" : `height:${previewH}px`}"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></section>`;
+    // Every card starts minimized (title and size only); click the title to open it.
+    return `<details class="ov${full ? " full" : ""}" data-link="${escapeHtml(link)}"><summary class="head"><h2>${escapeHtml(p.label)}</h2><span class="size">${p.width} × ${p.height}</span></summary><p>${escapeHtml(p.blurb)}</p>${opts}<div class="url"><code>${escapeHtml(link)}</code><button type="button" data-copy="${escapeHtml(link)}">Copy</button></div><div class="preview" style="${wide ? "aspect-ratio:16/9" : `height:${previewH}px`}"><iframe loading="lazy" src="${escapeHtml(link)}&always=1" title="${escapeHtml(p.label)} preview"></iframe></div></details>`;
   }).join("");
   return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
 <span class="pill">Stream overlays</span><h1>OBS overlays</h1><p class="intro">${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
-<div class="note"><strong>Adding one to OBS</strong><ol><li>In OBS, add a <strong>Browser</strong> source to your scene.</li><li>Paste an overlay URL below and set the width/height shown next to it.</li><li>Leave the background transparent (OBS's default custom CSS is fine). Panels refresh on their own every few seconds.</li></ol>
+<div class="note"><strong>Adding one to OBS</strong><ol><li>In OBS, add a <strong>Browser</strong> source to your scene.</li><li>Open an overlay below (click its name), paste its URL and set the width/height shown next to it.</li><li>Leave the background transparent (OBS's default custom CSS is fine). Panels refresh on their own every few seconds.</li></ol>
 <p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;side=right</code> (hang from the right — mirrored; the checkbox on each overlay adds it), <code>&amp;from=bottom</code> (feed from the bottom up — anchored to the bottom edge, panels stack upward; the checkbox on each overlay adds it), <code>&amp;align=right</code> or <code>center</code> (just move the column), <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning). Panels for features you've switched off on your dashboard stay hidden.</p></div>
 <div class="grid">${cards}</div>
 <p class="colophon"><a href="${escapeHtml(baseUrl)}/roster?channel=${encodeURIComponent(channelId)}">Guild roster</a> · <a href="${escapeHtml(baseUrl)}/guide">Guild Codex</a></p>
@@ -309,11 +310,13 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button[da
 `, {
     width: 1140,
     css: `.intro{font-style:italic;font-size:1.15rem;margin-top:0}.note ol{margin:6px 0 0;padding-left:1.3em}.note li{margin:3px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,480px),1fr));gap:16px;align-items:start}
 .ov.full{grid-column:1/-1}
 .ov{background:linear-gradient(180deg,#e4dcc2,#dccfaa);border:1px solid var(--edge);border-radius:6px;padding:16px 18px;min-width:0;box-shadow:0 3px 10px #6b44182b}
 .ov h2{margin:0;padding:0;border:0;font-size:1.1rem}.ov h2::before{content:none}
-.head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;cursor:pointer;list-style:none}.head::-webkit-details-marker{display:none}
+.head h2::after{content:"▸";display:inline-block;margin-left:8px;color:var(--ink-3);font-size:.85em;transition:transform .15s}.ov[open] .head h2::after{transform:rotate(90deg)}
+.ov[open] .head{margin-bottom:8px}.size{font:600 .78rem var(--mono);color:var(--ink-3);white-space:nowrap}
 .url{display:flex;gap:8px;align-items:stretch}.url code{flex:1;min-width:0;background:#2b1d12;color:#f3dfb4;border:0;border-left:3px solid var(--seal);border-radius:3px;padding:8px 10px;font-size:.8rem}
 .url button{padding:0 14px}
 .tb{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px 16px;margin:0 0 10px;font-size:.92rem}
