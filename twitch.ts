@@ -634,6 +634,26 @@ export async function getViewerIdentity(accessToken: string): Promise<{ id: stri
 // Requires the viewer's own token with scope user:read:moderated_channels.
 const MAX_MODERATED_CHANNELS_PAGES = 10;
 
+/** Every channel id the viewer moderates for someone else (Get Moderated
+ * Channels, paginated). Excludes the viewer's own channel — add it yourself. */
+export async function listModeratedChannelIds(accessToken: string, viewerId: string): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_MODERATED_CHANNELS_PAGES; page++) {
+    const params = new URLSearchParams({ user_id: viewerId, first: "100" });
+    if (cursor) params.set("after", cursor);
+    const res = await fetch(`https://api.twitch.tv/helix/moderation/channels?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) break;
+    const data = await res.json();
+    for (const r of (data.data ?? []) as any[]) ids.push(String(r.broadcaster_id));
+    cursor = data.pagination?.cursor;
+    if (!cursor) break;
+  }
+  return ids;
+}
+
 export async function isUserModeratorOfChannel(accessToken: string, viewerId: string, broadcasterId: string): Promise<boolean> {
   let cursor: string | undefined;
   for (let page = 0; page < MAX_MODERATED_CHANNELS_PAGES; page++) {

@@ -19,7 +19,7 @@
 //   !dashboard         (mod) get this channel's dashboard link
 //   !dashboard reset   (mod) invalidate the old link and issue a new one
 
-import { sendChatMessage, exchangeCode, getViewerIdentity, isUserModeratorOfChannel, timingSafeEqual, env } from "./twitch.ts";
+import { sendChatMessage, exchangeCode, getViewerIdentity, isUserModeratorOfChannel, listModeratedChannelIds, timingSafeEqual, env } from "./twitch.ts";
 import {
   getOrCreateDashboardKey,
   regenerateDashboardKey,
@@ -294,6 +294,74 @@ export async function handleDashboardLogin(channelId: string | null, key: string
   return redirectTo(auth.toString());
 }
 
+// ── GET /dashboard/start (home page "Mod Dashboard" link) ──
+//
+// Login-first entry: no channel or key up front. The viewer logs in with
+// Twitch, and the callback (state row channel_id = PICKER_CHANNEL) lists
+// every connected GuildScribe channel they broadcast or moderate, setting a
+// mod session cookie for each so the dashboard opens without a second login.
+// Shares /dashboard/callback, so no extra Twitch redirect URL is needed.
+const PICKER_CHANNEL = "*";
+
+export async function handleDashboardStart(baseUrl: string): Promise<Response> {
+  const state = crypto.randomUUID();
+  await saveDashboardOAuthState(state, PICKER_CHANNEL, "", Date.now() + OAUTH_STATE_TTL_MS);
+  const auth = new URL("https://id.twitch.tv/oauth2/authorize");
+  auth.search = new URLSearchParams({
+    client_id: env("TWITCH_CLIENT_ID"),
+    redirect_uri: `${baseUrl}/dashboard/callback`,
+    response_type: "code",
+    scope: "user:read:moderated_channels",
+    state,
+  }).toString();
+  return redirectTo(auth.toString());
+}
+
+async function handlePickerCallback(code: string | null, oauthError: string | null, baseUrl: string): Promise<Response> {
+  const back = `<p><a href="/">Return to the Guild Hall</a></p>`;
+  if (oauthError) return page("Login cancelled", `<h1>Login cancelled</h1><p>Twitch login was cancelled.</p>${back}`);
+  if (!code) return new Response("Missing OAuth code.", { status: 400 });
+  try {
+    const token = await exchangeCode(code, `${baseUrl}/dashboard/callback`);
+    const viewer = await getViewerIdentity(token.access_token);
+    if (!viewer) return page("Login failed", `<h1>Login failed</h1><p>Couldn't verify your Twitch account — try again.</p>${back}`);
+    const candidates = [viewer.id, ...(await listModeratedChannelIds(token.access_token, viewer.id))];
+    const channels: Array<{ id: string; name: string }> = [];
+    for (const id of [...new Set(candidates)]) {
+      const b = await getBroadcaster(id);
+      if (b && Number((b as any).connected) === 1) channels.push({ id, name: String((b as any).display_name || (b as any).login || id) });
+    }
+    if (!channels.length) {
+      return page(
+        "No channels found",
+        `<h1>No GuildScribe channels found</h1><p>${escapeName(viewer.display_name)} isn't the broadcaster or a moderator of any channel that has GuildScribe connected.</p><p>Broadcasters can raise the guild banner from the home page first.</p>${back}`,
+      );
+    }
+    const headers = new Headers({ "Cache-Control": "no-store" });
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    const links: Array<{ name: string; url: string }> = [];
+    for (const ch of channels) {
+      headers.append("Set-Cookie", sessionSetCookieHeader(ch.id, await signDashboardSession(ch.id, viewer.id, expiresAt)));
+      links.push({ name: ch.name, url: dashboardUrl(baseUrl, ch.id, await getOrCreateDashboardKey(ch.id)) });
+    }
+    if (links.length === 1) {
+      headers.set("Location", links[0].url);
+      return new Response(null, { status: 302, headers });
+    }
+    headers.set("Content-Type", "text/html; charset=utf-8");
+    const list = links.map((l) => `<li><a href="${l.url}">${escapeName(l.name)}</a></li>`).join("");
+    const html = await page("Pick a channel", `<h1>Which channel?</h1><p>You can manage these GuildScribe channels:</p><ul>${list}</ul>${back}`).text();
+    return new Response(html, { headers });
+  } catch (e) {
+    console.error("dashboard picker callback failed", e);
+    return page("Login failed", `<h1>Login failed</h1><p>Twitch login failed — try again.</p>${back}`);
+  }
+}
+
+function escapeName(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 export async function handleDashboardCallback(
   code: string | null,
   state: string | null,
@@ -303,6 +371,7 @@ export async function handleDashboardCallback(
   if (!state) return new Response("Missing OAuth state.", { status: 400 });
   const stateRow = await consumeDashboardOAuthState(state);
   if (!stateRow) return new Response("Invalid or expired login attempt. Get a fresh link in chat with !dashboard.", { status: 400 });
+  if (String(stateRow.channel_id) === PICKER_CHANNEL) return await handlePickerCallback(code, oauthError, baseUrl);
   const channelId = String(stateRow.channel_id);
   const key = String(stateRow.dashboard_key);
 

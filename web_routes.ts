@@ -14,7 +14,7 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
@@ -361,6 +361,25 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Guide cards' "Dashboard switch" links (see handleDashboardGo).
     return await handleDashboardGo(url.searchParams.get("toggle"), req.headers.get("Cookie"), url.origin);
   }
+  // Home page "Mod Dashboard" link: Twitch login first, then pick a channel.
+  if (req.method === "GET" && path === "/dashboard/start") {
+    return await handleDashboardStart(PUBLIC_ORIGIN);
+  }
+  // Home page "Find a channel" form: Twitch channel name -> that channel's
+  // public roster or bestiary (both need the numeric broadcaster id).
+  if (req.method === "GET" && path === "/find") {
+    const login = String(url.searchParams.get("channel") ?? "").trim().replace(/^@/, "").toLowerCase();
+    const target = url.searchParams.get("page") === "bestiary" ? "bestiary" : "roster";
+    const back = `<p><a href="/">Return to the Guild Hall</a></p>`;
+    if (!/^[a-z0-9_]{1,25}$/.test(login)) {
+      return page("Channel not found", `<h1>Channel not found</h1><p>Enter a Twitch channel name, like <code>stonedsheamus</code>.</p>${back}`);
+    }
+    const b = await getBroadcasterByLogin(login);
+    if (!b || Number((b as any).connected) !== 1) {
+      return page("Channel not found", `<h1>Channel not found</h1><p><strong>${escapeHtml(login)}</strong> doesn't have GuildScribe connected.</p>${back}`);
+    }
+    return new Response(null, { status: 302, headers: { Location: `/${target}?channel=${encodeURIComponent(String((b as any).broadcaster_id))}` } });
+  }
   if (req.method === "GET" && path === "/dashboard/login") {
     return await handleDashboardLogin(url.searchParams.get("channel"), url.searchParams.get("key"), PUBLIC_ORIGIN);
   }
@@ -504,7 +523,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     if (!username && !channelId) {
       return page(
         "D&D Twitch Bot",
-        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn ember" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a> · <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""}</p>`,
+        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn ember" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><h2>Visit a guild</h2><form action="/find" method="get" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><input name="channel" placeholder="Twitch channel name" aria-label="Twitch channel name" required autocomplete="off"><button type="submit" name="page" value="roster">Roster</button><button type="submit" name="page" value="bestiary">Bestiary</button></form><p><a class="btn ghost" href="/dashboard/start">Mod Dashboard</a> <span class="muted" style="font-size:.92rem;opacity:.85">Log in with Twitch to manage a channel you own or moderate.</span></p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a> · <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""}</p>`,
       );
     }
     if (!username) return new Response("Missing character user.", { status: 400 });
