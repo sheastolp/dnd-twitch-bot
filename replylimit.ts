@@ -11,12 +11,23 @@
 //
 // Sends from work started outside trackReplies (raid musters, ad heads-ups
 // and other defer()'d bookkeeping) never count against the chatter.
+// Classic duels are exempt (isClassicDuelMessage).
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sqlite } from "./sqlite.ts";
 
 export const REPLY_LIMIT_COUNT = Math.max(1, Number(Deno.env.get("REPLY_LIMIT_COUNT") ?? "2"));
 export const REPLY_LIMIT_WINDOW_MS = Math.max(1000, Number(Deno.env.get("REPLY_LIMIT_WINDOW_MS") ?? "60000"));
+
+/** Classic (turn-by-turn) duels are exempt: starting one ("classic" anywhere
+ * in a !dndduel / !party hunt command) and the in-fight turn commands
+ * (attack/accept/decline/status/end, for 1v1, monster, party and party-hunt
+ * duels), so a fight isn't stalled at two moves a minute. */
+export function isClassicDuelMessage(chatMessage: string): boolean {
+  const m = chatMessage.trim();
+  return /^!(?:dndduel|party\s+hunt)\s(?:.*\s)?classic(?:\s|$)/i.test(m) ||
+    /^!(?:dndduel(?:\s+(?:monster|party(?:\s+hunt)?))?|party\s+hunt)\s+(?:attack|accept|decline|status|end)$/i.test(m);
+}
 
 const replyScope = new AsyncLocalStorage<{ sent: boolean }>();
 

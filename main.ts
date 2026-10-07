@@ -14,7 +14,7 @@ import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.t
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
-import { ensureReplyLimitTables, hasReplyBudget, recordReply, trackReplies } from "./replylimit.ts";
+import { ensureReplyLimitTables, hasReplyBudget, isClassicDuelMessage, recordReply, trackReplies } from "./replylimit.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
@@ -463,8 +463,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
     // Per-person reply limit (replylimit.ts): the bot answers a non-mod
     // chatter at most twice a minute. !jar / !fine stay exempt, like the
-    // command cooldown below. Only actual replies count against it.
-    const limitReplies = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
+    // command cooldown below, and so do classic duels' turn-by-turn commands.
+    // Only actual replies count against it.
+    const limitReplies = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage) && !isClassicDuelMessage(chatMessage);
     // Fails open: a lookup error shouldn't silence the bot.
     const replyBudget = limitReplies ? hasReplyBudget(broadcasterId, chatter).catch(() => true) : Promise.resolve(true);
 
