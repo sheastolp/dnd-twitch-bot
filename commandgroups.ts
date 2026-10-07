@@ -69,7 +69,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   charcreate: { section: "Adventurer's parchment", label: "Create and view (!newchar, !createchar, !char, !roster)", commands: ["newchar", "createchar", "char", "roster"], parent: "character" },
   streamstats: { section: "Adventurer's parchment", label: "Stream stats (!watchtime, !followage, !nick)", commands: ["watchtime", "followage", "nick"], parent: "misc" },
   // Fate's dice
-  d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r)", commands: ["d20"], parent: "dice" },
+  d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r, !save)", commands: ["d20", "save"], parent: "dice" },
   diceroll: { section: "Fate's dice", label: "Dice expressions (!roll NdS, !roll @user)", commands: [], parent: "dice" },
   rollchecks: { section: "Fate's dice", label: "Saves & skill checks (!roll dex, !roll stealth, !saves tally)", commands: ["saves"], parent: "dice" },
   rollfate: { section: "Fate's dice", label: "Ask fate (!roll <question>?)", commands: [], parent: "dice" },

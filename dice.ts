@@ -141,3 +141,50 @@ export function rollDice(input = "1d20", customLabel?: string) {
   // log leaderboard events without re-parsing the formatted text.
   return { text, rawD20, total };
 }
+
+// !save [modifiers] — the chatter's 1d20 plus any flat or dice modifiers
+// (e.g. "+3", "-1", "+1d4", "+3 +1d4", "2") against the bot's plain 1d20.
+// A tie goes to the chatter, like meeting a save DC. Returns null when the
+// modifiers don't parse or are out of bounds.
+export function rollSaveContest(input = "") {
+  const compact = input.replace(/\s+/g, "");
+  const terms: Array<{ sign: 1 | -1; count: number; sides: number | null }> = [];
+  if (compact) {
+    if (!/^([+-]?\d+(d\d+)?)([+-]\d+(d\d+)?)*$/i.test(compact)) return null;
+    for (const m of compact.matchAll(/([+-]?)(\d+)(?:d(\d+))?/gi)) {
+      const sign = m[1] === "-" ? -1 : 1;
+      const count = +m[2];
+      const sides = m[3] ? +m[3] : null;
+      if (sides !== null && (count < 1 || count > 20 || sides < 1 || sides > 100)) return null;
+      if (sides === null && count > 100) return null;
+      terms.push({ sign, count, sides });
+    }
+    if (terms.length > 10) return null;
+  }
+  const d20 = () => 1 + Math.floor(Math.random() * 20);
+  const userD20 = d20();
+  const botD20 = d20();
+  let total = userD20;
+  const parts: string[] = [];
+  for (const t of terms) {
+    const op = t.sign < 0 ? "-" : "+";
+    if (t.sides === null) {
+      total += t.sign * t.count;
+      parts.push(`${op}${t.count}`);
+    } else {
+      const rolls = Array.from({ length: t.count }, () => 1 + Math.floor(Math.random() * t.sides!));
+      total += t.sign * rolls.reduce((a, b) => a + b, 0);
+      parts.push(`${op}${t.count}d${t.sides} [${rolls.join(", ")}]`);
+    }
+  }
+  const won = total >= botD20;
+  const nat = userD20 === 20 ? " (nat 20!)" : userD20 === 1 ? " (nat 1!)" : "";
+  const breakdown = parts.length ? `[${userD20}]${nat} ${parts.join(" ")} = ${total}` : `[${userD20}]${nat} = ${total}`;
+  const verdict = won
+    ? total === botD20
+      ? "✔ Tied — ties go to the defender, you SAVE! You win!"
+      : "✔ You SAVE! You win!"
+    : "✘ You FAIL the save! You lose.";
+  const text = `🛡️ Saving throw: 1d20${parts.length ? " " + parts.map((p) => p.replace(/ \[.*\]$/, "")).join(" ") : ""} → ${breakdown} vs 🤖 GuildScribe's 1d20 → [${botD20}]. ${verdict}`;
+  return { text, rawD20: userD20, total, botRoll: botD20, won };
+}

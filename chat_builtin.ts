@@ -13,7 +13,7 @@ import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText } from "./utils.ts";
 import { DEFAULT_DC, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
-import { rollDice } from "./dice.ts";
+import { rollDice, rollSaveContest } from "./dice.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
 import { classes } from "./data.ts";
@@ -248,6 +248,21 @@ export async function handleBuiltinChatCommand(ctx: {
           }
         }
       }
+    }
+  } else if (/^!save(?:\s+.*)?$/i.test(chatMessage)) {
+    // !save [modifiers] — 1d20 + optional modifiers (!save +3, !save -1 +1d4)
+    // against the bot's own 1d20; ties go to the chatter.
+    const result = rollSaveContest(chatMessage.replace(/^!save\s*/i, ""));
+    if (!result) {
+      await sendChatMessage(
+        `@${display} that's not a valid modifier — try !save, !save +3, !save -1, or !save +2 +1d4`,
+        broadcasterId,
+      );
+    } else {
+      if (result.rawD20 === 20 || result.rawD20 === 1) {
+        await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
+      }
+      await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
     }
   } else if (/^!saves(?:\s+.*)?$/i.test(chatMessage)) {
     // !saves — this stream's saving throws tally; !saves reset (mod) starts it over.
