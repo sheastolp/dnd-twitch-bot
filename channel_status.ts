@@ -23,12 +23,15 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string }> = [
 
 /** Extra EventSub subscriptions /connect creates (eventsub_extra_subscriptions.kind).
  * `scope` is the permission it can't be created without — when that's
- * missing too, the permission line already covers it, so it isn't listed twice. */
-export const EXTRA_SUBSCRIPTIONS: Array<{ kinds: string[]; feature: string; scope?: string }> = [
+ * missing too, the permission line already covers it, so it isn't listed twice.
+ * `selfHeals` marks ones the bot recreates on its own when missing (main.ts's
+ * stream-status backfill, adalerts.ts's lazy subscribe), so they never
+ * call for a reconnect. */
+export const EXTRA_SUBSCRIPTIONS: Array<{ kinds: string[]; feature: string; scope?: string; selfHeals?: boolean }> = [
   { kinds: ["sub", "resub", "gift"], feature: "Sub thank-yous", scope: "channel:read:subscriptions" },
   { kinds: ["raid"], feature: "Raid thank-yous" },
-  { kinds: ["stream_online", "stream_offline"], feature: "Live / offline tracking" },
-  { kinds: ["ad_break"], feature: "Ad-break alerts", scope: "channel:read:ads" },
+  { kinds: ["stream_online", "stream_offline"], feature: "Live / offline tracking", selfHeals: true },
+  { kinds: ["ad_break"], feature: "Ad-break alerts", scope: "channel:read:ads", selfHeals: true },
   { kinds: ["redemption"], feature: "Channel-point boons", scope: "channel:read:redemptions" },
 ];
 
@@ -48,7 +51,8 @@ export interface ChannelStatus {
   /** False when no broadcaster token is stored (connected before scopes were requested). */
   hasToken: boolean;
   missingScopes: Array<{ scope: string; feature: string }>;
-  missingSubscriptions: Array<{ kinds: string[]; feature: string; scope?: string }>;
+  /** Only ones a reconnect would fix — self-healing ones are left out. */
+  missingSubscriptions: Array<{ kinds: string[]; feature: string; scope?: string; selfHeals?: boolean }>;
 }
 
 function computeStatus(
@@ -62,7 +66,7 @@ function computeStatus(
   const granted = new Set(String(tokenScope ?? "").split(/\s+/).filter(Boolean));
   const missingScopes = CONNECT_SCOPES.filter((s) => !granted.has(s.scope));
   const missingSubscriptions = EXTRA_SUBSCRIPTIONS.filter(
-    (x) => !x.kinds.every((k) => extraKinds.has(k)) && (!x.scope || granted.has(x.scope)),
+    (x) => !x.selfHeals && !x.kinds.every((k) => extraKinds.has(k)) && (!x.scope || granted.has(x.scope)),
   );
   const health: ChannelHealth = blocked
     ? "blocked"
