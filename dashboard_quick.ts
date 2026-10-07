@@ -56,7 +56,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "raid", icon: "🐉", name: "Raid boss",
-    what: "A giant boss is posted when you go live. Viewers team up with !raid to chip away at it over the stream and share the loot when it falls.",
+    what: "A giant boss is posted when you go live. Viewers team up with !rally to chip away at it over the stream and share the loot when it falls.",
     yourPart: "Nothing — it appears automatically each stream.",
     switches: ["raid"],
     needs: ["characters"],

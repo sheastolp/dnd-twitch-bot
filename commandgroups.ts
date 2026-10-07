@@ -93,7 +93,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   partyhunts: { section: "Arena, wilds & the company", label: "Party hunts (!dndduel party hunt)", commands: [], parent: "combat" },
   autohunt: { section: "Arena, wilds & the company", label: "Autohunt (!autohunt)", commands: ["autohunt", "autohuntstatus", "autohuntstop"], parent: "combat" },
   huntcooldown: { section: "Arena, wilds & the company", label: "Hunting cooldown (!huntcooldown)", commands: ["huntcooldown", "huntcd"], parent: "combat" },
-  raid: { section: "Arena, wilds & the company", label: "Raid quest (!raid)", commands: ["raid"], parent: "combat" },
+  raid: { section: "Arena, wilds & the company", label: "Raid quest (!rally)", commands: ["raid"], parent: "combat" },
   bestiary: { section: "Arena, wilds & the company", label: "Bestiary (!bestiary — huntable monsters & what they've learned)", commands: ["bestiary"], parent: "combat" },
   // Hunt and Hoard (hoard.ts) — the module also has its own master switch
   // (!hoard on/off, off by default). Its words are deliberately not listed

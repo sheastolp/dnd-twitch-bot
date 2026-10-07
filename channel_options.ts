@@ -8,7 +8,7 @@
 //
 // Values live in `channel_options` (one row per channel and option; no row =
 // default), except the hunting and raid cooldowns, which keep using their own
-// tables so the chat commands (!huntcooldown, !raid cooldown) and the
+// tables so the chat commands (!huntcooldown, !rally cooldown) and the
 // dashboard always agree. Reads go through a short per-isolate cache, so the
 // chat hot path costs at most one read per channel every OPTIONS_CACHE_MS.
 //
@@ -66,7 +66,7 @@ export const OPTIONS: OptionDef[] = [
   { key: "autohunt.max", bundle: "fighting", label: "Heroes out on !autohunt at once", kind: "number", int: true,
     def: env("AUTOHUNT_MAX_ACTIVE", 10, 1, 50), min: 1, max: 50, suggest: ["5", "10", "20"] },
   // Raid boss
-  { key: "raid.cooldown", bundle: "raid", label: "Time between raids", help: "Same as !raid cooldown in chat.", kind: "duration", unit: "m",
+  { key: "raid.cooldown", bundle: "raid", label: "Time between raids", help: "Same as !rally cooldown in chat.", kind: "duration", unit: "m",
     def: env("RAID_COOLDOWN_SECONDS", 600, 0, 7200), min: 0, max: 7200, suggest: ["off", "5m", "10m", "20m", "30m"], table: "raid_settings" },
   { key: "raid.muster", bundle: "raid", label: "Time to join before the raid charges", kind: "duration", unit: "s",
     def: env("RAID_MUSTER_SECONDS", 60, 15, 600), min: 15, max: 600, suggest: ["30s", "1m", "2m"] },
@@ -86,7 +86,7 @@ export const OPTIONS: OptionDef[] = [
   { key: "delve.fireballCooldown", bundle: "delve", label: "Big-hit cooldown (per chatter)", kind: "duration", unit: "s",
     def: 60, min: 5, max: 600, suggest: ["30s", "1m", "2m"] },
   { key: "delve.blessWord", bundle: "delve", label: "Party-buff spell word", help: "What chat types for double damage.", kind: "word",
-    def: "bless", suggest: ["bless", "hype", "rally", "inspire"] },
+    def: "bless", suggest: ["bless", "hype", "inspire", "valor"] },
   { key: "delve.blessCooldown", bundle: "delve", label: "Party-buff cooldown", kind: "duration", unit: "s",
     def: 90, min: 20, max: 1800, suggest: ["1m", "90s", "3m", "5m"] },
   // Wandering merchant

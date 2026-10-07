@@ -50,13 +50,13 @@ export const HOWTO_PLAY: HowtoTopic[] = [
     summary: "Gather up to six heroes against this stream's raid boss, whose HP carries over between raids.",
     steps: [
       `When the stream goes live, the bot posts a raid quest: a powerful boss (CR 13+) with doubled HP.`,
-      `Anyone with a saved character types <code>!raid</code> to sound the war horn. Others type <code>!raid</code> to join the muster, up to 6 raiders.`,
-      `The party charges a minute later, or right away when full. The muster's leader or a mod can launch early with <code>!raid go</code>.`,
+      `Anyone with a saved character types <code>!rally</code> to sound the war horn. Others type <code>!rally</code> to join the muster, up to 6 raiders.`,
+      `The party charges a minute later, or right away when full. The muster's leader or a mod can launch early with <code>!rally go</code>.`,
       `The boss keeps its wounds between raids. When it falls, everyone who struck it this stream gets its full XP and a share of a big hoard.`,
-      `<code>!raid status</code> shows the boss's HP and when the next raid can muster.`,
+      `<code>!rally status</code> shows the boss's HP and when the next raid can muster.`,
     ],
     tips: [
-      `Mods: <code>!raid cooldown 5m</code> sets the wait between raids (default 10 minutes); <code>!raid new</code> posts a fresh quest if the bot joined mid-stream.`,
+      `Mods: <code>!rally cooldown 5m</code> sets the wait between raids (default 10 minutes); <code>!rally new</code> posts a fresh quest if the bot joined mid-stream.`,
       `Put the boss's HP bar on stream with the <code>raid</code> overlay (<a href="/howto/overlays">Add OBS overlays</a>).`,
     ],
     codex: "arena",

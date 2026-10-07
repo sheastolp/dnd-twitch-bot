@@ -17,7 +17,7 @@ export function startGuideText(topic: string | undefined, publicBaseUrl: string)
     case "fight":
     case "combat":
     case "hunt":
-      return "⚔️ 3/5 Fights: !dndduel hunts a monster (or !dndduel goblin) for XP + loot — XP levels you up. !bestiary lists foes. !dndduel @user = PvP for glory. !autohunt 30m hunts on its own. Join !raid bosses! Next: !start party";
+      return "⚔️ 3/5 Fights: !dndduel hunts a monster (or !dndduel goblin) for XP + loot — XP levels you up. !bestiary lists foes. !dndduel @user = PvP for glory. !autohunt 30m hunts on its own. Join !rally bosses! Next: !start party";
     case "party":
     case "company":
       return "🛡️ 4/5 Companies: !party create <name> | !party join <name> | !party invite @user | !party list. Then !party hunt <name> sends the whole company after a monster to share the spoils. Next: !start coin";

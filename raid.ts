@@ -1,25 +1,25 @@
 // GuildScribe — the stream's raid quest. Once per stream, when the channel goes
 // live (stream.online in main.ts), a single raid quest is posted: a high-level
 // boss (CR RAID_MIN_CR and up) that no lone hero should take on. Viewers band
-// together with !raid into a temporary party that fights it; the boss's HP
+// together with !rally into a temporary party that fights it; the boss's HP
 // carries over between raids, so the whole chat wears it down over the stream.
 //
-//   !raid               sound the war horn (opens a muster), or join the one open
-//   !raid go            launch the muster now (its leader or a mod)
-//   !raid status        the boss, its HP, the muster and the cooldown
-//   !raid cooldown [t]  show it; mods set it (90s, 10m, 1h, off; max 2h)
-//   !raid new           mod: post a fresh raid quest now (e.g. bot joined mid-stream)
+//   !rally               sound the war horn (opens a muster), or join the one open
+//   !rally go            launch the muster now (its leader or a mod)
+//   !rally status        the boss, its HP, the muster and the cooldown
+//   !rally cooldown [t]  show it; mods set it (90s, 10m, 1h, off; max 2h)
+//   !rally new           mod: post a fresh raid quest now (e.g. bot joined mid-stream)
 //
-// The temporary party is just the muster: whoever typed !raid within
+// The temporary party is just the muster: whoever typed !rally within
 // RAID_MUSTER_SECONDS of the horn. Val Town has no always-on process, so a
 // muster whose time is up is launched by the next thing that looks at it — any
-// chat message in the channel (maybeLaunchRaid, called from main.ts), !raid
+// chat message in the channel (maybeLaunchRaid, called from main.ts), !rally
 // itself, or the autohunt cron as a fallback. A full muster launches at once.
 // The launch is claimed atomically, so it can only happen once.
 //
 // Cooldown: after a raid launches, no new muster can be opened for the
 // channel's raid cooldown (RAID_COOLDOWN_SECONDS env, default 10 minutes; mods
-// change it with !raid cooldown). It is per channel, separate from the hunting
+// change it with !rally cooldown). It is per channel, separate from the hunting
 // cooldown, and does not stop anyone joining a muster that is already open.
 //
 // When the boss falls, every hero who struck it during the stream earns its
@@ -195,7 +195,7 @@ export async function createRaidQuest(broadcasterId: string, streamStartedAt: st
   );
   const cd = await getRaidCooldownSeconds(broadcasterId);
   return `📯 RAID QUEST posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
-    `far too much for one hero. Type !raid to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
+    `far too much for one hero. Type !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
     `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
     `Slay it this stream for its full XP and a ${opts.lootMult > 0 ? "great hoard" : "place in the chronicle"}!`;
 }
@@ -382,8 +382,8 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   if (!heroes.length) {
     await sendChatMessage(
       benched.length
-        ? `📯 The war horn fades — every raider is too wounded to ride out (1 HP). ${boss.name} waits. (!rest or !use a potion, then !raid)`
-        : `📯 The war horn fades — nobody with a saved hero answered. ${boss.name} waits. (!createchar, then !raid)`,
+        ? `📯 The war horn fades — every raider is too wounded to ride out (1 HP). ${boss.name} waits. (!rest or !use a potion, then !rally)`
+        : `📯 The war horn fades — nobody with a saved hero answered. ${boss.name} waits. (!createchar, then !rally)`,
       broadcasterId,
     );
     return true;
@@ -451,7 +451,7 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
   });
   const msg = `${header}${standing ? `the party falls back with ${standing} still standing` : "the party is routed"}. ` +
     `Damage this raid: ${hits}. ${boss.name} has ${left}/${boss.hpMax} HP left. ` +
-    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !raid"}.${learnNote}${woundsText}${benchNote}`;
+    `${cd > 0 ? `The next raid can muster in ${waitText(cd * 1000)}` : "Sound the horn again with !rally"}.${learnNote}${woundsText}${benchNote}`;
   await sendChatMessages(msg, broadcasterId, {
     names,
     detail: fullLog(msg),
@@ -515,7 +515,7 @@ export async function getRaidRosterStatus(broadcasterId: string): Promise<RaidRo
       ? `Muster open (${musterText(members, await optNum(broadcasterId, "raid.party"))}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
       : wait > 0
       ? `Raiders are recovering — the next raid can muster in ${waitText(wait)}.`
-      : "Ready — type !raid in chat to sound the war horn.";
+      : "Ready — type !rally in chat to sound the war horn.";
   }
   const contributors = Object.entries(parseJson<Record<string, number>>(q.contributors, {}))
     .filter(([, d]) => Number(d) > 0)
@@ -533,7 +533,7 @@ function musterText(members: Member[], partyMax: number): string {
   return `${members.length}/${partyMax}: ${members.map((m) => m.d).join(", ")}`;
 }
 
-/** Handles !raid and its subcommands. Returns true if it consumed the message. */
+/** Handles !rally and its subcommands. Returns true if it consumed the message. */
 export async function handleRaidCommand(
   chatMessage: string,
   chatter: string,
@@ -541,7 +541,7 @@ export async function handleRaidCommand(
   broadcasterId: string,
   isModerator: boolean,
 ): Promise<boolean> {
-  const m = chatMessage.trim().match(/^!raid(?:\s+(\S+))?(?:\s+(.*))?$/i);
+  const m = chatMessage.trim().match(/^!rally(?:\s+(\S+))?(?:\s+(.*))?$/i);
   if (!m) return false;
   const sub = (m[1] ?? "").toLowerCase();
   const arg = (m[2] ?? "").trim();
@@ -557,7 +557,7 @@ export async function handleRaidCommand(
       }
       const seconds = parseCooldown(arg);
       if (seconds === null || seconds > MAX_RAID_COOLDOWN_SECONDS) {
-        await say(`@${display} usage: !raid cooldown <time|off> — e.g. 90s, 10m, 1h or off (max ${waitText(MAX_RAID_COOLDOWN_SECONDS * 1000)}).`);
+        await say(`@${display} usage: !rally cooldown <time|off> — e.g. 90s, 10m, 1h or off (max ${waitText(MAX_RAID_COOLDOWN_SECONDS * 1000)}).`);
         return true;
       }
       await setRaidCooldownSeconds(broadcasterId, seconds);
@@ -569,7 +569,7 @@ export async function handleRaidCommand(
     const wait = q ? await raidWaitMs(q) : 0;
     await say(
       `@${display} raid cooldown: ${seconds ? waitText(seconds * 1000) : "off"}. ${wait > 0 ? `Next raid can muster in ${waitText(wait)}.` : "A raid can muster now."}` +
-        (isModerator ? " Change it with !raid cooldown <time|off>." : ""),
+        (isModerator ? " Change it with !rally cooldown <time|off>." : ""),
     );
     return true;
   }
@@ -603,7 +603,7 @@ export async function handleRaidCommand(
       ? `Muster open (${musterText(members, RAID_PARTY_MAX)}) — launches in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`
       : wait > 0
       ? `Next raid can muster in ${waitText(wait)}.`
-      : "Type !raid to sound the war horn.";
+      : "Type !rally to sound the war horn.";
     await say(
       `@${display} 📯 Raid quest: ${q.monster_name} (CR ${q.monster_cr}, AC ${q.monster_ac}) HP ${q.monster_hp}/${q.monster_hp_max} after ${q.raids} raid${q.raids === 1 ? "" : "s"}. ${muster}`,
     );
@@ -612,7 +612,7 @@ export async function handleRaidCommand(
 
   if (sub === "go" || sub === "launch") {
     if (!q.muster_ends_at) {
-      await say(`@${display} no muster is open. Type !raid to sound the war horn.`);
+      await say(`@${display} no muster is open. Type !rally to sound the war horn.`);
       return true;
     }
     if (q.muster_leader !== user && !isModerator) {
@@ -624,11 +624,11 @@ export async function handleRaidCommand(
   }
 
   if (sub) {
-    await say(`@${display} raid commands: !raid (sound the horn or join) | !raid go | !raid status | !raid cooldown${isModerator ? " [time|off] | !raid new" : ""}`);
+    await say(`@${display} raid commands: !rally (sound the horn or join) | !rally go | !rally status | !rally cooldown${isModerator ? " [time|off] | !rally new" : ""}`);
     return true;
   }
 
-  // Plain !raid: join the open muster, or open one.
+  // Plain !rally: join the open muster, or open one.
   const c = await getCharacter(user, broadcasterId);
   if (!c) {
     await say(`@${display} you need a saved hero to join a raid — try !createchar first.`);
@@ -651,7 +651,7 @@ export async function handleRaidCommand(
     );
     const ok = await changed(res, async () => (await getRaidQuest(broadcasterId))?.muster_members === JSON.stringify(next));
     if (!ok) {
-      await say(`@${display} the raid party shifted as you joined — type !raid again.`);
+      await say(`@${display} the raid party shifted as you joined — type !rally again.`);
       return true;
     }
     if (next.length >= RAID_PARTY_MAX) {
@@ -665,7 +665,7 @@ export async function handleRaidCommand(
 
   const wait = await raidWaitMs(q);
   if (wait > 0) {
-    await say(`@${display} the raiders are still licking their wounds — the next raid can muster in ${waitText(wait)}. (!raid status)`);
+    await say(`@${display} the raiders are still licking their wounds — the next raid can muster in ${waitText(wait)}. (!rally status)`);
     return true;
   }
   const endsAt = Date.now() + MUSTER_MS;
@@ -676,7 +676,7 @@ export async function handleRaidCommand(
     [endsAt, user, JSON.stringify(first), broadcasterId],
   );
   if (!(await changed(res, async () => (await getRaidQuest(broadcasterId))?.muster_ends_at === endsAt))) {
-    await say(`@${display} someone just sounded the horn — type !raid again to join.`);
+    await say(`@${display} someone just sounded the horn — type !rally again to join.`);
     return true;
   }
   if (RAID_PARTY_MAX <= 1) {
@@ -685,7 +685,7 @@ export async function handleRaidCommand(
   }
   await say(
     `📯 ${display} sounds the war horn against ${q.monster_name} (HP ${q.monster_hp}/${q.monster_hp_max})! ` +
-      `Type !raid within ${waitText(MUSTER_MS)} to join the raid party (up to ${RAID_PARTY_MAX} heroes). ${display}: !raid go to charge early.`,
+      `Type !rally within ${waitText(MUSTER_MS)} to join the raid party (up to ${RAID_PARTY_MAX} heroes). ${display}: !rally go to charge early.`,
   );
   return true;
 }

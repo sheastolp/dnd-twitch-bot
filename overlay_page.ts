@@ -182,8 +182,8 @@ function recentCard(rec,max){
 // right now — whatever's happening first, then a few ways in — one at a time.
 const showNext=Q.get("next")==="1";let nextList=[],nextIdx=0,nextEl=null;
 function nextSteps(d){const s=[];
-  if(d.raid&&!d.raid.slain){if(/^Muster open/.test(d.raid.state))s.push(["!raid","join the raid on "+d.raid.monster]);
-    else if(/^Ready/.test(d.raid.state))s.push(["!raid","sound the war horn vs "+d.raid.monster])}
+  if(d.raid&&!d.raid.slain){if(/^Muster open/.test(d.raid.state))s.push(["!rally","join the raid on "+d.raid.monster]);
+    else if(/^Ready/.test(d.raid.state))s.push(["!rally","sound the war horn vs "+d.raid.monster])}
   const TURN={duel:"!dndduel attack",hunt:"!dndduel monster attack",partyduel:"!dndduel party attack",partyhunt:"!party hunt attack"};
   for(const f of d.battle||[]){const who=f.sides.flatMap(x=>x.combatants).find(m=>m.turn);
     if(TURN[f.kind])s.push([TURN[f.kind],who?who.name+"'s turn":"take your turn"])}
