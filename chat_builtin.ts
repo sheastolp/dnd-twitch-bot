@@ -250,19 +250,34 @@ export async function handleBuiltinChatCommand(ctx: {
       }
     }
   } else if (/^!save(?:\s+.*)?$/i.test(chatMessage)) {
-    // !save [modifiers] — 1d20 + optional modifiers (!save +3, !save -1 +1d4)
-    // against the bot's own 1d20; ties go to the chatter.
-    const result = rollSaveContest(chatMessage.replace(/^!save\s*/i, ""));
+    // !save [@user] [modifiers] — 1d20 + optional modifiers (!save +3,
+    // !save -1 +1d4) against the bot's own 1d20; ties go to the saver.
+    // !save @user [modifiers] makes @user roll the saving throw instead.
+    let rest = chatMessage.replace(/^!save\s*/i, "").trim();
+    let saveTarget: string | null = null;
+    const targetMatch = rest.match(/^@(\S+)\s*(.*)$/);
+    if (targetMatch) {
+      saveTarget = targetMatch[1].replace(/[,:]+$/, "");
+      rest = targetMatch[2].trim();
+    }
+    const result = rollSaveContest(rest, saveTarget ?? undefined);
     if (!result) {
       await sendChatMessage(
-        `@${display} that's not a valid modifier — try !save, !save +3, !save -1, or !save +2 +1d4`,
+        `@${display} that's not a valid modifier — try !save, !save +3, !save -1 +1d4, or !save @user +2`,
         broadcasterId,
       );
     } else {
       if (result.rawD20 === 20 || result.rawD20 === 1) {
-        await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
+        const kind = result.rawD20 === 20 ? "nat20" : "nat1";
+        if (saveTarget) await recordDiceRollEvent(broadcasterId, saveTarget.toLowerCase(), saveTarget, kind);
+        else await recordDiceRollEvent(broadcasterId, chatter, display, kind);
       }
-      await sendChatMessage(`@${display} ${result.text}`, broadcasterId);
+      await sendChatMessage(
+        saveTarget
+          ? `@${display} calls for a saving throw from @${saveTarget}! ${result.text}`
+          : `@${display} ${result.text}`,
+        broadcasterId,
+      );
     }
   } else if (/^!saves(?:\s+.*)?$/i.test(chatMessage)) {
     // !saves — this stream's saving throws tally; !saves reset (mod) starts it over.

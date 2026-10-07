@@ -144,9 +144,11 @@ export function rollDice(input = "1d20", customLabel?: string) {
 
 // !save [modifiers] — the chatter's 1d20 plus any flat or dice modifiers
 // (e.g. "+3", "-1", "+1d4", "+3 +1d4", "2") against the bot's plain 1d20.
-// A tie goes to the chatter, like meeting a save DC. Returns null when the
+// `saver` names someone else making the save (!save @user); the verdict
+// then speaks about them instead of "you". A tie goes to the saver, like
+// meeting a save DC. Returns null when the
 // modifiers don't parse or are out of bounds.
-export function rollSaveContest(input = "") {
+export function rollSaveContest(input = "", saver?: string) {
   const compact = input.replace(/\s+/g, "");
   const terms: Array<{ sign: 1 | -1; count: number; sides: number | null }> = [];
   if (compact) {
@@ -180,11 +182,10 @@ export function rollSaveContest(input = "") {
   const won = total >= botD20;
   const nat = userD20 === 20 ? " (nat 20!)" : userD20 === 1 ? " (nat 1!)" : "";
   const breakdown = parts.length ? `[${userD20}]${nat} ${parts.join(" ")} = ${total}` : `[${userD20}]${nat} = ${total}`;
+  const who = saver ? `@${saver}` : "You";
   const verdict = won
-    ? total === botD20
-      ? "✔ Tied — ties go to the defender, you SAVE! You win!"
-      : "✔ You SAVE! You win!"
-    : "✘ You FAIL the save! You lose.";
-  const text = `🛡️ Saving throw: 1d20${parts.length ? " " + parts.map((p) => p.replace(/ \[.*\]$/, "")).join(" ") : ""} → ${breakdown} vs 🤖 GuildScribe's 1d20 → [${botD20}]. ${verdict}`;
+    ? `${total === botD20 ? `✔ Tied — ties go to the defender, ${saver ? who : "you"}` : `✔ ${who}`} ${saver ? "SAVES" : "SAVE"}! ${who} ${saver ? "wins" : "win"}!`
+    : `✘ ${who} ${saver ? "FAILS" : "FAIL"} the save! ${who} ${saver ? "loses" : "lose"}.`;
+  const text = `🛡️ ${saver ? `@${saver}'s saving throw` : "Saving throw"}: 1d20${parts.length ? " " + parts.map((p) => p.replace(/ \[.*\]$/, "")).join(" ") : ""} → ${breakdown} vs 🤖 GuildScribe's 1d20 → [${botD20}]. ${verdict}`;
   return { text, rawD20: userD20, total, botRoll: botD20, won };
 }
