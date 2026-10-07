@@ -151,7 +151,6 @@ Chat: `!guide` or `!link` posts that same URL.
 | `SUPPORT_URL` | *(recommended)* Support/contact URL shown in the privacy policy and home page |
 | `PUBLIC_BASE_URL` | *(recommended)* Public HTTPS URL used in chat links; must match the deployed Val URL |
 | `COMMAND_COOLDOWN_MS` | *(optional)* Durable per-channel/user command cooldown; default 1200ms |
-| `REPLY_LIMIT_COUNT` / `REPLY_LIMIT_WINDOW_MS` | *(optional)* Per-person reply limit (replylimit.ts): the bot answers a non-mod chatter at most this many times per window; default 2 per 60000ms. Over the limit, their messages are ignored silently; only messages the bot actually answered count. `!jar` / `!fine` and classic duels (starting one, and the attack/accept/decline/status/end turn commands) are exempt |
 | `GOODNIGHT_COOLDOWN_MS` | *(optional)* Durable per-channel cooldown between "goodnight" auto-replies; default 300000ms (5 min), floor 30000ms |
 | `CHAT_GLOBAL_MIN_INTERVAL_MS` | *(optional)* Global bot-account chat-send spacing; default 1600ms. Lower only after Twitch confirms the account's applicable limit/verification. |
 | `MERCHANT_MIN_INTERVAL_MINUTES` | *(optional)* Shortest gap between open-stall merchant ads in a channel with `!market on`; default 25, floor 5 |

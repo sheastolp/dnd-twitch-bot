@@ -14,7 +14,6 @@ import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.t
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
-import { ensureReplyLimitTables, hasReplyBudget, isClassicDuelMessage, recordReply, trackReplies } from "./replylimit.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
@@ -106,7 +105,6 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensurePointsTables,
   ensureSwearJarTables,
   ensureWhisperTables,
-  ensureReplyLimitTables,
   ensureReplyPageTables,
   ensureAutohuntTables,
   ensureRedemptionTables,
@@ -461,14 +459,6 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!channelOn) return new Response("OK");
 
-    // Per-person reply limit (replylimit.ts): the bot answers a non-mod
-    // chatter at most twice a minute. !jar / !fine stay exempt, like the
-    // command cooldown below, and so do classic duels' turn-by-turn commands.
-    // Only actual replies count against it.
-    const limitReplies = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage) && !isClassicDuelMessage(chatMessage);
-    // Fails open: a lookup error shouldn't silence the bot.
-    const replyBudget = limitReplies ? hasReplyBudget(broadcasterId, chatter).catch(() => true) : Promise.resolve(true);
-
     // Bookkeeping the reply doesn't depend on runs alongside it (defer —
     // awaited before the response is returned) instead of in front of it.
     defer(maybeLaunchRaidSafe(broadcasterId)); // due raid musters launch on any chat message
@@ -489,22 +479,20 @@ async function handleRequest(req: Request): Promise<Response> {
       // deliberately excluded from COMMAND_GROUPS so they're unaffected.
       const group = groupForMessage(chatMessage, /^!dndduel\s/i.test(chatMessage) ? await getChannelRoster(broadcasterId) : undefined);
       const rateLimited = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
-      const [allowed, budgetLeft, groupOn, hexNotice] = await Promise.all([
+      const [allowed, groupOn, hexNotice] = await Promise.all([
         rateLimited ? checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS) : true,
-        replyBudget,
         group ? isCommandGroupEnabled(broadcasterId, group) : true,
         checkFeatureLock(chatMessage, chatter, broadcasterId), // channel-point "can't use <feature>" hexes
       ]);
       // Throttle non-mod command spam before it reaches any handler.
       // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
-      if (!allowed || !budgetLeft) return new Response("OK");
+      if (!allowed) return new Response("OK");
       const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
       defer(recordActivity(chatter, broadcasterId, commandWord, chatMessage));
       defer(recordViewerName(broadcasterId, chatter, display)); // for battle-log short names
       if (!groupOn) return new Response("OK");
       if (hexNotice) {
         await sendChatMessage(`@${display} ${hexNotice}`, broadcasterId);
-        if (limitReplies) await recordReply(broadcasterId, chatter);
         return new Response("OK");
       }
     } else if (Number(connection.is_live) === 1) {
@@ -530,55 +518,50 @@ async function handleRequest(req: Request): Promise<Response> {
       })());
     }
 
-    // Plain chat still got its silent bookkeeping above; only the replies stop.
-    if (!(await replyBudget)) return new Response("OK");
+    // Command handlers (return true if handled)
+    if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return new Response("OK");
+    if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
+    if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return new Response("OK");
+    if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    // Monster first: only claims exact "!dndduel" / "!dndduel attack" / "!dndduel monster …"
+    // so player-vs-player "!dndduel @user" still falls through to handleDuelCommand.
+    if (await handleMonsterDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleMapCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+    if (await handleCustomCommandManagement(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+    if (await handleChecklistCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
+    if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    // Hunt and Hoard (hoard.ts): off by default; its words fall through when
+    // it's off or the channel has its own custom command of the same name.
+    if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+    if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+    if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+    if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+    if (
+      await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
+    ) return new Response("OK");
+    if (
+      await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
+    ) return new Response("OK");
+    if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
 
-    await trackReplies(broadcasterId, chatter, limitReplies, async () => {
-      // Command handlers (return true if handled)
-      if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return;
-      if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return;
-      if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return;
-      if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return;
-      // Monster first: only claims exact "!dndduel" / "!dndduel attack" / "!dndduel monster …"
-      // so player-vs-player "!dndduel @user" still falls through to handleDuelCommand.
-      if (await handleMonsterDuelCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handleDuelCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handleMapCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return;
-      if (await handleCustomCommandManagement(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return;
-      if (await handleChecklistCommand(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return;
-      if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return;
-      if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleAutohuntCommand(chatMessage, chatter, display, broadcasterId)) return;
-      // Hunt and Hoard (hoard.ts): off by default; its words fall through when
-      // it's off or the channel has its own custom command of the same name.
-      if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return;
-      if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return;
-      if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return;
-      if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return;
-      if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return;
-      if (
-        await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
-      ) return;
-      if (
-        await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
-      ) return;
-      if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return;
-      if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return;
-
-      await handleBuiltinChatCommand({ chatMessage, chatter, display, broadcasterId, isModerator, baseUrl });
-    });
+    await handleBuiltinChatCommand({ chatMessage, chatter, display, broadcasterId, isModerator, baseUrl });
   }
 
   if (messageType === "revocation") {
