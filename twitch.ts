@@ -5,6 +5,7 @@ import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
+import { markReplySent } from "./replylimit.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
 export const env = (name: string) => {
@@ -84,6 +85,7 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   const nicks = await getChannelNicknames(broadcasterId);
   const message = limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
+  markReplySent(); // counts toward the chatter's reply limit (replylimit.ts)
   try {
     await waitForChatSlot(broadcasterId);
     const send = async (token: string) =>
