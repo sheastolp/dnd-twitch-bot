@@ -8,8 +8,14 @@
 //   • Heads-up. A few minutes before Twitch's next scheduled ad break
 //     (Get Ad Schedule), the bot warns chat once. Val Town crons can't tick
 //     faster than every 15 minutes, so the check rides on chat activity
-//     instead: any message in a live channel runs it, at most once a minute
-//     per channel.
+//     instead: any message in a live channel runs it, at most every 30
+//     seconds per channel, with the watch-time cron as a backstop for quiet
+//     chats.
+//   • Missed breaks. The same check compares Twitch's last_ad_at with the
+//     last break on record, so a break the EventSub never delivered (a
+//     channel without the subscription, a dropped webhook) is still logged
+//     for !adcheck — and announced, if it's still running and the channel
+//     has no subscription to announce it.
 //
 // Both need the broadcaster's channel:read:ads grant — already requested by
 // /connect for !adcheck. Channels that connected before the ad-break
@@ -19,15 +25,18 @@
 
 import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
-import { getBroadcasterAdToken } from "./ads_db.ts";
+import { getAdTracking, getBroadcasterAdToken } from "./ads_db.ts";
 import { getBroadcaster, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent, saveExtraEventSubSubscription } from "./db.ts";
-import { createAdBreakEventSubscription, fetchAdSchedule, sendChatMessage } from "./twitch.ts";
+import { type AdSchedule, createAdBreakEventSubscription, fetchAdSchedule, sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 
 const ADS_SCOPE = "channel:read:ads";
 /** How far ahead of a scheduled ad break chat is warned. */
-const HEADS_UP_MINUTES = Math.max(1, Number(Deno.env.get("AD_HEADS_UP_MINUTES") ?? "3"));
-const CHECK_EVERY_MS = 60_000;
+const HEADS_UP_MINUTES = Math.max(1, Number(Deno.env.get("AD_HEADS_UP_MINUTES") ?? "5"));
+const CHECK_EVERY_MS = 30_000;
+// Twitch's last_ad_at and the EventSub's started_at for the same break can
+// differ by a few seconds; anything closer than this is the same break.
+const SAME_BREAK_MS = 60_000;
 // Retry a failed lazy subscription at most this often.
 const SUBSCRIBE_RETRY_MS = 30 * 60_000;
 
@@ -109,13 +118,58 @@ export async function onAdBreakBegin(event: any) {
   await sendChatMessage(pick(START_LINES)(formatLength(Number(event?.duration_seconds ?? 0))), broadcasterId);
 }
 
+// ── Missed breaks (Get Ad Schedule's last_ad_at) ──
+
+const MISSED_START_LINES = [
+  "📺 Ad break running now — stretch your legs, refill the tankard, and we'll be right back.",
+  "📺 The bard takes an intermission: ads are rolling. Hydrate, adventurers!",
+  "📺 Ads are running. A short rest for the party — the tale resumes shortly.",
+];
+
+/** Twitch documents last_ad_at/next_ad_at as RFC3339 but has sent Unix
+ * seconds before; accepts both. 0 when empty or unparseable. */
+function parseTwitchTime(value: string): number {
+  if (!value) return 0;
+  if (/^\d+$/.test(value)) {
+    const n = Number(value);
+    return n < 1e12 ? n * 1000 : n;
+  }
+  return Date.parse(value) || 0;
+}
+
+/** Logs a break Twitch reports but nothing on record has — returns true if
+ * this call is the one that logged it. */
+async function backfillMissedBreak(broadcasterId: string, schedule: AdSchedule, subscribed: boolean, now: number): Promise<boolean> {
+  const lastAt = parseTwitchTime(schedule.lastAdAt);
+  if (!lastAt || lastAt > now) return false;
+  const tracked = Number((await getAdTracking(broadcasterId))?.last_ad_at ?? 0);
+  if (lastAt - tracked <= SAME_BREAK_MS) return false;
+  // Conditional so two isolates (or a late EventSub) can't log it twice.
+  const rec = await sqlite.execute(
+    `INSERT INTO ad_tracking (broadcaster_id, last_ad_at, last_ad_source, last_ad_by, updated_at) VALUES (?,?,?,?,?)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET last_ad_at = excluded.last_ad_at, last_ad_source = excluded.last_ad_source,
+       last_ad_by = excluded.last_ad_by, updated_at = excluded.updated_at
+     WHERE COALESCE(ad_tracking.last_ad_at, 0) < ?`,
+    [broadcasterId, lastAt, "twitch_schedule", "", now, lastAt - SAME_BREAK_MS],
+  );
+  if (Number((rec as any)?.rowsAffected ?? 1) === 0) return false;
+  // With the EventSub in place its own notice covers this (or the break is
+  // long over by the time we noticed); only fill in for channels without it.
+  const stillRunningMs = Math.max(schedule.durationSeconds || 0, 90) * 1000;
+  if (!subscribed && now - lastAt < stillRunningMs) {
+    await sendChatMessage(pick(MISSED_START_LINES), broadcasterId);
+  }
+  return true;
+}
+
 // ── Heads-up before the next scheduled break (rides on chat activity) ──
 
 const lastCheck = new Map<string, number>();
 
-/** Run on chat messages in a live channel; cheap no-op most of the time.
- * Never throws. */
-export async function maybeAdHeadsUp(broadcasterId: string, baseUrl: string): Promise<void> {
+/** Run on chat messages in a live channel (and by the watch-time cron, with
+ * no baseUrl, which skips the lazy subscription); cheap no-op most of the
+ * time. Never throws. */
+export async function maybeAdHeadsUp(broadcasterId: string, baseUrl?: string): Promise<void> {
   try {
     const now = Date.now();
     if (now - (lastCheck.get(broadcasterId) ?? 0) < CHECK_EVERY_MS) return;
@@ -130,10 +184,12 @@ export async function maybeAdHeadsUp(broadcasterId: string, baseUrl: string): Pr
     if (!(await alertsAllowed(broadcasterId)) || !(await hasAdsScope(broadcasterId))) return;
 
     const state = (await sqlite.execute("SELECT * FROM ad_alerts WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
-    if (Number(state?.subscribed ?? 0) !== 1 && now - Number(state?.subscribe_tried_at ?? 0) > SUBSCRIBE_RETRY_MS) {
+    let subscribed = Number(state?.subscribed ?? 0) === 1;
+    if (!subscribed && baseUrl && now - Number(state?.subscribe_tried_at ?? 0) > SUBSCRIBE_RETRY_MS) {
       await sqlite.execute("UPDATE ad_alerts SET subscribe_tried_at = ? WHERE broadcaster_id = ?", [now, broadcasterId]);
       try {
         await subscribeToAdBreaks(broadcasterId, baseUrl);
+        subscribed = true;
       } catch (e) {
         await recordMonitorEvent("eventsub_ad_break_backfill_failed", `${broadcasterId}: ${String(e)}`);
       }
@@ -142,8 +198,11 @@ export async function maybeAdHeadsUp(broadcasterId: string, baseUrl: string): Pr
     const token = await getValidAdToken(broadcasterId);
     if (!token) return;
     const schedule = await fetchAdSchedule(token, broadcasterId);
-    if (!schedule?.nextAdAt) return;
-    const minutes = (Date.parse(schedule.nextAdAt) - now) / 60_000;
+    if (!schedule) return;
+    await backfillMissedBreak(broadcasterId, schedule, subscribed, now);
+    const nextAt = parseTwitchTime(schedule.nextAdAt);
+    if (!nextAt) return;
+    const minutes = (nextAt - now) / 60_000;
     if (!(minutes > 0 && minutes <= HEADS_UP_MINUTES)) return;
     // One warning per scheduled break, even with several isolates racing.
     const mark = await sqlite.execute(
