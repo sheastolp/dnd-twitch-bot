@@ -1,7 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Val Town / Deno HTTP handler
 
-import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
+import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
@@ -593,10 +593,11 @@ async function handleRequest(req: Request): Promise<Response> {
       if (subscriptionType === "channel.chat.message") {
         await markBroadcasterDisconnected(broadcasterId, String(body.subscription?.status ?? "revoked"), subscriptionId);
       } else {
-        // A revoked subscribe/resub/gift/raid subscription only disables
-        // that extra thank-you feature for this channel — the rest of the
-        // bot, including chat commands, keeps working.
-        await deleteExtraEventSubSubscriptions(broadcasterId);
+        // A revoked extra subscription (sub/raid/ad break/…) only disables
+        // that one feature — the rest of the bot keeps working. Forget just
+        // that subscription: wiping every row would hide the still-active
+        // ones from the status card and from the next reconnect's cleanup.
+        await deleteExtraEventSubSubscriptionById(subscriptionId);
       }
       await recordMonitorEvent("eventsub_revocation", `${broadcasterId}:${subscriptionType}:${subscriptionId}`);
     }

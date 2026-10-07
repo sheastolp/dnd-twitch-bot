@@ -462,12 +462,14 @@ export async function fetchAdSchedule(userAccessToken: string, broadcasterId: st
   };
 }
 
+// deno-lint-ignore no-explicit-any
 async function createEventSubSubscription(
   type: string,
   version: string,
   condition: Record<string, string>,
   callbackUrl: string,
-) {
+  retried = false,
+): Promise<any> {
   const appToken = await getAppToken();
   const res = await fetch("https://api.twitch.tv/helix/eventsub/subscriptions", {
     method: "POST",
@@ -488,8 +490,50 @@ async function createEventSubSubscription(
     }),
   });
   const text = await res.text();
+  if (res.status === 409 && !retried) {
+    // Twitch already has this exact subscription — e.g. our row for it was
+    // lost, so a reconnect couldn't delete it first. Adopt it when it's
+    // healthy; otherwise remove the dead one and create it fresh.
+    const existing = await findEventSubSubscription(type, version, condition, callbackUrl);
+    if (existing?.status === "enabled") return existing;
+    if (existing) {
+      await deleteEventSubSubscription(String(existing.id));
+      return createEventSubSubscription(type, version, condition, callbackUrl, true);
+    }
+  }
   if (!res.ok) throw new Error(`EventSub subscription failed (${type}): ${res.status} ${text}`);
   return JSON.parse(text).data[0];
+}
+
+/** The app's existing subscription with this type, version, condition and
+ * callback, or null. */
+async function findEventSubSubscription(
+  type: string,
+  version: string,
+  condition: Record<string, string>,
+  callbackUrl: string,
+) {
+  const userId = condition.broadcaster_user_id ?? condition.to_broadcaster_user_id ?? Object.values(condition)[0];
+  const appToken = await getAppToken();
+  let cursor = "";
+  for (let page = 0; page < 10; page++) {
+    const qs = new URLSearchParams({ user_id: userId, first: "100" });
+    if (cursor) qs.set("after", cursor);
+    const res = await fetch(`https://api.twitch.tv/helix/eventsub/subscriptions?${qs}`, {
+      headers: { Authorization: `Bearer ${appToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    // deno-lint-ignore no-explicit-any
+    const hit = (json.data ?? []).find((s: any) =>
+      s.type === type && String(s.version) === version && s.transport?.callback === callbackUrl &&
+      Object.entries(condition).every(([k, v]) => String(s.condition?.[k] ?? "") === v)
+    );
+    if (hit) return hit;
+    cursor = String(json.pagination?.cursor ?? "");
+    if (!cursor) return null;
+  }
+  return null;
 }
 
 export async function createChatSubscription(broadcasterId: string, callbackUrl: string) {

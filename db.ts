@@ -311,6 +311,11 @@ export async function getExtraEventSubSubscriptions(broadcasterId: string) {
   return res.rows as Array<{ kind: string; subscription_id: string }>;
 }
 
+/** Forgets one extra subscription (e.g. Twitch revoked just that one). */
+export async function deleteExtraEventSubSubscriptionById(subscriptionId: string) {
+  await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE subscription_id = ?", [subscriptionId]);
+}
+
 export async function deleteExtraEventSubSubscriptions(broadcasterId: string) {
   await sqlite.execute("DELETE FROM eventsub_extra_subscriptions WHERE broadcaster_id = ?", [broadcasterId]);
 }
