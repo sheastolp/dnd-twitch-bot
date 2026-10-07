@@ -16,6 +16,11 @@
 //     channel without the subscription, a dropped webhook) is still logged
 //     for !adcheck — and announced, if it's still running and the channel
 //     has no subscription to announce it.
+//   • End notice. Twitch has no ad-break-end event, so the start notice
+//     records when the break should finish (start + duration) and the same
+//     chat-driven check posts "ads are over" once that time has passed —
+//     within ~30 seconds, as long as someone is chatting. A break that ended
+//     more than END_NOTICE_STALE_MS ago is let go silently.
 //
 // Both need the broadcaster's channel:read:ads grant — already requested by
 // /connect for !adcheck. Channels that connected before the ad-break
@@ -37,6 +42,8 @@ const CHECK_EVERY_MS = 30_000;
 // Twitch's last_ad_at and the EventSub's started_at for the same break can
 // differ by a few seconds; anything closer than this is the same break.
 const SAME_BREAK_MS = 60_000;
+// An end notice this late would just be confusing.
+const END_NOTICE_STALE_MS = 5 * 60_000;
 // Retry a failed lazy subscription at most this often.
 const SUBSCRIBE_RETRY_MS = 30 * 60_000;
 
@@ -46,9 +53,16 @@ export async function ensureAdAlertTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS ad_alerts (
       broadcaster_id TEXT PRIMARY KEY, subscribed INTEGER NOT NULL DEFAULT 0, subscribe_tried_at INTEGER NOT NULL DEFAULT 0,
-      warned_for TEXT NOT NULL DEFAULT '', last_check_at INTEGER NOT NULL DEFAULT 0
+      warned_for TEXT NOT NULL DEFAULT '', last_check_at INTEGER NOT NULL DEFAULT 0,
+      ad_ends_at INTEGER NOT NULL DEFAULT 0
     )`,
   );
+  // ad_ends_at: when the running break should finish; 0 once its end notice is posted.
+  try {
+    await sqlite.execute(`ALTER TABLE ad_alerts ADD COLUMN ad_ends_at INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {
+    /* column already exists */
+  }
 }
 
 export async function purgeAdAlertData(broadcasterId: string) {
@@ -115,7 +129,36 @@ export async function onAdBreakBegin(event: any) {
   const connection = await getBroadcaster(broadcasterId);
   if (!connection || Number(connection.connected) !== 1 || Number(connection.is_live) !== 1) return;
   if (!(await alertsAllowed(broadcasterId))) return;
-  await sendChatMessage(pick(START_LINES)(formatLength(Number(event?.duration_seconds ?? 0))), broadcasterId);
+  const duration = Number(event?.duration_seconds ?? 0);
+  await sendChatMessage(pick(START_LINES)(formatLength(duration)), broadcasterId);
+  await scheduleEndNotice(broadcasterId, startedAt + Math.max(duration, 30) * 1000);
+}
+
+// ── End notice (no Twitch event for it; checked on chat activity) ──
+
+const END_LINES = [
+  "📺 Ads are over — welcome back, adventurers! The tale resumes.",
+  "📺 The intermission ends. Ads are done; back to the adventure!",
+  "📺 Ad break's over. Grab your dice — we march on!",
+  "📺 That's the end of the ads. The bard returns to the stage!",
+];
+
+async function scheduleEndNotice(broadcasterId: string, endsAt: number) {
+  await sqlite.execute(
+    `INSERT INTO ad_alerts (broadcaster_id, ad_ends_at) VALUES (?,?)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET ad_ends_at = excluded.ad_ends_at`,
+    [broadcasterId, endsAt],
+  );
+}
+
+/** Posts the end notice once the running break is over. Clearing ad_ends_at
+ * is conditional, so only one isolate posts it. */
+async function maybeAdEndNotice(broadcasterId: string, endsAt: number, now: number) {
+  if (!endsAt || now < endsAt) return;
+  const clear = await sqlite.execute("UPDATE ad_alerts SET ad_ends_at = 0 WHERE broadcaster_id = ? AND ad_ends_at = ?", [broadcasterId, endsAt]);
+  if (Number((clear as any)?.rowsAffected ?? 1) === 0) return;
+  if (now - endsAt > END_NOTICE_STALE_MS) return;
+  await sendChatMessage(pick(END_LINES), broadcasterId);
 }
 
 // ── Missed breaks (Get Ad Schedule's last_ad_at) ──
@@ -158,6 +201,7 @@ async function backfillMissedBreak(broadcasterId: string, schedule: AdSchedule, 
   const stillRunningMs = Math.max(schedule.durationSeconds || 0, 90) * 1000;
   if (!subscribed && now - lastAt < stillRunningMs) {
     await sendChatMessage(pick(MISSED_START_LINES), broadcasterId);
+    await scheduleEndNotice(broadcasterId, lastAt + stillRunningMs);
   }
   return true;
 }
@@ -181,9 +225,11 @@ export async function maybeAdHeadsUp(broadcasterId: string, baseUrl?: string): P
       [broadcasterId, now, now - CHECK_EVERY_MS],
     );
     if (Number((claim as any)?.rowsAffected ?? 1) === 0) return;
-    if (!(await alertsAllowed(broadcasterId)) || !(await hasAdsScope(broadcasterId))) return;
+    if (!(await alertsAllowed(broadcasterId))) return;
 
     const state = (await sqlite.execute("SELECT * FROM ad_alerts WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
+    await maybeAdEndNotice(broadcasterId, Number(state?.ad_ends_at ?? 0), now);
+    if (!(await hasAdsScope(broadcasterId))) return;
     let subscribed = Number(state?.subscribed ?? 0) === 1;
     if (!subscribed && baseUrl && now - Number(state?.subscribe_tried_at ?? 0) > SUBSCRIBE_RETRY_MS) {
       await sqlite.execute("UPDATE ad_alerts SET subscribe_tried_at = ? WHERE broadcaster_id = ?", [now, broadcasterId]);
