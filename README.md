@@ -147,7 +147,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | `MAX_TIMED_MESSAGES_PER_CHANNEL` | *(optional)* Timed message cap per channel; default 20 |
 | `TIMED_MESSAGE_MIN_INTERVAL_MINUTES` | *(optional)* Shortest allowed interval for a timed message; default 10 |
 | `TIMED_MESSAGE_MAX_INTERVAL_MINUTES` | *(optional)* Longest allowed interval for a timed message; default 10080 (1 week), floored at the min above |
-| `ADMIN_API_SECRET` | **Required for operator override**; secret bearer token for `/admin/channels/<broadcaster_id>/(disable|enable)`, `/admin/merchant/status`, and `/admin/logs` |
+| `ADMIN_API_SECRET` | **Required for operator override**; secret bearer token for `/admin/channels/<broadcaster_id>/(disable|enable)`, `/admin/merchant/status`, `/admin/logs`, and `/admin/channels` |
 | `SUPPORT_URL` | *(recommended)* Support/contact URL shown in the privacy policy and home page |
 | `PUBLIC_BASE_URL` | *(recommended)* Public HTTPS URL used in chat links; must match the deployed Val URL |
 | `COMMAND_COOLDOWN_MS` | *(optional)* Durable per-channel/user command cooldown; default 1200ms |
@@ -548,6 +548,7 @@ Monster wins         ──►  XP on parchment (!char shows Lv + XP)
 | `GET /healthz` | Health check for uptime monitors |
 | `GET /admin/merchant/status` | Operator-only JSON: merchant cron health (last run, posts ok/failed, recent merchant-related events) |
 | `GET /admin/logs` | Operator-only, browser-viewable page: merchant cron status, per-channel merchant overview, recent monitor events |
+| `GET /admin/channels` | Operator-only, browser-viewable page (`?key=`): every channel's connection health — disconnected (and why), missing newer permissions / event subscriptions (reconnect recommended), or fine. `&json=1` for JSON. Each channel's dashboard shows the same status as a card at the top |
 | `GET /dashboard` | Per-channel web dashboard for custom commands/triggers/timed messages — requires `?channel=<id>&key=<dashboard_key>`, handed out in chat via `!dashboard` (not an operator route, no `ADMIN_API_SECRET`) |
 | `GET /dashboard/music` · `POST /dashboard/music` · `GET /dashboard/music/spotify` · `GET /spotify/callback` | Now playing settings (nowplaying.ts): connect/disconnect Spotify, set the Last.fm username |
 | `GET /overlay/nowplaying?channel=<id or login>` | The song playing now (`{ ok, track }`, track null when nothing plays); public and read-only like the other overlay data |

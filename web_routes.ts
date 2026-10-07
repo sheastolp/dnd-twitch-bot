@@ -24,6 +24,7 @@ import { DISCORD_INVITE_URL, PUBLIC_BASE_URL, PUBLIC_ORIGIN } from "./config.ts"
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleOverlayRoute } from "./overlay.ts";
+import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
 import { handleHowtoRoute } from "./howto.ts";
 
 async function retryPendingEventSubCancellations() {
@@ -115,7 +116,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: `${PUBLIC_ORIGIN}/callback`,
       response_type: "code",
-      scope: "channel:bot channel:read:subscriptions channel:read:ads channel:read:redemptions moderator:manage:banned_users moderator:read:followers moderator:read:chatters",
+      scope: CONNECT_SCOPES.map((s) => s.scope).join(" "),
       state,
     }).toString();
     return Response.redirect(auth.toString(), 302);
@@ -493,6 +494,32 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const body = renderAdminLogsPage({ status, overview, events, kindFilter, key: keyParam });
     return new Response(
       scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
+      { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+    );
+  }
+
+  // Every connected channel's connection health (see channel_status.ts):
+  // disconnected, missing newer permissions, or fine. Same auth as /admin/logs.
+  if (req.method === "GET" && path === "/admin/channels") {
+    const secret = Deno.env.get("ADMIN_API_SECRET");
+    const auth = req.headers.get("Authorization") ?? "";
+    const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
+    const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
+    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
+    if (!authorized) {
+      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
+        status: 401,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    const list = await listChannelStatuses();
+    if (url.searchParams.get("json") === "1") {
+      return new Response(JSON.stringify({ ok: true, channels: list }), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    return new Response(
+      scrollDoc("GuildScribe Channel Connections", renderAdminChannelsPage(list, keyParam), { width: 1140, css: LEDGER_CSS + CHANNEL_STATUS_CSS }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
   }

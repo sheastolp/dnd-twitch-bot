@@ -85,7 +85,7 @@ export function renderAdminLogsPage(d: AdminLogsData): string {
     .join("");
 
   return `<h1>GuildScribe Operator Logs</h1>
-  <p><a href="/guide">Guild Codex</a> · <a href="/">Bot home</a></p>
+  <p><a href="/admin/channels?key=${encodeURIComponent(d.key)}">Channel connections</a> · <a href="/guide">Guild Codex</a> · <a href="/">Bot home</a></p>
   <style>.table-wrap{margin:10px 0 24px}form.filter{margin:10px 0;display:flex;flex-wrap:wrap;gap:10px;align-items:center}form.filter label{display:flex;gap:8px;align-items:center}td{font-size:.92rem}</style>
   <h2>Merchant cron</h2>
   <p>${statusLine}</p>

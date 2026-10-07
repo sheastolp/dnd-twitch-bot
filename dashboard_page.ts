@@ -7,6 +7,7 @@ import { escapeHtml } from "./utils.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
 import { DASH_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
+import { CHANNEL_STATUS_CSS, renderChannelStatusCard, type ChannelStatus } from "./channel_status.ts";
 import { folderReqNote, LINKS_CSS, reqChips, reqLink, requiredByChips, tileNeedNote, tileReqClass } from "./dashboard_links.ts";
 
 // ── Web dashboard (see dashboard.ts for the !dashboard chat command that
@@ -36,6 +37,8 @@ export interface DashboardData {
   hoardEnabled: boolean;
   /** Per-channel options as typed ("" = default), for Quick setup (channel_options.ts). */
   options?: Record<string, string>;
+  /** Connection health card (channel_status.ts); omitted = no card. */
+  connection?: ChannelStatus | null;
 }
 
 /** Every switch's current state, keyed like the dashboard's toggles (for Quick setup). */
@@ -354,13 +357,14 @@ export function renderDashboardPage(d: DashboardData): string {
     : d.notice
     ? `<p class="banner ok">${escapeHtml(d.notice)}</p>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}${QUICK_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}${QUICK_CSS}${CHANNEL_STATUS_CSS}</style></head><body>
   ${scrollOpen()}
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
   <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban words</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
+  ${d.connection !== undefined ? renderChannelStatusCard(d.connection, "/connect") : ""}
   ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {})}
   ${renderDashboardIndex()}
   <div class="board-row">

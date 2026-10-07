@@ -75,6 +75,7 @@ import { PUBLIC_ORIGIN } from "./config.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
 import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
+import { getChannelStatus } from "./channel_status.ts";
 
 export async function handleDashboardCommand(
   chatMessage: string,
@@ -243,7 +244,7 @@ export async function renderDashboard(
     isPointsEnabled(channelId),
     isHoardEnabled(channelId),
   ]);
-  const options = await optionInputs(channelId);
+  const [options, connection] = await Promise.all([optionInputs(channelId), getChannelStatus(channelId)]);
   const data: DashboardData = {
     broadcasterId: channelId,
     broadcasterName,
@@ -267,6 +268,7 @@ export async function renderDashboard(
     pointsEnabled,
     hoardEnabled,
     options,
+    connection,
   };
   return new Response(renderDashboardPage(data), {
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
