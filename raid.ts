@@ -36,7 +36,7 @@ import { awardMonsterXp } from "./characters.ts";
 import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import { creditBounty } from "./hoard.ts";
 import { monsterLootCopper, splitLoot } from "./loot.ts";
-import { adjustBalance, isPointsEnabled } from "./points_db.ts";
+import { adjustBalance, canEarnGold } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
 import { combatStats } from "./utils.ts";
@@ -486,7 +486,7 @@ async function payRaidRewards(
   }
   let hoard = "";
   const lootMult = await optNum(broadcasterId, "raid.loot");
-  if (lootMult > 0 && (await isPointsEnabled(broadcasterId))) {
+  if (lootMult > 0 && (await canEarnGold(broadcasterId))) { // no hoard while offline
     const shares = splitLoot(monsterLootCopper(cr, Math.random, lootMult), heroes.length);
     for (let i = 0; i < heroes.length; i++) await adjustBalance(broadcasterId, heroes[i], heroes[i], shares[i]);
     hoard = heroes.map((u, i) => `${u} +${formatCoins(shares[i])}`).join(", ");

@@ -12,11 +12,11 @@
 // members split, so a bigger company doesn't multiply the payout.
 //
 // Only pays while coin is switched on (the default; !gold off pauses it, the
-// same switch as the rest of the coin system). HUNT_LOOT_MULTIPLIER scales
+// same switch as the rest of the coin system) AND the stream is live. HUNT_LOOT_MULTIPLIER scales
 // every drop (default 1; 0 turns loot off without touching anything else).
 
 import { xpForMonsterCr } from "./characters.ts";
-import { adjustBalance, isPointsEnabled } from "./points_db.ts";
+import { adjustBalance, canEarnGold } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
 import { optNum } from "./channel_options.ts";
 
@@ -62,7 +62,8 @@ export function splitLoot(total: number, count: number, rng: () => number = Math
 
 /**
  * Pays the loot for one slain monster to the given survivors (login names).
- * Returns each member's payout, or null if coin is off, loot is disabled, or
+ * Returns each member's payout, or null if coin is off, the stream is offline,
+ * loot is disabled, or
  * nobody survived — in which case the caller prints nothing.
  */
 export async function awardMonsterLoot(
@@ -71,7 +72,7 @@ export async function awardMonsterLoot(
   broadcasterId: string,
 ): Promise<Array<{ username: string; copper: number }> | null> {
   if (!members.length) return null;
-  if (!(await isPointsEnabled(broadcasterId))) return null;
+  if (!(await canEarnGold(broadcasterId))) return null; // gold off, or the stream is offline
   const total = monsterLootCopper(cr, Math.random, await optNum(broadcasterId, "hunt.loot"));
   if (total <= 0) return null;
   const shares = splitLoot(total, members.length);

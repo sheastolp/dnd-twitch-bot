@@ -57,7 +57,7 @@ import { duelNarration } from "./narration.ts";
 import { withArticle } from "./combat_shared.ts";
 import { applyGear, effectText, ownsGear } from "./gear.ts";
 import { formatCoins } from "./coins.ts";
-import { adjustBalance, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
+import { adjustBalance, canEarnGold, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { combatStats, formatRaceName, pick } from "./utils.ts";
 import type { Character } from "./types.ts";
 import { isLowHp, loadHero } from "./hoard_combat.ts";
@@ -153,7 +153,7 @@ export async function creditBounty(
   if (kills >= b.target) {
     delete p.progress[b.id];
     const paid: string[] = [];
-    if (await isPointsEnabled(broadcasterId)) {
+    if (await canEarnGold(broadcasterId)) { // no coin while offline (the potion still drops)
       await adjustBalance(broadcasterId, username, username, b.reward);
       paid.push(formatCoins(b.reward));
     }
@@ -495,6 +495,8 @@ export async function handleHoardCommand(
         return true;
       }
       if (word === "sell" && !goldOn) return say(goldOff).then(() => true);
+      // Selling turns a potion into fresh coin, so it's closed while offline like every other way to earn.
+      if (word === "sell" && !(await canEarnGold(broadcasterId))) return say("the stall doesn't buy back while the stream is offline — come back when it's live.").then(() => true);
       p.potions[potion.key] -= 1;
       if (word === "use") {
         const healed = rollHeal(potion.heal);

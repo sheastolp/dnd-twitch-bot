@@ -92,6 +92,18 @@ export async function isPointsEnabled(broadcasterId: string): Promise<boolean> {
   return !res.rows.length || Number(res.rows[0].enabled) === 1;
 }
 
+/** True when coin can be EARNED right now: gold is on for the channel AND the
+ * stream is live (broadcasters.is_live, kept current by stream.online/offline
+ * EventSub — see main.ts). Every payout that creates coin (chat copper, monster
+ * loot, raid hoards, bounty rewards) checks this, so nothing accrues while the
+ * channel is offline — not even for mods, who can still run commands offline
+ * to test. Spending, gifting and mod adjustments only need isPointsEnabled. */
+export async function canEarnGold(broadcasterId: string): Promise<boolean> {
+  const res = await sqlite.execute("SELECT is_live FROM broadcasters WHERE broadcaster_id = ?", [broadcasterId]);
+  if (!res.rows.length || Number(res.rows[0].is_live) !== 1) return false;
+  return await isPointsEnabled(broadcasterId);
+}
+
 export async function setPointsEnabled(broadcasterId: string, enabled: boolean) {
   await sqlite.execute(
     "INSERT OR REPLACE INTO points_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
