@@ -147,13 +147,18 @@ export function missingNeeds(s: SwitchStates): string[] {
 }
 
 export const QUICK_CSS = `
-.quick{margin:0 0 22px}
 .quick>p{margin:4px 0 12px}
 .qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:12px;align-items:start}
-.qcard{display:flex;flex-direction:column;gap:8px;padding:14px 16px;border:1px solid var(--edge);border-radius:8px;background:linear-gradient(180deg,#e9e0c5,#dfd2ad);box-shadow:0 2px 8px #6b44181f;transition:box-shadow .2s,border-color .2s}
+.qcard{padding:12px 16px;border:1px solid var(--edge);border-radius:8px;background:linear-gradient(180deg,#e9e0c5,#dfd2ad);box-shadow:0 2px 8px #6b44181f;transition:box-shadow .2s,border-color .2s}
 .qcard.changed{border-color:var(--seal);box-shadow:0 0 0 2px #d9473a40,0 2px 8px #6b44181f}
-.qcard h3{margin:0;font-size:1.08rem;display:flex;align-items:center;gap:8px}
+.qcard>summary{justify-content:space-between}
+.qcard>summary::before{order:-1}
+.qcard h3{margin:0;flex:1;font-size:1.08rem;display:flex;align-items:center;gap:8px}
 .qcard h3 .ico{font-size:1.3rem}
+.qcard .pill{white-space:nowrap}
+.qcard .pill.mixed{background:#e8dcb6;color:var(--ink-3)}
+.qcard .pill.pending{box-shadow:0 0 0 2px #d9473a40}
+.qbody{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
 .qcard .what{margin:0;font-size:.93rem;line-height:1.4}
 .qcard .yours{margin:0;font-size:.85rem;color:var(--ink-3)}.qcard .yours b{color:var(--ink)}
 .qcard .needs{margin:0;font-size:.8rem;color:var(--ink-3)}
@@ -180,8 +185,9 @@ export const QUICK_CSS = `
 .qsave .count{font-size:.9rem;color:var(--ink-3)}
 `;
 
-/** Bundles whose ⚙ Options box starts minimized even when options are customized. */
-const COLLAPSED_OPTIONS = new Set(["fighting"]);
+function statePill(st: "on" | "off" | "mixed"): string {
+  return `<span class="pill ${st}">${st === "mixed" ? "Mixed" : st === "on" ? "On" : "Off"}</span>`;
+}
 
 /** One option's input: a text box with a suggestion list; blank means the default. */
 function optionField(o: OptionDef, value: string): string {
@@ -201,9 +207,7 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
     const list = OPTIONS.filter((o) => o.bundle === b.key);
     if (!list.length) return "";
     const custom = list.filter((o) => opts[o.key]).length;
-    // Fighting & hunts has a long option list, so it always starts folded up.
-    const open = custom && !COLLAPSED_OPTIONS.has(b.key);
-    return `<details class="qopts"${open ? " open" : ""}><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
+    return `<details class="qopts"><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
   };
   const cards = QUICK_BUNDLES.map((b) => {
     const st = bundleState(b, s);
@@ -212,12 +216,14 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
     const needs = b.needs?.length
       ? `<p class="needs" data-needs="${b.needs.join(",")}">Needs ${b.needs.map((n) => escapeHtml(byKey[n].name)).join(" and ")} on.</p>`
       : "";
-    return `<section class="qcard" data-bundle="${b.key}" data-was="${st}"><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3>
-<p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
-<div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div>${optionsBox(b)}</section>`;
+    // Collapsed, a card is just its name and an On/Off pill (kept in step with the picked choice by the script below).
+    return `<details class="qcard" id="qcard-${b.key}" data-bundle="${b.key}" data-was="${st}"><summary><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3>${statePill(st)}</summary>
+<div class="qbody"><p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
+<div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div>${optionsBox(b)}</div></details>`;
   }).join("");
-  return `<section class="quick" id="sec-quick"><h2>Quick setup</h2>
-<p class="muted">Turn whole features on or off in one go — each card says what it does on stream and what you need to do (usually nothing). Open <strong>⚙ Options</strong> on a card to tune it: start typing for suggestions, or leave a box blank to use the default shown in it. Change as many as you like, then press <strong>Save changes</strong>. Fine-tune single commands in <a href="#sec-groups">Command groups</a> below; a feature you've fine-tuned shows as <em>Mixed</em> and is left alone unless you pick On or Off.</p>
+  const on = QUICK_BUNDLES.filter((b) => bundleState(b, s) === "on").length;
+  return `<details class="folder big wide quick" id="sec-quick"><summary><h2 class="folder-name">Quick setup</h2><span class="tile-meta">${QUICK_BUNDLES.length} features · ${on} on</span></summary>
+<p class="muted">Turn whole features on or off in one go. Each card shows whether it's on; open it to see what it does on stream and what you need to do (usually nothing). Open <strong>⚙ Options</strong> on a card to tune it: start typing for suggestions, or leave a box blank to use the default shown in it. Change as many as you like, then press <strong>Save changes</strong>. Fine-tune single commands in <a href="#sec-groups">Command groups</a> below; a feature you've fine-tuned shows as <em>Mixed</em> and is left alone unless you pick On or Off.</p>
 <form method="post" action="/dashboard/features" id="quick-form">${hiddenAuth}<input type="hidden" name="intent" value="quick">
 <div class="qgrid">${cards}</div>
 <div class="qsave"><button type="submit" class="ember" id="quick-save">Save changes</button><span class="count" id="quick-count">No changes yet.</span></div></form>
@@ -225,9 +231,10 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
 function val(c){var i=c.querySelector("input:checked");return i?i.value:"keep"}
 function sync(){var n=0,o=0,on={};cards.forEach(function(c){var v=val(c),was=c.getAttribute("data-was");var ch=v!=="keep"&&v!==was;
   var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;
-  c.classList.toggle("changed",ch||oc>0);if(ch)n++;on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
+  c.classList.toggle("changed",ch||oc>0);if(ch)n++;
+  var p=c.querySelector("summary .pill"),st=v==="keep"?was:v;p.className="pill "+st+(ch?" pending":"");p.textContent=st==="mixed"?"Mixed":st==="on"?"On":"Off";p.title=ch?"Not saved yet":"";on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
   cards.forEach(function(c){var nd=c.querySelector(".needs");if(!nd)return;var miss=nd.getAttribute("data-needs").split(",").filter(function(k){return!on[k]});nd.classList.toggle("warn",on[c.getAttribute("data-bundle")]&&miss.length>0)});
   var parts=[];if(n)parts.push(n+" feature"+(n===1?"":"s"));if(o)parts.push(o+" option"+(o===1?"":"s"));
   document.getElementById("quick-count").textContent=parts.length?parts.join(" and ")+" will change.":"No changes yet."}
-f.addEventListener("change",sync);f.addEventListener("input",sync);sync()})();</script></section>`;
+f.addEventListener("change",sync);f.addEventListener("input",sync);sync()})();</script></details>`;
 }

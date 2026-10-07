@@ -235,6 +235,7 @@ details.folder{background:linear-gradient(180deg,#e3d9bb,#d9c9a0);border:1px sol
 details.folder.big.wide{margin:0 0 22px}
 details.folder.big{padding:16px 18px;border-top:3px solid var(--seal)}
 details.folder.big>summary{border-bottom:1px solid var(--rule);padding-bottom:8px;margin-bottom:6px}
+details.folder.big:not([open])>summary{border-bottom:0;padding-bottom:0;margin-bottom:0}
 h2.folder-name{font-size:1.15rem;color:var(--seal-dk);margin:0}
 details.folder>summary{justify-content:space-between;flex-wrap:wrap;gap:4px 10px}
 details.folder>summary::before{order:-1}

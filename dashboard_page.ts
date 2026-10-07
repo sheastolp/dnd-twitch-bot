@@ -172,7 +172,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     .map(([section, g]) => {
       const total = g.rows.length;
       const state = g.on === total ? "all on" : g.on === 0 ? "all off" : `${g.on}/${total} on`;
-      return `<details class="folder" id="grp-${sectionSlug(section)}" open>
+      return `<details class="folder" id="grp-${sectionSlug(section)}">
         <summary><span class="folder-name">${escapeHtml(section)}</span><span class="tile-meta">${total} switch${total === 1 ? "" : "es"} · ${state}</span></summary>
         ${folderReqNote(d, g.keys)}<div class="tiles mini">${g.rows.join("")}</div>
       </details>`;
@@ -206,9 +206,10 @@ function editorDialog(dialogId: string, heading: string, body: string, extraClas
 }
 
 /** A large collapsible square for one top-level dashboard section (same look as the
- * command-group squares, one size up). `meta` is the short status shown in its header. */
+ * command-group squares, one size up). `meta` is the short status shown in its header.
+ * Starts collapsed, like every section on the dashboard. */
 function bigSquare(id: string, name: string, meta: string, body: string, wide = false): string {
-  return `<details class="folder big${wide ? " wide" : ""}" id="${id}" open>
+  return `<details class="folder big${wide ? " wide" : ""}" id="${id}">
     <summary><h2 class="folder-name">${name}</h2><span class="tile-meta">${meta}</span></summary>
     ${body}
   </details>`;
@@ -375,14 +376,16 @@ export function renderDashboardPage(d: DashboardData): string {
   </div>
   ${features.groups}
   <script>(function(){
-    var KEY="gs-dash-closed",all=[].slice.call(document.querySelectorAll("details.folder"));
-    function load(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
-    function save(){try{localStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return!d.open}).map(function(d){return d.id})))}catch(e){}}
+    // Everything starts collapsed. What's opened is remembered for this tab only, so a save
+    // (POST → redirect back here) keeps your place but a fresh visit starts minimized again.
+    var KEY="gs-dash-open",all=[].slice.call(document.querySelectorAll("details.folder,details.qcard"));
+    function load(){try{return JSON.parse(sessionStorage.getItem(KEY)||"[]")}catch(e){return[]}}
+    function save(){try{sessionStorage.setItem(KEY,JSON.stringify(all.filter(function(d){return d.open}).map(function(d){return d.id})))}catch(e){}}
     // Open every collapsed section / folder window containing el, so index links and /dashboard/go#toggle-* anchors land visibly.
     function reveal(el){var dl=[];for(var n=el;n;n=n.parentElement){if(n.tagName==="DETAILS")n.open=true;else if(n.tagName==="DIALOG"&&!n.open)dl.unshift(n)}dl.forEach(function(d){openDlg(d,document.querySelector('[data-open="'+d.id+'"]'),true)})}
     function show(el){reveal(el);if(el.hasAttribute("data-open")){el.scrollIntoView({block:"center"});openDlg(document.getElementById(el.getAttribute("data-open")),el)}else el.scrollIntoView()}
     function goHash(){var h=location.hash.slice(1),el=h&&document.getElementById(h);if(el)show(el)}
-    load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=false});
+    load().forEach(function(id){var d=document.getElementById(id);if(d)d.open=true});
     all.forEach(function(d){d.addEventListener("toggle",save)});
     window.addEventListener("hashchange",goHash);
     document.querySelectorAll(".index a[href^='#']").forEach(function(a){a.addEventListener("click",function(e){var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();try{history.replaceState(null,"","#"+id)}catch(x){}show(el)})});
