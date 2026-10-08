@@ -14,6 +14,7 @@ import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twi
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
+import { getBossSaves } from "./boss_saves.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
 import { classes } from "./data.ts";
@@ -64,17 +65,26 @@ async function rollCharacterCheck(opts: {
   if (result.rawD20 === 20 || result.rawD20 === 1) {
     await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
   }
-  // A saving throw goes against the bot's own 1d20 (a tie saves), unless
-  // chat named a DC (!save dex dc15).
+  // A saving throw goes against the bot's own roll (a tie saves), unless chat
+  // named a DC (!save dex dc15). The bot rolls as this stream's raid boss,
+  // adding the boss's save bonus for the same ability (boss_saves.ts).
   let verdict = "";
   if (kind.type === "save" && result.rawD20 !== null) {
-    const botRoll = check.dc ? null : 1 + Math.floor(Math.random() * 20);
-    const dc = check.dc ?? botRoll!;
+    let dc: number;
+    if (check.dc) {
+      dc = check.dc;
+      verdict = result.total >= dc ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}!`;
+    } else {
+      const boss = await getBossSaves(broadcasterId);
+      const botMod = boss?.mods[kind.ability] ?? 0;
+      const botD20 = 1 + Math.floor(Math.random() * 20);
+      dc = botD20 + botMod;
+      const modText = botMod === 0 ? "" : botMod > 0 ? `+${botMod}` : `${botMod}`;
+      const who = boss ? `${boss.name} (${kind.ability} ${modText || "+0"}${boss.estimated ? ", est." : ""})` : "GuildScribe";
+      const botText = modText ? `1d20${modText} → [${botD20}]${modText} = ${dc}` : `1d20 → [${botD20}]`;
+      verdict = ` vs 🤖 ${who}: ${botText}. ${result.total >= dc ? (result.total === dc ? "✔ Saved (tie)!" : "✔ Saved!") : "✘ Failed!"}`;
+    }
     await recordSavingThrow(broadcasterId, { username: owner, displayName: target ?? display }, kind.ability, result.rawD20, result.total, dc);
-    const saved = result.total >= dc;
-    verdict = botRoll === null
-      ? (saved ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`)
-      : ` vs 🤖 GuildScribe's 1d20 → [${botRoll}]. ${saved ? (result.total === botRoll ? "✔ Tied — ties go to the saver. SAVED!" : "✔ SAVED!") : "✘ FAILED the save!"}`;
   }
   await sendChatMessage(
     target ? `@${display} rolled for @${target}: ${result.text}${verdict}` : `@${display} ${result.text}${verdict}`,

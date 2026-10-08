@@ -182,10 +182,7 @@ export function rollSaveContest(input = "", saver?: string) {
   const won = total >= botD20;
   const nat = userD20 === 20 ? " (nat 20!)" : userD20 === 1 ? " (nat 1!)" : "";
   const breakdown = parts.length ? `[${userD20}]${nat} ${parts.join(" ")} = ${total}` : `[${userD20}]${nat} = ${total}`;
-  const who = saver ? `@${saver}` : "You";
-  const verdict = won
-    ? `${total === botD20 ? `✔ Tied — ties go to the defender, ${saver ? who : "you"}` : `✔ ${who}`} ${saver ? "SAVES" : "SAVE"}! ${who} ${saver ? "wins" : "win"}!`
-    : `✘ ${who} ${saver ? "FAILS" : "FAIL"} the save! ${who} ${saver ? "loses" : "lose"}.`;
+  const verdict = won ? (total === botD20 ? "✔ Saved (tie)!" : "✔ Saved!") : "✘ Failed!";
   const text = `🛡️ ${saver ? `@${saver}'s saving throw` : "Saving throw"}: 1d20${parts.length ? " " + parts.map((p) => p.replace(/ \[.*\]$/, "")).join(" ") : ""} → ${breakdown} vs 🤖 GuildScribe's 1d20 → [${botD20}]. ${verdict}`;
   return { text, rawD20: userD20, total, botRoll: botD20, won };
 }
