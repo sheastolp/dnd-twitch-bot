@@ -54,6 +54,7 @@ import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
+import { ensurePokeballTables, handlePokeballCommand, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -116,6 +117,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureChecklistTables,
   ensureSoundByteTables,
   ensureHoardTables,
+  ensurePokeballTables,
   ensureBattleLogTables,
   ensureSavingThrowTables,
 ];
@@ -295,7 +297,12 @@ async function handleRequest(req: Request): Promise<Response> {
       // never get processed as commands, quoted by the chronicle, or replied
       // to by random NPC chatter, but they still count as chat activity
       // toward each feature's own minimum-messages gate.
-      await Promise.all([recordChronicleBotMessage(broadcasterId), recordNpcChatterBotMessage(broadcasterId)]);
+      // PokemonCommunityGame spawns get a ball suggestion (pokeball.ts, off by default).
+      await Promise.all([
+        recordChronicleBotMessage(broadcasterId),
+        recordNpcChatterBotMessage(broadcasterId),
+        maybePokeballAdvice(broadcasterId, chatter, chatMessage),
+      ]);
       return new Response("OK");
     }
 
@@ -401,6 +408,7 @@ async function handleRequest(req: Request): Promise<Response> {
         await purgeChecklistData(broadcasterId);
         await purgeSoundByteData(broadcasterId);
         await purgeHoardData(broadcasterId);
+        await purgePokeballData(broadcasterId);
         await purgeSavingThrowData(broadcasterId);
       } else {
         await disconnectBroadcasterData(broadcasterId, false);
@@ -546,6 +554,8 @@ async function handleRequest(req: Request): Promise<Response> {
     // Hunt and Hoard (hoard.ts): off by default; its words fall through when
     // it's off or the channel has its own custom command of the same name.
     if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+    // Pokéball advisor toggle (pokeball.ts): !pokeball on/off/status.
+    if (await handlePokeballCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

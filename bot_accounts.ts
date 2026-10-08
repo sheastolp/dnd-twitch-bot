@@ -33,6 +33,7 @@ export const KNOWN_BOT_ACCOUNTS: string[] = [
   "ankhbot",
   "soundalerts",
   "botrixoficial",
+  "pokemoncommunitygame",
 ];
 
 /** Every listed bot login (both lists plus BOT_USERNAMES), lowercase. */
