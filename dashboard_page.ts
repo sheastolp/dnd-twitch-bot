@@ -35,6 +35,7 @@ export interface DashboardData {
   autoBanPermitted: boolean;
   pointsEnabled: boolean;
   hoardEnabled: boolean;
+  pokeballEnabled: boolean;
   /** Per-channel options as typed ("" = default), for Quick setup (channel_options.ts). */
   options?: Record<string, string>;
   /** Connection health card (channel_status.ts); omitted = no card. */
@@ -47,6 +48,7 @@ export function switchStates(d: DashboardData): Record<string, boolean> {
     ...d.groupToggles,
     bot: d.botEnabled, market: d.marketEnabled, chronicle: d.chronicleEnabled, autoban: d.autoBanEnabled,
     points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
+    pokeball: d.pokeballEnabled,
   };
 }
 
@@ -56,9 +58,9 @@ function dashHidden(broadcasterId: string, key: string): string {
 
 /** Switches with their own dedicated on/off (not COMMAND_GROUPS); each has a
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
-export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter", "hoard"];
+export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter", "hoard", "pokeball"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["npcchatter", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes"]);
+const NO_GUIDE_CARD = new Set(["npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
@@ -135,6 +137,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     featureToggleRow(d, "market_on", "market_off", "Open-stall merchant", "Random flavor ads in chat — same as !market on/off", d.marketEnabled),
     autoBanToggleRow(d),
     featureToggleRow(d, "points_on", "points_off", "Gold, leaderboard & giveaways", "Viewers earn copper by chatting and from monster loot on hunts (10 cp = 1 sp, 10 sp = 1 gp); !gold, !gold top, !giveaway, !rob, and real coin prices for !haggle — same as !gold on/off", d.pointsEnabled),
+    featureToggleRow(d, "pokeball_on", "pokeball_off", "Pokéball advisor", "Suggests a ball when PokemonCommunityGame announces a wild Pokémon — off by default; same as !ball on/off. Teach and edit the channel's balls under 🔴 Pokéballs", d.pokeballEnabled),
   ].join("");
   // Chronicle and the AI NPCs have their own dedicated switches, but they
   // live in the "Chronicle, oracle & NPCs" folder beside !oracle, matching
@@ -178,7 +181,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
       </details>`;
     })
     .join("")}</div>`;
-  const flags = [d.botEnabled, d.marketEnabled, d.autoBanEnabled, d.pointsEnabled];
+  const flags = [d.botEnabled, d.marketEnabled, d.autoBanEnabled, d.pointsEnabled, d.pokeballEnabled];
   const flagsOn = flags.filter(Boolean).length;
   const groupTotal = [...bySection.values()].reduce((n, g) => n + g.rows.length, 0);
   const groupOn = [...bySection.values()].reduce((n, g) => n + g.on, 0);

@@ -25,6 +25,7 @@ export function toggleState(d: DashboardData, key: string): boolean {
     case "npc": return d.npcEnabled;
     case "npcchatter": return d.npcChatterEnabled;
     case "hoard": return d.hoardEnabled;
+    case "pokeball": return d.pokeballEnabled;
   }
   return d.groupToggles[key] ?? true;
 }

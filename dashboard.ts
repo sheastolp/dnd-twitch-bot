@@ -60,6 +60,7 @@ import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
 import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
+import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
@@ -230,7 +231,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled, hoardEnabled] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled, hoardEnabled, pokeballEnabled] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -244,6 +245,7 @@ export async function renderDashboard(
     hasBanPermission(channelId),
     isPointsEnabled(channelId),
     isHoardEnabled(channelId),
+    isPokeballEnabled(channelId),
   ]);
   const [options, connection] = await Promise.all([optionInputs(channelId), getChannelStatus(channelId)]);
   const data: DashboardData = {
@@ -268,6 +270,7 @@ export async function renderDashboard(
     autoBanPermitted,
     pointsEnabled,
     hoardEnabled,
+    pokeballEnabled,
     options,
     connection,
   };
@@ -640,6 +643,12 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       await setHoardEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Hunt and Hoard turned ${enabled ? "on" : "off"}.` }, "toggle-hoard"));
     }
+    case "pokeball_on":
+    case "pokeball_off": {
+      const enabled = intent === "pokeball_on";
+      await setPokeballEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Pokéball advisor turned ${enabled ? "on" : "off"}.` }, "toggle-pokeball"));
+    }
     case "npcchatter_on":
     case "npcchatter_off": {
       const enabled = intent === "npcchatter_on";
@@ -691,11 +700,12 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
 async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
-  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard] = await Promise.all([
+  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball] = await Promise.all([
     getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
     isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId), isHoardEnabled(channelId),
+    isPokeballEnabled(channelId),
   ]);
-  return { ...groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard };
+  return { ...groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball };
 }
 
 /** Turns one dashboard switch on or off, dedicated or command group. */
@@ -709,6 +719,7 @@ async function setSwitch(channelId: string, sw: string, on: boolean): Promise<vo
     case "npc": return void await setNpcEnabled(channelId, on);
     case "npcchatter": return void await setNpcChatterEnabled(channelId, on);
     case "hoard": return void await setHoardEnabled(channelId, on);
+    case "pokeball": return void await setPokeballEnabled(channelId, on);
     default:
       if (sw in COMMAND_GROUPS) await setCommandGroupEnabled(channelId, sw, on);
   }
