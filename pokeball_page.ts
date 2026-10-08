@@ -18,8 +18,9 @@ import {
   saveBall,
   setBallStatus,
   setPokeballEnabled,
-  WEIGHT_CLASSES,
-  weightPct,
+  BALL_SCALES,
+  type BallScale,
+  scaleStep,
 } from "./pokeball_db.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
@@ -27,12 +28,10 @@ import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 const NAME_RE = /^[A-Za-zÀ-ÿ0-9' -]{2,30}$/;
 
 /** What the rule means for this ball, in a few words. */
-export function describeRule(b: Pick<Ball, "rule" | "value" | "pct">): string {
+export function describeRule(b: Pick<Ball, "rule" | "value">): string {
   switch (b.rule) {
     case "types": return `vs ${b.value.split(/[\s,]+/).filter(Boolean).map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(", ")} types`;
     case "heavy": return `vs Pokémon ${b.value} kg+`;
-    case "weight":
-      return `scales with weight: ${[...WEIGHT_CLASSES].reverse().map((c) => `${c.kg ? `${c.kg} kg+` : `under ${WEIGHT_CLASSES[WEIGHT_CLASSES.length - 2].kg} kg`} ${weightPct(b.pct, c.kg)}%`).join(", ")}`;
     case "fast": return `vs base Speed ${b.value}+`;
     case "hardcatch": return `vs catch rate ${b.value} or lower`;
     case "easycatch": return `vs catch rate ${b.value} or higher`;
@@ -40,10 +39,22 @@ export function describeRule(b: Pick<Ball, "rule" | "value" | "pct">): string {
   }
 }
 
+/** The catch bonus as the ball list shows it: "55%", or "10–60%" with what each end needs. */
+export function describeBonus(b: Pick<Ball, "pct" | "scale" | "pctMax">): string {
+  if (!b.scale) return `${b.pct}%`;
+  const s = BALL_SCALES[b.scale];
+  if (b.scale === "weight" || b.scale === "speed") {
+    const steps = b.scale === "weight" ? ["under 100 kg", "100 kg+", "200 kg+", "300 kg+"] : ["Speed under 60", "60+", "90+", "120+"];
+    const at = b.scale === "weight" ? [0, 100, 200, 300] : [0, 60, 90, 120];
+    return steps.map((label, i) => `${label} ${Math.round(b.pct + (b.pctMax - b.pct) * scaleStep(b.scale as "weight" | "speed", at[i]))}%`).join(" · ");
+  }
+  return `${b.pct}% ${s.low} → ${b.pctMax}% ${s.high}`;
+}
+
 type Result = { ok: boolean; message: string; edit?: string } | null;
 
 /** Check and normalize the add/edit form. */
-function readBall(form: FormData): { ball?: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "note">; error?: string } {
+function readBall(form: FormData): { ball?: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "scale" | "pctMax" | "note">; error?: string } {
   const name = String(form.get("name") ?? "").trim().replace(/\s+/g, " ");
   if (!NAME_RE.test(name)) return { error: "Give the ball a name of 2–30 letters, e.g. Dusk Ball." };
   const key = ballKey(name);
@@ -60,15 +71,26 @@ function readBall(form: FormData): { ball?: Pick<Ball, "key" | "name" | "rule" |
   } else if (BALL_RULES[rule].value) {
     const n = Number(value);
     const max = rule === "heavy" ? 1000 : 255;
-    if (!value || !Number.isFinite(n) || n < 0 || n > max) return { error: `${BALL_RULES[rule].value}: enter a number from 0 to ${max}.` };
+    if (!value || !Number.isFinite(n) || n < 0 || n > max) return { error: `${BALL_RULES[rule].value!.label}: enter a number from 0 to ${max}.` };
     value = String(n);
   } else {
     value = "";
   }
-  const pct = Number(String(form.get("pct") ?? "").trim().replace(/%$/, "") || "30");
+  const readPct = (field: string) => Number(String(form.get(field) ?? "").trim().replace(/%$/, "") || "30");
+  const pct = readPct("pct");
   if (!Number.isFinite(pct) || pct <= 0 || pct > 100) return { error: "The catch bonus must be a percentage above 0 and up to 100 (Poké Ball = 30%)." };
+  let scale: BallScale | "" = "";
+  let pctMax = pct;
+  if (form.get("scales")) {
+    scale = String(form.get("scale") ?? "") as BallScale;
+    if (!(scale in BALL_SCALES)) return { error: "Pick what the catch bonus scales with." };
+    pctMax = readPct("pct_max");
+    if (!Number.isFinite(pctMax) || pctMax <= 0 || pctMax > 100) return { error: "The highest catch bonus must be a percentage above 0 and up to 100." };
+    if (pctMax < pct) return { error: "The highest catch bonus can't be below the lowest." };
+  }
   const note = String(form.get("note") ?? "").trim().slice(0, 120);
-  return { ball: { key, name, rule, value, pct: Math.round(pct * 10) / 10, note } };
+  const round = (n: number) => Math.round(n * 10) / 10;
+  return { ball: { key, name, rule, value, pct: round(pct), scale, pctMax: round(pctMax), note } };
 }
 
 export async function applyPokeballForm(broadcasterId: string, form: FormData): Promise<Result> {
@@ -130,31 +152,36 @@ export async function renderPokeballPage(d: {
   const origin = (b: Ball) =>
     b.origin === "core" ? `<span class="badge">core</span>` : b.origin === "override" ? `<span class="badge learned">core · edited</span>` : `<span class="badge learned">added</span>`;
   const knownRows = known.map((b) => {
-    const search = [b.name, b.key, describeRule(b), b.note, b.origin, b.status].join(" ").toLowerCase();
+    const search = [b.name, b.key, describeRule(b), b.scale ? BALL_SCALES[b.scale].label : "", b.note, b.origin, b.status].join(" ").toLowerCase();
     const actions = [
       editLink(b.key, "Edit"),
       b.status === "off" ? btn("on", "Turn on", b.key, "ember") : btn("off", "Turn off", b.key),
       b.origin === "custom" ? btn("delete", "Delete", b.key) : b.origin === "override" ? btn("delete", "Reset", b.key) : "",
     ].join(" ");
     return `<tr data-search="${escapeHtml(search)}"${b.status === "off" ? ` class="off"` : ""}><td><strong>${escapeHtml(b.name)}</strong><div class="muted small"><code>!pokecatch ${escapeHtml(b.key)}</code></div></td>` +
-      `<td>${escapeHtml(describeRule(b))}</td><td class="num">${b.pct}%</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
+      `<td>${escapeHtml(describeRule(b))}${b.scale ? `<div class="muted small">Scales by ${escapeHtml(BALL_SCALES[b.scale].label.split(" — ")[0].toLowerCase())}</div>` : ""}</td><td class="num small">${escapeHtml(describeBonus(b))}</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
       `<td>${origin(b)}${b.status === "off" ? ` <span class="badge">off</span>` : ""}</td><td class="num actions">${actions}</td></tr>`;
   }).join("");
 
   // Add / edit form. Teaching a pending ball starts from its name with no rule picked.
-  const f = editing ?? { key: "", name: "", rule: "always" as BallRule, value: "", pct: 30, note: "", status: "active" };
+  const f = editing ?? { key: "", name: "", rule: "always" as BallRule, value: "", pct: 30, scale: "" as BallScale | "", pctMax: 30, note: "", status: "active" };
   const ruleOptions = (Object.keys(BALL_RULES) as BallRule[]).filter((r) => r !== "unknown")
-    .map((r) => `<option value="${r}"${f.rule === r ? " selected" : ""}>${escapeHtml(BALL_RULES[r].label)}${BALL_RULES[r].value ? ` — ${escapeHtml(BALL_RULES[r].value!)}` : ""}</option>`).join("");
+    .map((r) => `<option value="${r}"${f.rule === r ? " selected" : ""}>${escapeHtml(BALL_RULES[r].label)}</option>`).join("");
+  const scaleOptions = (Object.keys(BALL_SCALES) as BallScale[])
+    .map((s) => `<option value="${s}"${f.scale === s ? " selected" : ""}>${escapeHtml(BALL_SCALES[s].label)}</option>`).join("");
   const formTitle = !editing ? "Add a ball" : editing.status === "pending" ? `Teach the ${escapeHtml(editing.name)}` : `Edit the ${escapeHtml(editing.name)}`;
   const form = `<form method="post" action="/dashboard/pokeballs" class="ballform" id="edit">${hidden}<input type="hidden" name="intent" value="save"><input type="hidden" name="ball" value="${escapeHtml(f.key)}">
 <label>Name<input type="text" name="name" value="${escapeHtml(f.name)}" placeholder="Dusk Ball" required maxlength="30"></label>
 <label>Good for<select name="rule" id="rule">${f.rule === "unknown" ? `<option value="" selected disabled>Pick one…</option>` : ""}${ruleOptions}</select></label>
-<label id="valwrap">Value<input type="text" name="value" id="value" value="${escapeHtml(f.value)}" placeholder="dark, ghost"></label>
-<label>Catch bonus (%)<input type="number" name="pct" value="${f.pct}" min="1" max="100" step="any" required><span class="muted small">Poké Ball 30%, Cherish 30%, Great 55%, Ultra 80%, Master 100%. For “Scales with weight”, the bonus at 100–199 kg — the advisor takes 20 off under 100 kg and adds 20 at 200 kg+, 30 at 300 kg+, using each Pokémon's real weight.</span></label>
-<label>Note <span class="muted small">(optional — shown in chat for timing balls)</span><input type="text" name="note" value="${escapeHtml(f.note)}" maxlength="120" placeholder="Best thrown right away."></label>
+<label id="valwrap"><span id="vallabel">Value</span><input type="text" name="value" id="value" value="${escapeHtml(f.value)}"></label>
+<label><span id="pctlabel">Catch bonus (%)</span><input type="number" name="pct" value="${f.pct}" min="1" max="100" step="any" required><span class="muted small">Its chance to catch: Poké Ball 30%, Cherish 30%, Great 55%, Ultra 80%, Master 100%.</span></label>
+<div class="scalebox"><label class="check"><input type="checkbox" name="scales" id="scales" value="1"${f.scale ? " checked" : ""}> The catch bonus scales <span class="muted small">(changes with the Pokémon or the timing, between a lowest and highest)</span></label>
+<div id="scalewrap" class="scalerow"><label>Scales by<select name="scale" id="scale">${scaleOptions}</select></label>
+<label>Highest catch bonus (%)<input type="number" name="pct_max" id="pctmax" value="${f.pctMax}" min="1" max="100" step="any"><span class="muted small" id="scalehint"></span></label></div></div>
+<label>Note <span class="muted small">(optional — shown in chat for “best right away” balls)</span><input type="text" name="note" value="${escapeHtml(f.note)}" maxlength="120" placeholder="Best thrown right away."></label>
 <div class="row"><button type="submit" class="ember">${editing ? "Save" : "Add ball"}</button>${editing ? ` <a class="btn ghost" href="/dashboard/pokeballs?${qs}">Cancel</a>` : ""}</div></form>
 <p class="muted small">Pokémon types: ${POKEMON_TYPES.join(", ")}.</p>
-<script>(function(){var r=document.getElementById("rule"),w=document.getElementById("valwrap"),v=document.getElementById("value"),hint=${JSON.stringify(Object.fromEntries(Object.entries(BALL_RULES).map(([k, x]) => [k, x.value ?? ""])))};function upd(){var h=hint[r.value]||"";w.hidden=!h;v.placeholder=h;v.required=!!h}r.addEventListener("change",upd);upd()})();</script>`;
+<script>(function(){var r=document.getElementById("rule"),w=document.getElementById("valwrap"),v=document.getElementById("value"),vl=document.getElementById("vallabel"),c=document.getElementById("scales"),sw=document.getElementById("scalewrap"),pl=document.getElementById("pctlabel"),pm=document.getElementById("pctmax"),sc=document.getElementById("scale"),sh=document.getElementById("scalehint"),ends=${JSON.stringify(BALL_SCALES)},hint=${JSON.stringify(Object.fromEntries(Object.entries(BALL_RULES).map(([k, x]) => [k, x.value ?? null])))};function upd(){var h=hint[r.value];w.hidden=!h;v.required=!!h;if(h){vl.textContent=h.label;v.placeholder="e.g. "+h.example}else{v.value=""}sw.hidden=!c.checked;pm.required=c.checked;pl.textContent=c.checked?"Lowest catch bonus (%)":"Catch bonus (%)";var e=ends[sc.value];sh.textContent=e?"Lowest: "+e.low+". Highest: "+e.high+"."+(sc.value==="weight"||sc.value==="speed"?" Uses the Pokémon's real stats — nothing to look up.":""):""}r.addEventListener("change",upd);c.addEventListener("change",upd);sc.addEventListener("change",upd);upd()})();</script>`;
 
   const body = `<header class="dash-top"><div><span class="pill">Pokéball advisor · Balls</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
@@ -171,12 +198,12 @@ ${form}
 <div class="controls"><input id="q" class="search" type="search" placeholder="Search balls…" autocomplete="off" aria-label="Search balls"></div>
 <div class="table-wrap"><table id="t"><thead><tr><th>Ball</th><th>Good for</th><th class="num">Catch bonus</th><th>Note</th><th>Origin</th><th></th></tr></thead><tbody>${knownRows}</tbody></table></div>
 <div class="card"><h2 style="margin-top:0">How the advisor picks</h2>
-<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (a catch bonus of at least 30% for easy catches, 55% for medium ones and 80% for tough ones, by the Pokémon's catch rate), so your good balls are kept for hard catches. If none gets there, the strongest one. 100% balls (Master Ball) are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
+<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (a catch bonus of at least 30% for easy catches, 55% for medium ones and 80% for tough ones, by the Pokémon's catch rate), so your good balls are kept for hard catches. If none gets there, the strongest one. 100% balls (Master Ball) are only suggested for legendaries. A scaling ball counts at what it gives this Pokémon (weight and speed from PokeAPI; time-scaled balls at the moment it appears). The strongest “best right away” ball (Quick Ball) is offered as the alternative.</p>
 <p class="muted small">Chat: <code>!ball on|off|status</code> (mods) · <code>!ball &lt;Pokémon&gt;</code> asks for a suggestion · <code>!ball balls</code> · <code>!ball unknown</code></p></div>
 <script>(function(){var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll("#t tbody tr"));q.addEventListener("input",function(){var t=q.value.trim().toLowerCase();rows.forEach(function(r){r.hidden=!!t&&r.getAttribute("data-search").indexOf(t)===-1})})})();</script>`;
 
   return scrollDoc(`${name} — Pokéballs`, body, {
     width: 1100,
-    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,.small-btn{padding:5px 12px;font-size:.78rem}.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}.badge{white-space:nowrap}td{vertical-align:middle}td.actions,td code{white-space:nowrap}tr.off td{opacity:.55}.ballform{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 16px;margin:12px 0}.ballform label{display:flex;flex-direction:column;gap:4px}.ballform .row{grid-column:1/-1}.card{margin-top:22px}`,
+    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,.small-btn{padding:5px 12px;font-size:.78rem}.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}.badge{white-space:nowrap}td{vertical-align:middle}td.actions,td code{white-space:nowrap}tr.off td{opacity:.55}.ballform{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 16px;margin:12px 0}.ballform label{display:flex;flex-direction:column;gap:4px}.ballform [hidden]{display:none!important}.ballform label.check{flex-direction:row;align-items:center;gap:8px}.scalebox{grid-column:1/-1;display:flex;flex-direction:column;gap:10px}.scalerow{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 16px}.ballform .row{grid-column:1/-1}.card{margin-top:22px}`,
   });
 }

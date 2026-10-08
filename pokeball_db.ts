@@ -20,26 +20,41 @@ export type BallRule =
   | "always" //   works on anything at its catch bonus
   | "types" //    bonus against the listed types (value: "water,bug")
   | "heavy" //    bonus at value+ kg
-  | "weight" //   catch bonus scales with weight, like the mainline Heavy Ball (WEIGHT_CLASSES)
   | "fast" //     bonus at base Speed value+
   | "hardcatch" // bonus at catch rate value or lower
   | "easycatch" // bonus at catch rate value or higher
   | "legendary" // bonus against legendary/mythical Pokémon
-  | "timing" //   depends on when it's thrown (Quick, Timer) — offered as the alternative
   | "unknown"; // seen in chat, not taught yet
 
-export const BALL_RULES: Record<BallRule, { label: string; value?: string }> = {
+/** Each rule's dropdown label, and for rules that need a number or list, the
+ * form field's label and an example. */
+export const BALL_RULES: Record<BallRule, { label: string; value?: { label: string; example: string } }> = {
   always: { label: "Works on anything" },
-  types: { label: "Better against types", value: "types, e.g. water, bug" },
-  heavy: { label: "Better against heavy Pokémon", value: "minimum weight in kg" },
-  weight: { label: "Scales with weight (like the Heavy Ball)" },
-  fast: { label: "Better against fast Pokémon", value: "minimum base Speed" },
-  hardcatch: { label: "Better against hard catches", value: "catch rate at or below (0–255)" },
-  easycatch: { label: "Better against easy catches", value: "catch rate at or above (0–255)" },
+  types: { label: "Better against certain types", value: { label: "Types it's better against", example: "water, bug" } },
+  heavy: { label: "Better against heavy Pokémon", value: { label: "Only Pokémon at least this heavy (kg)", example: "200" } },
+  fast: { label: "Better against fast Pokémon", value: { label: "Only Pokémon with at least this base Speed", example: "100" } },
+  hardcatch: { label: "Better against hard catches", value: { label: "Only Pokémon with this catch rate or lower (0–255, lower = harder)", example: "45" } },
+  easycatch: { label: "Better against easy catches", value: { label: "Only Pokémon with this catch rate or higher (0–255, higher = easier)", example: "150" } },
   legendary: { label: "Better against legendaries" },
-  timing: { label: "Depends on timing (suggested as the alternative)" },
   unknown: { label: "Unknown — not taught yet" },
 };
+
+/** How a ball's catch bonus can scale between its lowest and highest. */
+export type BallScale = "weight" | "speed" | "early" | "late";
+
+export const BALL_SCALES: Record<BallScale, { label: string; low: string; high: string }> = {
+  weight: { label: "Weight — heavier is better (like the Heavy Ball)", low: "under 100 kg", high: "300 kg+" },
+  speed: { label: "Speed — faster is better", low: "base Speed under 60", high: "base Speed 120+" },
+  early: { label: "Time — best right after it appears (like the Quick Ball)", low: "later", high: "thrown right away" },
+  late: { label: "Time — better the longer it's out (like the Timer Ball)", low: "thrown right away", high: "after a while" },
+};
+
+/** Where between lowest (0) and highest (1) a weight/speed-scaled ball lands:
+ * four steps, so the ball list can say exactly what each gets. */
+export function scaleStep(scale: "weight" | "speed", n: number): number {
+  const steps = scale === "weight" ? [100, 200, 300] : [60, 90, 120];
+  return steps.filter((s) => n >= s).length / steps.length;
+}
 
 export const POKEMON_TYPES = [
   "normal", "fire", "water", "grass", "electric", "ice", "fighting", "poison", "ground",
@@ -53,8 +68,10 @@ export interface Ball {
   name: string; //    "Net Ball"
   rule: BallRule;
   value: string; //   rule parameter (types list or a number), "" when the rule has none
-  pct: number; //     catch bonus: the % chance to catch when the rule applies (Poké Ball 30)
-  note: string; //    shown on the page and, for timing balls, in chat
+  pct: number; //     catch bonus: the % chance to catch when the rule applies (Poké Ball 30); the lowest when it scales
+  scale: BallScale | ""; // what the catch bonus scales with, "" when it's fixed
+  pctMax: number; //  highest catch bonus when it scales (= pct when fixed)
+  note: string; //    shown on the page and, for "best right away" balls, in chat
   status: BallStatus;
   origin: "core" | "custom" | "override" | "asked";
   seen: number; //    times chat used/mentioned it (pending balls)
@@ -62,8 +79,8 @@ export interface Ball {
   updatedAt: number;
 }
 
-const core = (name: string, rule: BallRule, value: string, pct: number, note: string): Ball => ({
-  key: ballKey(name), name, rule, value, pct, note, status: "active", origin: "core", seen: 0, askedBy: "", updatedAt: 0,
+const core = (name: string, rule: BallRule, value: string, pct: number, note: string, scale: BallScale | "" = "", pctMax = pct): Ball => ({
+  key: ballKey(name), name, rule, value, pct, scale, pctMax, note, status: "active", origin: "core", seen: 0, askedBy: "", updatedAt: 0,
 });
 
 /** Built-in balls, with Pokémon Community Game catch bonuses. Mods can edit any of them. */
@@ -75,30 +92,13 @@ export const CORE_BALLS: Ball[] = [
   core("Ultra Ball", "always", "", 80, ""),
   core("Master Ball", "legendary", "", 100, "Never fails — saved for legendaries."),
   core("Net Ball", "types", "water,bug", 80, ""),
-  core("Heavy Ball", "weight", "", 30, "Weaker on light Pokémon, stronger on heavy ones."),
+  core("Heavy Ball", "always", "", 10, "Weaker on light Pokémon, stronger on heavy ones.", "weight", 60),
   core("Fast Ball", "fast", "100", 80, ""),
-  core("Quick Ball", "timing", "", 80, "Best thrown right away."),
+  core("Quick Ball", "always", "", 30, "Best thrown right away.", "early", 80),
 ];
 
 /** The broadcaster_id of ball definitions every channel shares. */
 const GLOBAL = "*";
-
-/** Weight classes for "Scales with weight" balls, heaviest first: the
- * mainline Heavy Ball's (Gen VII+) — under 100 kg −20, 100 kg+ ±0,
- * 200 kg+ +20, 300 kg+ +30 — added to the ball's catch bonus as % points.
- * The Pokémon's weight comes from PokeAPI, so nobody has to know it. */
-export const WEIGHT_CLASSES: { kg: number; add: number }[] = [
-  { kg: 300, add: 30 },
-  { kg: 200, add: 20 },
-  { kg: 100, add: 0 },
-  { kg: 0, add: -20 },
-];
-
-/** A "Scales with weight" ball's catch bonus against a Pokémon this heavy (1–100%). */
-export function weightPct(pct: number, weightKg: number): number {
-  const add = WEIGHT_CLASSES.find((c) => weightKg >= c.kg)?.add ?? 0;
-  return Math.max(1, Math.min(100, pct + add));
-}
 
 /** "Net Ball", "netball", "net" → "netball". */
 export function ballKey(raw: string): string {
@@ -122,16 +122,18 @@ export async function ensurePokeballTables() {
       rule TEXT NOT NULL, value TEXT NOT NULL DEFAULT '', mult REAL NOT NULL DEFAULT 1,
       note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
       seen INTEGER NOT NULL DEFAULT 0, asked_by TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL,
-      catch_pct REAL,
+      catch_pct REAL, catch_pct_max REAL, scale TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (broadcaster_id, ball_key)
     )`,
   ]);
   // Tables created before catch bonuses replaced multipliers (catch_pct stays
   // NULL on old rows; rowToBall converts their multiplier).
-  try {
-    await sqlite.execute(`ALTER TABLE pokeball_balls ADD COLUMN catch_pct REAL`);
-  } catch (_) {
-    /* column already exists */
+  for (const col of ["catch_pct REAL", "catch_pct_max REAL", "scale TEXT NOT NULL DEFAULT ''"]) {
+    try {
+      await sqlite.execute(`ALTER TABLE pokeball_balls ADD COLUMN ${col}`);
+    } catch (_) {
+      /* column already exists */
+    }
   }
   // Balls channels added before balls were shared: copy them to the shared
   // list (newest edit wins), and leave only an "off" marker behind. Old
@@ -141,7 +143,6 @@ export async function ensurePokeballTables() {
     `SELECT * FROM pokeball_balls WHERE broadcaster_id != ? AND status != 'pending' AND rule != 'unknown' ORDER BY updated_at`,
     [GLOBAL],
   );
-  if (!old.rows.length) return;
   const stmts: { sql: string; args: any[] }[] = [];
   for (const r of old.rows as any[]) {
     const b = rowToBall(r);
@@ -149,12 +150,18 @@ export async function ensurePokeballTables() {
       sql: `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, catch_pct, note, status, updated_at) VALUES (?,?,?,?,?,1,?,?,'active',?)
             ON CONFLICT(broadcaster_id, ball_key) DO UPDATE SET name = excluded.name, rule = excluded.rule, value = excluded.value,
               catch_pct = excluded.catch_pct, note = excluded.note, updated_at = excluded.updated_at`,
-      args: [GLOBAL, b.key, b.name, b.rule, b.value, b.pct, b.note, b.updatedAt],
+      args: [GLOBAL, b.key, b.name, String(r.rule), b.value, b.pct, b.note, b.updatedAt],
     });
     stmts.push(b.status === "off"
       ? { sql: `UPDATE pokeball_balls SET rule = 'unknown' WHERE broadcaster_id = ? AND ball_key = ?`, args: [r.broadcaster_id, b.key] }
       : { sql: `DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?`, args: [r.broadcaster_id, b.key] });
   }
+  // The old "Scales with weight" and "Depends on timing" rules became scaling:
+  // weight balls get their old −20…+30 range, timing balls are best right away.
+  stmts.push(
+    { sql: `UPDATE pokeball_balls SET rule = 'always', scale = 'weight', catch_pct_max = MIN(100, COALESCE(catch_pct, 30) + 30), catch_pct = MAX(1, COALESCE(catch_pct, 30) - 20) WHERE rule = 'weight'`, args: [] },
+    { sql: `UPDATE pokeball_balls SET rule = 'always', scale = 'early', catch_pct_max = COALESCE(catch_pct, MIN(100, mult * 30)), catch_pct = MIN(30, COALESCE(catch_pct, MIN(100, mult * 30))) WHERE rule = 'timing'`, args: [] },
+  );
   await sqlite.batch(stmts);
 }
 
@@ -185,12 +192,15 @@ function rowToBall(r: any): Ball {
   const status = (["active", "pending", "off"].includes(String(r.status)) ? String(r.status) : "active") as BallStatus;
   // Rows from before catch bonuses hold a multiplier (1 = Poké Ball = 30%).
   const pct = r.catch_pct != null ? Number(r.catch_pct) : Math.min(100, Math.round(Number(r.mult ?? 1) * 30));
+  const scale = (String(r.scale ?? "") in BALL_SCALES ? String(r.scale) : "") as BallScale | "";
   return {
     key,
     name: String(r.name),
     rule: (String(r.rule) in BALL_RULES ? String(r.rule) : "unknown") as BallRule,
     value: String(r.value ?? ""),
     pct,
+    scale,
+    pctMax: scale && r.catch_pct_max != null ? Math.max(pct, Number(r.catch_pct_max)) : pct,
     note: String(r.note ?? ""),
     status,
     origin: coreByKey.has(key) ? "override" : status === "pending" ? "asked" : "custom",
@@ -222,13 +232,14 @@ export async function listBalls(broadcasterId: string): Promise<Ball[]> {
 
 /** Add or replace a ball for every channel (also how a pending ball gets
  * taught). Clears this channel's pending/off row for it. */
-export async function saveBall(broadcasterId: string, b: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "note">) {
+export async function saveBall(broadcasterId: string, b: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "scale" | "pctMax" | "note">) {
   await sqlite.batch([
     {
-      sql: `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, catch_pct, note, status, updated_at) VALUES (?,?,?,?,?,1,?,?,'active',?)
+      sql: `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, catch_pct, catch_pct_max, scale, note, status, updated_at) VALUES (?,?,?,?,?,1,?,?,?,?,'active',?)
             ON CONFLICT(broadcaster_id, ball_key) DO UPDATE SET name = excluded.name, rule = excluded.rule, value = excluded.value,
-              catch_pct = excluded.catch_pct, note = excluded.note, status = 'active', updated_at = excluded.updated_at`,
-      args: [GLOBAL, b.key, b.name, b.rule, b.value, b.pct, b.note, Date.now()],
+              catch_pct = excluded.catch_pct, catch_pct_max = excluded.catch_pct_max, scale = excluded.scale, note = excluded.note,
+              status = 'active', updated_at = excluded.updated_at`,
+      args: [GLOBAL, b.key, b.name, b.rule, b.value, b.pct, b.scale ? b.pctMax : null, b.scale, b.note, Date.now()],
     },
     { sql: "DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", args: [broadcasterId, b.key] },
   ]);

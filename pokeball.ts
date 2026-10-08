@@ -8,14 +8,15 @@
 // channel's ball list (pokeball_db.ts — built-in core balls plus whatever
 // mods add on /dashboard/pokeballs, pokeball_page.ts; balls a mod adds or
 // edits are shared by every channel). Each ball has a rule (works on
-// anything, better against certain types, heavy, scaling with weight, fast, hard or easy catches,
-// legendaries, or timing) and a catch bonus — its % chance to catch, as in
-// the game (Poké Ball 30%, Great 55%, Ultra 80%). Of the balls whose rule
+// anything, better against certain types, heavy, fast, hard or easy
+// catches, or legendaries) and a catch bonus — its % chance to catch, as in
+// the game (Poké Ball 30%, Great 55%, Ultra 80%). A bonus can scale between
+// a lowest and highest by the Pokémon's weight or speed, or by time. Of the balls whose rule
 // fits, the advisor suggests the weakest one that reaches the bonus the
 // Pokémon calls for (easy catch 30%, medium 55%, tough 80%), so good balls
 // are kept for hard catches; if none gets there, the strongest. 100% balls
-// (Master Ball) are only suggested for legendaries. A timing ball (Quick
-// Ball) is offered as the alternative.
+// (Master Ball) are only suggested for legendaries. A ball that's best
+// right away (Quick Ball) is offered as the alternative.
 //
 // Unknown balls: when a viewer throws one the channel doesn't know
 // (!pokecatch duskball), or PokemonCommunityGame mentions one, it's recorded
@@ -31,7 +32,7 @@ import {
   type Ball,
   ballKey,
   ballNameFromKey,
-  weightPct,
+  scaleStep,
   isPokeballEnabled,
   listBalls,
   recordUnknownBall,
@@ -213,28 +214,40 @@ export function ballFits(b: Ball, p: PokeInfo): string | null {
       return hit ? `${cap(hit)} type` : null;
     }
     case "heavy": return p.weightKg >= n ? `heavy (${p.weightKg} kg)` : null;
-    case "weight": return p.weightKg >= 200 ? `heavy (${p.weightKg} kg)` : "";
     case "fast": return p.speed >= n ? `fast (base Speed ${p.speed})` : null;
     case "hardcatch": return p.captureRate <= n ? "hard catch" : null;
     case "easycatch": return p.captureRate >= n ? "easy catch" : null;
     case "legendary": return p.legendary ? "legendary" : null;
-    default: return null; // timing, unknown
+    default: return null; // unknown
   }
 }
 
-/** This ball's catch bonus against this Pokémon (a "weight" ball's depends on how heavy it is). */
+/** This ball's catch bonus against this Pokémon when thrown as it spawns. */
 export function ballPct(b: Ball, p: PokeInfo): number {
-  return b.rule === "weight" ? weightPct(b.pct, p.weightKg) : b.pct;
+  switch (b.scale) {
+    case "weight": return Math.round(b.pct + (b.pctMax - b.pct) * scaleStep("weight", p.weightKg));
+    case "speed": return Math.round(b.pct + (b.pctMax - b.pct) * scaleStep("speed", p.speed));
+    case "early": return b.pctMax;
+    default: return b.pct; // fixed, or "late" (lowest at spawn)
+  }
 }
 
-/** The ball to throw, why, and a timing ball to offer as the alternative. */
+/** Why a scaling ball is good here, when weight or speed puts it in its top half. */
+function scaleWhy(b: Ball, p: PokeInfo): string {
+  if (b.scale === "weight" && scaleStep("weight", p.weightKg) > 0.5) return `heavy (${p.weightKg} kg)`;
+  if (b.scale === "speed" && scaleStep("speed", p.speed) > 0.5) return `fast (base Speed ${p.speed})`;
+  return "";
+}
+
+/** The ball to throw, why, and a ball that's best right away to offer as the alternative. */
 export function recommendBall(p: PokeInfo, balls: Ball[]): { ball: string; pct: number | null; why: string; alt: Ball | null } {
   const active = balls.filter((b) => b.status === "active");
-  const alt = active.filter((b) => b.rule === "timing").sort((a, b) => b.pct - a.pct)[0] ?? null;
+  const alt = active.filter((b) => b.scale === "early").sort((a, b) => b.pctMax - a.pctMax)[0] ?? null;
   // Weakest first; on a tie a ball that works on anything comes first (it's the cheaper kind),
   // and the plain Poké Ball before other 30% balls (Premier, Cherish).
   const fits = active
-    .map((b) => ({ b, why: ballFits(b, p), pct: ballPct(b, p) }))
+    .filter((b) => b.scale !== "early")
+    .map((b) => ({ b, why: ballFits(b, p) === "" ? scaleWhy(b, p) : ballFits(b, p), pct: ballPct(b, p) }))
     .filter((c): c is { b: Ball; why: string; pct: number } => c.why !== null && (p.legendary || c.pct < RESERVE_PCT))
     .sort((x, y) => x.pct - y.pct || (x.why ? 1 : 0) - (y.why ? 1 : 0) || Number(y.b.key === "pokeball") - Number(x.b.key === "pokeball"));
   if (!fits.length) return { ball: "Poké Ball", pct: null, why: "no other ball fits", alt };
