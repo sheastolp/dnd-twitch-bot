@@ -132,7 +132,7 @@ GuildScribe runs as a normal Deno process on the Yoga laptop, alongside Undercov
 In short:
 
 1. `deno task start` runs **server.ts**: the web side on `127.0.0.1:8801` plus the merchant, timed-message, autohunt and watchtime jobs every 5 minutes (change with `MERCHANT_CRON_MINUTES`, `TIMEDMESSAGES_CRON_MINUTES`, `AUTOHUNT_CRON_MINUTES`, `WATCHTIME_CRON_MINUTES`).
-2. Settings come from environment variables, kept on the laptop in `~/.config/tavernworks/guildscribe.env` (see `.env.example`).
+2. Settings come from environment variables, kept on the laptop in `/etc/tavernworks/guildscribe.env` (see `.env.example`).
 3. Pushing to `main` deploys: the laptop checks GitHub every few minutes, pulls, and restarts the service.
 4. Data is the SQLite file at `DB_PATH`. `deno task import-db --file <export.sqlite>` brings in a copy of the old Val Town database once.
 
