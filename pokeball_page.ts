@@ -1,8 +1,9 @@
 // GuildScribe — /dashboard/pokeballs, the Pokéball advisor's ball list
 // (pokeball.ts), behind the dashboard key + Twitch mod login (dashboard.ts
 // handlePokeballPage/handlePokeballForm do the auth). Mods teach balls
-// chat asked about, add their own, edit or turn off the core ones — the
-// way the bestiary has core and learned monsters.
+// chat asked about, add their own, edit the core ones — the way the bestiary
+// has core and learned monsters. Added, taught and edited balls are shared by
+// every channel; turning a ball off is per channel.
 
 import {
   type Ball,
@@ -35,15 +36,10 @@ export function describeRule(b: Pick<Ball, "rule" | "value">): string {
   }
 }
 
-/** A stored multiplier as a percentage of a Poké Ball: 1.5 → 150. */
-export function pctOf(mult: number): number {
-  return Math.round(mult * 100);
-}
-
 type Result = { ok: boolean; message: string; edit?: string } | null;
 
 /** Check and normalize the add/edit form. */
-function readBall(form: FormData): { ball?: Omit<Ball, "origin" | "seen" | "askedBy" | "updatedAt">; error?: string } {
+function readBall(form: FormData): { ball?: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "note">; error?: string } {
   const name = String(form.get("name") ?? "").trim().replace(/\s+/g, " ");
   if (!NAME_RE.test(name)) return { error: "Give the ball a name of 2–30 letters, e.g. Dusk Ball." };
   const key = ballKey(name);
@@ -65,12 +61,10 @@ function readBall(form: FormData): { ball?: Omit<Ball, "origin" | "seen" | "aske
   } else {
     value = "";
   }
-  // Entered as a percentage of a Poké Ball (150% = Great Ball); stored as a multiplier.
-  const pct = Number(String(form.get("pct") ?? "").trim().replace(/%$/, "") || "100");
-  if (!Number.isFinite(pct) || pct <= 0 || pct > 25500) return { error: "The catch bonus must be a percentage above 0 and up to 25500 (100% = Poké Ball)." };
-  const mult = pct / 100;
+  const pct = Number(String(form.get("pct") ?? "").trim().replace(/%$/, "") || "30");
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100) return { error: "The catch bonus must be a percentage above 0 and up to 100 (Poké Ball = 30%)." };
   const note = String(form.get("note") ?? "").trim().slice(0, 120);
-  return { ball: { key, name, rule, value, mult: Math.round(mult * 100) / 100, note, status: "active" } };
+  return { ball: { key, name, rule, value, pct: Math.round(pct * 10) / 10, note } };
 }
 
 export async function applyPokeballForm(broadcasterId: string, form: FormData): Promise<Result> {
@@ -86,18 +80,18 @@ export async function applyPokeballForm(broadcasterId: string, form: FormData): 
     // Renamed while editing? The old entry goes, unless it's a core ball (those stay).
     if (key && key !== ball.key && !isCoreBall(key)) await deleteBall(broadcasterId, key);
     await saveBall(broadcasterId, ball);
-    return { ok: true, message: `Saved the ${ball.name}.` };
+    return { ok: true, message: `Saved the ${ball.name} — every channel now uses it.` };
   }
   if (!key) return null;
   if (intent === "off" || intent === "on") {
     return (await setBallStatus(broadcasterId, key, intent === "on" ? "active" : "off"))
-      ? { ok: true, message: intent === "on" ? "Ball turned back on." : "Ball turned off — the advisor won't suggest it." }
+      ? { ok: true, message: intent === "on" ? "Ball turned back on." : "Ball turned off in this channel — the advisor won't suggest it here." }
       : { ok: false, message: "That ball isn't on the list." };
   }
   if (intent === "delete") {
     const core = isCoreBall(key);
     return (await deleteBall(broadcasterId, key))
-      ? { ok: true, message: core ? "Back to the built-in settings for that ball." : "Ball removed." }
+      ? { ok: true, message: core ? "Back to the built-in settings for that ball, in every channel." : "Ball removed." }
       : { ok: false, message: "Nothing to remove." };
   }
   return null;
@@ -139,12 +133,12 @@ export async function renderPokeballPage(d: {
       b.origin === "custom" ? btn("delete", "Delete", b.key) : b.origin === "override" ? btn("delete", "Reset", b.key) : "",
     ].join(" ");
     return `<tr data-search="${escapeHtml(search)}"${b.status === "off" ? ` class="off"` : ""}><td><strong>${escapeHtml(b.name)}</strong><div class="muted small"><code>!pokecatch ${escapeHtml(b.key)}</code></div></td>` +
-      `<td>${escapeHtml(describeRule(b))}</td><td class="num">${pctOf(b.mult)}%</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
+      `<td>${escapeHtml(describeRule(b))}</td><td class="num">${b.pct}%</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
       `<td>${origin(b)}${b.status === "off" ? ` <span class="badge">off</span>` : ""}</td><td class="num actions">${actions}</td></tr>`;
   }).join("");
 
   // Add / edit form. Teaching a pending ball starts from its name with no rule picked.
-  const f = editing ?? { key: "", name: "", rule: "always" as BallRule, value: "", mult: 1, note: "", status: "active" };
+  const f = editing ?? { key: "", name: "", rule: "always" as BallRule, value: "", pct: 30, note: "", status: "active" };
   const ruleOptions = (Object.keys(BALL_RULES) as BallRule[]).filter((r) => r !== "unknown")
     .map((r) => `<option value="${r}"${f.rule === r ? " selected" : ""}>${escapeHtml(BALL_RULES[r].label)}${BALL_RULES[r].value ? ` — ${escapeHtml(BALL_RULES[r].value!)}` : ""}</option>`).join("");
   const formTitle = !editing ? "Add a ball" : editing.status === "pending" ? `Teach the ${escapeHtml(editing.name)}` : `Edit the ${escapeHtml(editing.name)}`;
@@ -152,7 +146,7 @@ export async function renderPokeballPage(d: {
 <label>Name<input type="text" name="name" value="${escapeHtml(f.name)}" placeholder="Dusk Ball" required maxlength="30"></label>
 <label>Good for<select name="rule" id="rule">${f.rule === "unknown" ? `<option value="" selected disabled>Pick one…</option>` : ""}${ruleOptions}</select></label>
 <label id="valwrap">Value<input type="text" name="value" id="value" value="${escapeHtml(f.value)}" placeholder="dark, ghost"></label>
-<label>Catch bonus (%)<input type="number" name="pct" value="${pctOf(f.mult)}" min="1" max="25500" step="1" required><span class="muted small">100% = Poké Ball, 150% = Great, 200% = Ultra, 350% = Net Ball on Water/Bug</span></label>
+<label>Catch bonus (%)<input type="number" name="pct" value="${f.pct}" min="1" max="100" step="any" required><span class="muted small">Poké Ball 30%, Cherish 30%, Great 55%, Ultra 80%, Master 100%</span></label>
 <label>Note <span class="muted small">(optional — shown in chat for timing balls)</span><input type="text" name="note" value="${escapeHtml(f.note)}" maxlength="120" placeholder="Best thrown right away."></label>
 <div class="row"><button type="submit" class="ember">${editing ? "Save" : "Add ball"}</button>${editing ? ` <a class="btn ghost" href="/dashboard/pokeballs?${qs}">Cancel</a>` : ""}</div></form>
 <p class="muted small">Pokémon types: ${POKEMON_TYPES.join(", ")}.</p>
@@ -160,7 +154,7 @@ export async function renderPokeballPage(d: {
 
   const body = `<header class="dash-top"><div><span class="pill">Pokéball advisor · Balls</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>When <strong>PokemonCommunityGame</strong> spawns a Pokémon, GuildScribe looks it up (types, weight, speed, catch rate, legendary) and suggests the ball to throw from this list. Core balls are built in; you can add the balls your game has, edit any of them, or turn some off.</p>
+<p>When <strong>PokemonCommunityGame</strong> spawns a Pokémon, GuildScribe looks it up (types, weight, speed, catch rate, legendary) and suggests the ball to throw from this list. Core balls are built in; you can add the balls your game has, edit any of them, or turn some off. <strong>Balls you add, teach or edit are shared with every channel</strong>; turning a ball off only affects ${name}.</p>
 <div class="controls">${on ? btn("module_off", "Turn off") : btn("module_on", "Turn on", "", "ember")}<span>${on ? "<strong>On</strong> — suggesting a ball for every spawn while you're live." : "<strong>Off</strong> — same as <code>!ball on</code> in chat."}</span></div>
 <h2>Balls chat asked about</h2>
 ${pending.length
@@ -173,7 +167,7 @@ ${form}
 <div class="controls"><input id="q" class="search" type="search" placeholder="Search balls…" autocomplete="off" aria-label="Search balls"></div>
 <div class="table-wrap"><table id="t"><thead><tr><th>Ball</th><th>Good for</th><th class="num">Catch bonus</th><th>Note</th><th>Origin</th><th></th></tr></thead><tbody>${knownRows}</tbody></table></div>
 <div class="card"><h2 style="margin-top:0">How the advisor picks</h2>
-<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (catch rate × catch bonus at least 60% of 255), so your good balls are kept for hard catches. If none gets there, the strongest one. Balls of 10000% or more (Master Ball) are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
+<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (a catch bonus of at least 30% for easy catches, 55% for medium ones and 80% for tough ones, by the Pokémon's catch rate), so your good balls are kept for hard catches. If none gets there, the strongest one. 100% balls (Master Ball) are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
 <p class="muted small">Chat: <code>!ball on|off|status</code> (mods) · <code>!ball &lt;Pokémon&gt;</code> asks for a suggestion · <code>!ball balls</code> · <code>!ball unknown</code></p></div>
 <script>(function(){var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll("#t tbody tr"));q.addEventListener("input",function(){var t=q.value.trim().toLowerCase();rows.forEach(function(r){r.hidden=!!t&&r.getAttribute("data-search").indexOf(t)===-1})})})();</script>`;
 

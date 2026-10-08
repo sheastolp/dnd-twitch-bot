@@ -6,12 +6,14 @@
 // The pick uses the species' real data from PokeAPI (types, weight, base
 // stats, catch rate, legendary/mythical; cached per isolate) against the
 // channel's ball list (pokeball_db.ts — built-in core balls plus whatever
-// mods add on /dashboard/pokeballs, pokeball_page.ts). Each ball has a rule
-// (works on anything, better against certain types, heavy, fast, hard or
-// easy catches, legendaries, or timing) and a catch multiplier. Of the balls
-// whose rule fits, the advisor suggests the weakest one that still gives a
-// good chance (catch rate × multiplier ≥ 60% of 255), so good balls are kept
-// for hard catches; if none gets there, the strongest. Balls of 100× or more
+// mods add on /dashboard/pokeballs, pokeball_page.ts; balls a mod adds or
+// edits are shared by every channel). Each ball has a rule (works on
+// anything, better against certain types, heavy, fast, hard or easy catches,
+// legendaries, or timing) and a catch bonus — its % chance to catch, as in
+// the game (Poké Ball 30%, Great 55%, Ultra 80%). Of the balls whose rule
+// fits, the advisor suggests the weakest one that reaches the bonus the
+// Pokémon calls for (easy catch 30%, medium 55%, tough 80%), so good balls
+// are kept for hard catches; if none gets there, the strongest. 100% balls
 // (Master Ball) are only suggested for legendaries. A timing ball (Quick
 // Ball) is offered as the alternative.
 //
@@ -39,10 +41,12 @@ export { ensurePokeballTables, purgePokeballData } from "./pokeball_db.ts";
 
 export const POKEMON_GAME_BOT = "pokemoncommunitygame";
 
-/** Catch rate × multiplier, out of 255, that counts as "a good chance". */
-const GOOD_CHANCE = 0.6;
+/** The catch bonus (%) worth throwing at a Pokémon of this catch rate (0–255). */
+export function targetPct(captureRate: number): number {
+  return captureRate >= 150 ? 30 : captureRate >= 75 ? 55 : 80;
+}
 /** Balls this strong are saved for legendaries. */
-const RESERVE_MULT = 100;
+const RESERVE_PCT = 100;
 /** At most one "what's that ball?" question per channel this often. */
 const ASK_COOLDOWN_MS = 2 * 60_000;
 
@@ -217,32 +221,33 @@ export function ballFits(b: Ball, p: PokeInfo): string | null {
 }
 
 /** The ball to throw, why, and a timing ball to offer as the alternative. */
-export function recommendBall(p: PokeInfo, balls: Ball[]): { ball: string; why: string; alt: Ball | null } {
+export function recommendBall(p: PokeInfo, balls: Ball[]): { ball: string; pct: number | null; why: string; alt: Ball | null } {
   const active = balls.filter((b) => b.status === "active");
-  const alt = active.filter((b) => b.rule === "timing").sort((a, b) => b.mult - a.mult)[0] ?? null;
-  // Weakest first; on a tie a ball that works on anything comes first (it's the cheaper kind).
+  const alt = active.filter((b) => b.rule === "timing").sort((a, b) => b.pct - a.pct)[0] ?? null;
+  // Weakest first; on a tie a ball that works on anything comes first (it's the cheaper kind),
+  // and the plain Poké Ball before other 30% balls (Premier, Cherish).
   const fits = active
     .map((b) => ({ b, why: ballFits(b, p) }))
-    .filter((c): c is { b: Ball; why: string } => c.why !== null && (p.legendary || c.b.mult < RESERVE_MULT))
-    .sort((x, y) => x.b.mult - y.b.mult || (x.why ? 1 : 0) - (y.why ? 1 : 0));
-  if (!fits.length) return { ball: "Poké Ball", why: "no other ball fits", alt };
-  const chance = (mult: number) => (p.captureRate * mult) / 255;
+    .filter((c): c is { b: Ball; why: string } => c.why !== null && (p.legendary || c.b.pct < RESERVE_PCT))
+    .sort((x, y) => x.b.pct - y.b.pct || (x.why ? 1 : 0) - (y.why ? 1 : 0) || Number(y.b.key === "pokeball") - Number(x.b.key === "pokeball"));
+  if (!fits.length) return { ball: "Poké Ball", pct: null, why: "no other ball fits", alt };
+  const target = targetPct(p.captureRate);
   const pick = p.legendary
     ? fits[fits.length - 1]
-    : fits.find((c) => chance(c.b.mult) >= GOOD_CHANCE) ?? fits[fits.length - 1];
+    : fits.find((c) => c.b.pct >= target) ?? fits[fits.length - 1];
   let why = pick.why;
   if (!why) why = p.captureRate >= 150 ? "easy catch — save your good balls" : p.captureRate >= 75 ? "medium catch" : "tough catch";
   if (p.legendary && pick.why !== "legendary") why = `legendary — ${why}`;
-  return { ball: pick.b.name, why, alt };
+  return { ball: pick.b.name, pct: pick.b.pct, why, alt };
 }
 
 async function adviceFor(name: string, balls: Ball[]): Promise<string> {
   const info = await lookupPokemon(name);
   if (!info) return `🔴 ${name}? I couldn't look it up — try a Great Ball, or a Quick Ball thrown right away.`;
-  const { ball, why, alt } = recommendBall(info, balls);
+  const { ball, pct, why, alt } = recommendBall(info, balls);
   const types = info.types.map(cap).join("/");
   const altText = alt && alt.name !== ball ? ` Alt: ${alt.name}${alt.note ? ` — ${alt.note.replace(/\.$/, "")}` : ""}.` : "";
-  return `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${why}).${altText}`;
+  return `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${pct !== null ? `${pct}%, ` : ""}${why}).${altText}`;
 }
 
 /** Whether the advisor may talk in this channel right now. */

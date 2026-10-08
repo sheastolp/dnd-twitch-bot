@@ -1,20 +1,23 @@
-// Pokéball advisor storage — the balls each channel knows (pokeball.ts picks
-// from these, pokeball_page.ts edits them). Own tables, keyed by channel:
+// Pokéball advisor storage — the balls the advisor knows (pokeball.ts picks
+// from these, pokeball_page.ts edits them). Own tables:
 //
-//   pokeball_settings  module on/off (off by default)
-//   pokeball_balls     the channel's own balls: added on the dashboard page,
-//                      overrides of a core ball (same key), or "pending" ones
-//                      the advisor saw in chat and doesn't know yet
+//   pokeball_settings  module on/off per channel (off by default)
+//   pokeball_balls     ball rows. Rows under GLOBAL ("*") are ball
+//                      definitions shared by every channel: balls a mod
+//                      added or taught, and edits of a core ball (same key).
+//                      Rows under a channel id are that channel's own state:
+//                      "pending" balls its chat used that nobody has taught
+//                      yet, and "off" for a ball the channel turned off.
 //
 // Core balls (CORE_BALLS) are built in, like the bestiary's core monsters;
-// a channel row with the same key replaces one, and deleting that row puts
+// a global row with the same key replaces one, and deleting that row puts
 // the core ball back.
 
 import { sqlite } from "./sqlite.ts";
 
 /** How a ball decides whether it helps against a Pokémon. */
 export type BallRule =
-  | "always" //   works on anything at its multiplier
+  | "always" //   works on anything at its catch bonus
   | "types" //    bonus against the listed types (value: "water,bug")
   | "heavy" //    bonus at value+ kg
   | "fast" //     bonus at base Speed value+
@@ -48,7 +51,7 @@ export interface Ball {
   name: string; //    "Net Ball"
   rule: BallRule;
   value: string; //   rule parameter (types list or a number), "" when the rule has none
-  mult: number; //    catch multiplier when the rule applies (1 = Poké Ball)
+  pct: number; //     catch bonus: the % chance to catch when the rule applies (Poké Ball 30)
   note: string; //    shown on the page and, for timing balls, in chat
   status: BallStatus;
   origin: "core" | "custom" | "override" | "asked";
@@ -57,22 +60,26 @@ export interface Ball {
   updatedAt: number;
 }
 
-const core = (name: string, rule: BallRule, value: string, mult: number, note: string): Ball => ({
-  key: ballKey(name), name, rule, value, mult, note, status: "active", origin: "core", seen: 0, askedBy: "", updatedAt: 0,
+const core = (name: string, rule: BallRule, value: string, pct: number, note: string): Ball => ({
+  key: ballKey(name), name, rule, value, pct, note, status: "active", origin: "core", seen: 0, askedBy: "", updatedAt: 0,
 });
 
-/** Built-in balls, with mainline-game multipliers. Channels can override any of them. */
+/** Built-in balls, with Pokémon Community Game catch bonuses. Mods can edit any of them. */
 export const CORE_BALLS: Ball[] = [
-  core("Poké Ball", "always", "", 1, "The basic ball."),
-  core("Premier Ball", "always", "", 1, "Same as a Poké Ball."),
-  core("Great Ball", "always", "", 1.5, ""),
-  core("Ultra Ball", "always", "", 2, ""),
-  core("Master Ball", "legendary", "", 255, "Never fails — saved for legendaries."),
-  core("Net Ball", "types", "water,bug", 3.5, ""),
-  core("Heavy Ball", "heavy", "200", 2, ""),
-  core("Fast Ball", "fast", "100", 4, ""),
-  core("Quick Ball", "timing", "", 5, "Best thrown right away."),
+  core("Poké Ball", "always", "", 30, "The basic ball."),
+  core("Premier Ball", "always", "", 30, "Same as a Poké Ball."),
+  core("Cherish Ball", "always", "", 30, ""),
+  core("Great Ball", "always", "", 55, ""),
+  core("Ultra Ball", "always", "", 80, ""),
+  core("Master Ball", "legendary", "", 100, "Never fails — saved for legendaries."),
+  core("Net Ball", "types", "water,bug", 80, ""),
+  core("Heavy Ball", "heavy", "200", 80, ""),
+  core("Fast Ball", "fast", "100", 80, ""),
+  core("Quick Ball", "timing", "", 80, "Best thrown right away."),
 ];
+
+/** The broadcaster_id of ball definitions every channel shares. */
+const GLOBAL = "*";
 
 /** "Net Ball", "netball", "net" → "netball". */
 export function ballKey(raw: string): string {
@@ -96,9 +103,40 @@ export async function ensurePokeballTables() {
       rule TEXT NOT NULL, value TEXT NOT NULL DEFAULT '', mult REAL NOT NULL DEFAULT 1,
       note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
       seen INTEGER NOT NULL DEFAULT 0, asked_by TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL,
+      catch_pct REAL,
       PRIMARY KEY (broadcaster_id, ball_key)
     )`,
   ]);
+  // Tables created before catch bonuses replaced multipliers (catch_pct stays
+  // NULL on old rows; rowToBall converts their multiplier).
+  try {
+    await sqlite.execute(`ALTER TABLE pokeball_balls ADD COLUMN catch_pct REAL`);
+  } catch (_) {
+    /* column already exists */
+  }
+  // Balls channels added before balls were shared: copy them to the shared
+  // list (newest edit wins), and leave only an "off" marker behind. Old
+  // per-channel copies of core balls are dropped so the built-in catch
+  // bonuses apply.
+  const old = await sqlite.execute(
+    `SELECT * FROM pokeball_balls WHERE broadcaster_id != ? AND status != 'pending' AND rule != 'unknown' ORDER BY updated_at`,
+    [GLOBAL],
+  );
+  if (!old.rows.length) return;
+  const stmts: { sql: string; args: any[] }[] = [];
+  for (const r of old.rows as any[]) {
+    const b = rowToBall(r);
+    if (!coreByKey.has(b.key)) stmts.push({
+      sql: `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, catch_pct, note, status, updated_at) VALUES (?,?,?,?,?,1,?,?,'active',?)
+            ON CONFLICT(broadcaster_id, ball_key) DO UPDATE SET name = excluded.name, rule = excluded.rule, value = excluded.value,
+              catch_pct = excluded.catch_pct, note = excluded.note, updated_at = excluded.updated_at`,
+      args: [GLOBAL, b.key, b.name, b.rule, b.value, b.pct, b.note, b.updatedAt],
+    });
+    stmts.push(b.status === "off"
+      ? { sql: `UPDATE pokeball_balls SET rule = 'unknown' WHERE broadcaster_id = ? AND ball_key = ?`, args: [r.broadcaster_id, b.key] }
+      : { sql: `DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?`, args: [r.broadcaster_id, b.key] });
+  }
+  await sqlite.batch(stmts);
 }
 
 export async function purgePokeballData(broadcasterId: string) {
@@ -123,62 +161,101 @@ export async function setPokeballEnabled(broadcasterId: string, enabled: boolean
 const coreByKey = new Map(CORE_BALLS.map((b) => [b.key, b]));
 export const isCoreBall = (key: string) => coreByKey.has(key);
 
-/** Every ball this channel knows about — core balls merged with its own rows
- * (overrides, custom, pending, off) — sorted by name. */
+function rowToBall(r: any): Ball {
+  const key = String(r.ball_key);
+  const status = (["active", "pending", "off"].includes(String(r.status)) ? String(r.status) : "active") as BallStatus;
+  // Rows from before catch bonuses hold a multiplier (1 = Poké Ball = 30%).
+  const pct = r.catch_pct != null ? Number(r.catch_pct) : Math.min(100, Math.round(Number(r.mult ?? 1) * 30));
+  return {
+    key,
+    name: String(r.name),
+    rule: (String(r.rule) in BALL_RULES ? String(r.rule) : "unknown") as BallRule,
+    value: String(r.value ?? ""),
+    pct,
+    note: String(r.note ?? ""),
+    status,
+    origin: coreByKey.has(key) ? "override" : status === "pending" ? "asked" : "custom",
+    seen: Number(r.seen ?? 0),
+    askedBy: String(r.asked_by ?? ""),
+    updatedAt: Number(r.updated_at ?? 0),
+  };
+}
+
+/** Every ball this channel sees — core balls, the shared list, then the
+ * channel's own pending and turned-off balls — sorted by name. */
 export async function listBalls(broadcasterId: string): Promise<Ball[]> {
-  const res = await sqlite.execute("SELECT * FROM pokeball_balls WHERE broadcaster_id = ?", [broadcasterId]);
+  const res = await sqlite.execute("SELECT * FROM pokeball_balls WHERE broadcaster_id IN (?, ?)", [GLOBAL, broadcasterId]);
+  const rows = res.rows as any[];
   const out = new Map(CORE_BALLS.map((b) => [b.key, b]));
-  for (const r of res.rows as any[]) {
+  for (const r of rows) if (r.broadcaster_id === GLOBAL) out.set(String(r.ball_key), rowToBall(r));
+  for (const r of rows) {
+    if (r.broadcaster_id === GLOBAL) continue;
     const key = String(r.ball_key);
-    const status = (["active", "pending", "off"].includes(String(r.status)) ? String(r.status) : "active") as BallStatus;
-    out.set(key, {
-      key,
-      name: String(r.name),
-      rule: (String(r.rule) in BALL_RULES ? String(r.rule) : "unknown") as BallRule,
-      value: String(r.value ?? ""),
-      mult: Number(r.mult ?? 1),
-      note: String(r.note ?? ""),
-      status,
-      origin: coreByKey.has(key) ? "override" : status === "pending" ? "asked" : "custom",
-      seen: Number(r.seen ?? 0),
-      askedBy: String(r.asked_by ?? ""),
-      updatedAt: Number(r.updated_at ?? 0),
-    });
+    const known = out.get(key);
+    if (String(r.status) === "off") {
+      if (known) out.set(key, { ...known, status: "off" });
+    } else if (!known) {
+      out.set(key, rowToBall(r)); // pending: nobody has taught it yet
+    }
   }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Add or replace a channel ball (also how a pending ball gets taught). */
-export async function saveBall(broadcasterId: string, b: Pick<Ball, "key" | "name" | "rule" | "value" | "mult" | "note" | "status">) {
-  await sqlite.execute(
-    `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, note, status, updated_at) VALUES (?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(broadcaster_id, ball_key) DO UPDATE SET name = excluded.name, rule = excluded.rule, value = excluded.value,
-       mult = excluded.mult, note = excluded.note, status = excluded.status, updated_at = excluded.updated_at`,
-    [broadcasterId, b.key, b.name, b.rule, b.value, b.mult, b.note, b.status, Date.now()],
-  );
+/** Add or replace a ball for every channel (also how a pending ball gets
+ * taught). Clears this channel's pending/off row for it. */
+export async function saveBall(broadcasterId: string, b: Pick<Ball, "key" | "name" | "rule" | "value" | "pct" | "note">) {
+  await sqlite.batch([
+    {
+      sql: `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, catch_pct, note, status, updated_at) VALUES (?,?,?,?,?,1,?,?,'active',?)
+            ON CONFLICT(broadcaster_id, ball_key) DO UPDATE SET name = excluded.name, rule = excluded.rule, value = excluded.value,
+              catch_pct = excluded.catch_pct, note = excluded.note, status = 'active', updated_at = excluded.updated_at`,
+      args: [GLOBAL, b.key, b.name, b.rule, b.value, b.pct, b.note, Date.now()],
+    },
+    { sql: "DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", args: [broadcasterId, b.key] },
+  ]);
 }
 
-/** Turn a ball on or off. A core ball with no row gets one (a copy of the core entry). */
+/** Turn a ball on or off in this channel only. */
 export async function setBallStatus(broadcasterId: string, key: string, status: "active" | "off"): Promise<boolean> {
   const existing = (await listBalls(broadcasterId)).find((b) => b.key === key);
   if (!existing || existing.status === "pending") return false;
-  await saveBall(broadcasterId, { ...existing, status });
+  if (status === "active") {
+    await sqlite.execute("DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [broadcasterId, key]);
+  } else {
+    // rule 'unknown' marks it as a marker row, not a definition.
+    await sqlite.execute(
+      `INSERT OR REPLACE INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, note, status, updated_at) VALUES (?,?,?,'unknown','',1,'','off',?)`,
+      [broadcasterId, key, existing.name, Date.now()],
+    );
+  }
   return true;
 }
 
-/** Delete the channel's row: a custom ball is gone, an override goes back to the core ball. */
+/** Dismiss a pending ball (this channel), or delete a shared ball for every
+ * channel: an added ball is gone, an edited core ball goes back to built-in. */
 export async function deleteBall(broadcasterId: string, key: string): Promise<boolean> {
-  const res = await sqlite.execute("DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [broadcasterId, key]);
+  const own = await sqlite.execute("SELECT status FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [broadcasterId, key]);
+  if (own.rows.length && String((own.rows[0] as any).status) === "pending") {
+    await sqlite.execute("DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [broadcasterId, key]);
+    return true;
+  }
+  const res = await sqlite.execute("DELETE FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [GLOBAL, key]);
+  if (!coreByKey.has(key)) {
+    // The ball is gone everywhere — drop every channel's "off" marker for it too.
+    await sqlite.execute("DELETE FROM pokeball_balls WHERE ball_key = ? AND status = 'off'", [key]);
+  }
   return Number(res.rowsAffected ?? 0) > 0;
 }
 
 /**
- * Note a ball chat used that this channel doesn't know. Returns true the
- * first time (the caller asks chat about it then); later sightings only
- * bump the counter. Known balls (core, custom, off) are left alone.
+ * Note a ball chat used that nobody has taught. Returns true the first time
+ * in this channel (the caller asks chat about it then); later sightings only
+ * bump the counter. Known balls (core or shared) are left alone.
  */
 export async function recordUnknownBall(broadcasterId: string, key: string, askedBy: string): Promise<boolean> {
   if (coreByKey.has(key)) return false;
+  const shared = await sqlite.execute("SELECT 1 FROM pokeball_balls WHERE broadcaster_id = ? AND ball_key = ?", [GLOBAL, key]);
+  if (shared.rows.length) return false;
   const res = await sqlite.execute(
     `INSERT INTO pokeball_balls (broadcaster_id, ball_key, name, rule, value, mult, note, status, seen, asked_by, updated_at)
      VALUES (?,?,?,'unknown','',1,'','pending',1,?,?) ON CONFLICT(broadcaster_id, ball_key) DO NOTHING`,
