@@ -556,7 +556,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // Hunt and Hoard (hoard.ts): off by default; its words fall through when
     // it's off or the channel has its own custom command of the same name.
     if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
-    // Pokéball advisor toggle (pokeball.ts): !pokeball on/off/status.
+    // Pokéball advisor toggle (pokeball.ts): !ball on/off/status.
     if (await handlePokeballCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
     if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

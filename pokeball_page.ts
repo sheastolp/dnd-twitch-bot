@@ -154,7 +154,7 @@ export async function renderPokeballPage(d: {
   const body = `<header class="dash-top"><div><span class="pill">Pokéball advisor · Balls</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 <p>When <strong>PokemonCommunityGame</strong> spawns a Pokémon, GuildScribe looks it up (types, weight, speed, catch rate, legendary) and suggests the ball to throw from this list. Core balls are built in; you can add the balls your game has, edit any of them, or turn some off.</p>
-<div class="controls">${on ? btn("module_off", "Turn off") : btn("module_on", "Turn on", "", "ember")}<span>${on ? "<strong>On</strong> — suggesting a ball for every spawn while you're live." : "<strong>Off</strong> — same as <code>!pokeball on</code> in chat."}</span></div>
+<div class="controls">${on ? btn("module_off", "Turn off") : btn("module_on", "Turn on", "", "ember")}<span>${on ? "<strong>On</strong> — suggesting a ball for every spawn while you're live." : "<strong>Off</strong> — same as <code>!ball on</code> in chat."}</span></div>
 <h2>Balls chat asked about</h2>
 ${pending.length
     ? `<p class="muted">Balls a viewer threw (<code>!pokecatch …</code>) or PokemonCommunityGame mentioned that GuildScribe doesn't know. Teach one and it joins the list below.</p><div class="table-wrap"><table><thead><tr><th>Ball</th><th class="num">Seen</th><th>First used by</th><th class="num">Since</th><th></th></tr></thead><tbody>${pendingRows}</tbody></table></div>`
@@ -167,7 +167,7 @@ ${form}
 <div class="table-wrap"><table id="t"><thead><tr><th>Ball</th><th>Good for</th><th class="num">Multiplier</th><th>Note</th><th>Origin</th><th></th></tr></thead><tbody>${knownRows}</tbody></table></div>
 <div class="card"><h2 style="margin-top:0">How the advisor picks</h2>
 <p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (catch rate × multiplier at least 60% of 255), so your good balls are kept for hard catches. If none gets there, the strongest one. Balls of 100× or more are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
-<p class="muted small">Chat: <code>!pokeball on|off|status</code> (mods) · <code>!pokeball &lt;Pokémon&gt;</code> asks for a suggestion · <code>!pokeball balls</code> · <code>!pokeball unknown</code></p></div>
+<p class="muted small">Chat: <code>!ball on|off|status</code> (mods) · <code>!ball &lt;Pokémon&gt;</code> asks for a suggestion · <code>!ball balls</code> · <code>!ball unknown</code></p></div>
 <script>(function(){var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll("#t tbody tr"));q.addEventListener("input",function(){var t=q.value.trim().toLowerCase();rows.forEach(function(r){r.hidden=!!t&&r.getAttribute("data-search").indexOf(t)===-1})})})();</script>`;
 
   return scrollDoc(`${name} — Pokéballs`, body, {

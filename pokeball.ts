@@ -1,7 +1,7 @@
 // Pokéball advisor — watches the Pokémon Community Game bot
 // (PokemonCommunityGame) and, when it announces a spawn ("A wild Ralts
 // appears … Catch it using !pokecatch"), replies with the ball to throw.
-// Off by default per channel; !pokeball on/off/status (mod/broadcaster).
+// Off by default per channel; !ball on/off/status (mod/broadcaster).
 //
 // The pick uses the species' real data from PokeAPI (types, weight, base
 // stats, catch rate, legendary/mythical; cached per isolate) against the
@@ -46,14 +46,14 @@ const RESERVE_MULT = 100;
 /** At most one "what's that ball?" question per channel this often. */
 const ASK_COOLDOWN_MS = 2 * 60_000;
 
-/** !pokeball on|off|status, !pokeball balls, !pokeball unknown, !pokeball <Pokémon>. */
+/** !ball on|off|status, !ball balls, !ball unknown, !ball <Pokémon>. */
 export async function handlePokeballCommand(
   chatMessage: string,
   display: string,
   broadcasterId: string,
   isModerator: boolean,
 ): Promise<boolean> {
-  const m = chatMessage.trim().match(/^!pokeball(?:\s+(.+))?$/i);
+  const m = chatMessage.trim().match(/^!ball(?:\s+(.+))?$/i);
   if (!m) return false;
   const arg = (m[1] ?? "status").trim();
   const action = arg.toLowerCase();
@@ -61,7 +61,7 @@ export async function handlePokeballCommand(
 
   if (action === "status") {
     const on = await isPokeballEnabled(broadcasterId);
-    await say(`🔴 The Pokéball advisor is ${on ? "on — I'll suggest a ball whenever PokemonCommunityGame spawns a Pokémon" : "off in this channel"}.${isModerator ? ` Mods: !pokeball ${on ? "off" : "on"}; edit the balls on !dashboard → 🔴 Pokéballs.` : ""}`);
+    await say(`🔴 The Pokéball advisor is ${on ? "on — I'll suggest a ball whenever PokemonCommunityGame spawns a Pokémon" : "off in this channel"}.${isModerator ? ` Mods: !ball ${on ? "off" : "on"}; edit the balls on !dashboard → 🔴 Pokéballs.` : ""}`);
     return true;
   }
   if (action === "on" || action === "off") {
@@ -91,7 +91,7 @@ export async function handlePokeballCommand(
       : "🔴 No unknown balls — I know every ball chat has used.");
     return true;
   }
-  // !pokeball <Pokémon> — the same suggestion a spawn gets.
+  // !ball <Pokémon> — the same suggestion a spawn gets.
   await sendChatMessage(await adviceFor(arg.slice(0, 40), balls), broadcasterId);
   return true;
 }
