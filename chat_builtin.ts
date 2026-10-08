@@ -11,7 +11,7 @@ import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
-import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText } from "./utils.ts";
+import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { DEFAULT_DC, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
@@ -29,6 +29,49 @@ const GOODNIGHT_COOLDOWN_MS = Math.max(30_000, Number(Deno.env.get("GOODNIGHT_CO
 async function sendWelcomeMessage(display: string, broadcasterId: string) {
   await sendChatMessages(
     `@${display} Welcome to the Guild Hall, adventurer! 📜 Create your legend with !createchar or !newchar, check your parchment with !char, gather a company with !party create <name>, and consult the archives with !dndbothelp. Full guild codex: ${PUBLIC_BASE_URL}/guide`,
+    broadcasterId,
+  );
+}
+
+/** A saving throw (!save dex) or skill check (!roll stealth) with the
+ * roller's — or @target's — saved character. Saving throws also feed the
+ * tally under the theme's brb/chat cards (savingthrows.ts). */
+async function rollCharacterCheck(opts: {
+  broadcasterId: string;
+  chatter: string;
+  display: string;
+  target: string | null;
+  check: { kind: CheckKind; dc: number | null };
+}) {
+  const { broadcasterId, chatter, display, target, check } = opts;
+  const { kind } = check;
+  const owner = (target || chatter).toLowerCase();
+  const c = await getCharacter(owner, broadcasterId);
+  if (!c) {
+    await sendChatMessage(
+      owner === chatter
+        ? `@${display} you don't have a character yet — try !createchar`
+        : `@${display} @${owner} doesn't have a character yet.`,
+      broadcasterId,
+    );
+    return;
+  }
+  const abilityMod = modifier(c.scores[kind.ability]);
+  const proficient = kind.type === "save" && classes[c.cls].savingThrows.includes(kind.ability);
+  const total = abilityMod + (proficient ? c.proficiency : 0);
+  const result = rollDice(`1d20${total === 0 ? "" : total > 0 ? `+${total}` : `${total}`}`, kind.label);
+  if (!result) return;
+  if (result.rawD20 === 20 || result.rawD20 === 1) {
+    await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
+  }
+  let verdict = "";
+  if (kind.type === "save" && result.rawD20 !== null) {
+    const dc = check.dc ?? DEFAULT_DC;
+    await recordSavingThrow(broadcasterId, { username: owner, displayName: target ?? display }, kind.ability, result.rawD20, result.total, dc);
+    if (check.dc) verdict = result.total >= dc ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`;
+  }
+  await sendChatMessage(
+    target ? `@${display} rolled for @${target}: ${result.text}${verdict}` : `@${display} ${result.text}${verdict}`,
     broadcasterId,
   );
 }
@@ -163,8 +206,8 @@ export async function handleBuiltinChatCommand(ctx: {
     }
   } else if (/^!(?:roll|r|d20)(?:\s+.*)?$/i.test(chatMessage)) {
     // Support: !d20 | !d20 @user | !roll | !roll @user 2d6+3 | !r 4d8
-    // | !roll dex (saving throw) | !roll stealth (skill check) — both pull
-    // the modifier from the roller's (or @target's) saved character.
+    // | !roll stealth (skill check) — pulls the modifier from the roller's
+    // (or @target's) saved character. Ability saving throws live on !save.
     let rest = chatMessage.replace(/^!(?:roll|r|d20)\s*/i, "").trim();
     let rollTarget: string | null = null;
     const targetMatch = rest.match(/^@(\S+)\s*(.*)$/);
@@ -173,9 +216,7 @@ export async function handleBuiltinChatCommand(ctx: {
       rest = targetMatch[2].trim();
     }
 
-    // A saving throw may name a DC: !roll dex dc15 (or !roll dex 15).
     const check = rest ? resolveCheckWithDc(rest) : null;
-    const checkKind = check?.kind ?? null;
 
     // Fate question: "!roll is enya going to die this time?" — only once rest
     // has already failed to resolve as a saving throw/skill check, isn't
@@ -183,73 +224,37 @@ export async function handleBuiltinChatCommand(ctx: {
     // and reads like a question rather than a mistyped ability/dice
     // expression (contains a space, or ends in "?").
     const isFateQuestion =
-      !checkKind && !rollTarget && !!rest && !/^\d+d\d+([+-]\d+)?$/i.test(rest) && (/\s/.test(rest) || /\?$/.test(rest));
+      !check && !rollTarget && !!rest && !/^\d+d\d+([+-]\d+)?$/i.test(rest) && (/\s/.test(rest) || /\?$/.test(rest));
 
-    if (isFateQuestion) {
+    if (check?.kind.type === "save") {
+      await sendChatMessage(
+        `@${display} saving throws use !save now — try !save ${rollTarget ? `@${rollTarget} ` : ""}${rest}`,
+        broadcasterId,
+      );
+    } else if (check) {
+      await rollCharacterCheck({ broadcasterId, chatter, display, target: rollTarget, check });
+    } else if (isFateQuestion) {
       await sendChatMessage(`@${display} ${rollFate(rest)}`, broadcasterId);
     } else {
-      let expression: string;
-      let label: string | undefined;
-      let checkOwnerMissing: string | null = null;
-      let saveOwner: { username: string; displayName: string } | null = null;
-
-      if (checkKind) {
-        const owner = (rollTarget || chatter).toLowerCase();
-        const c = await getCharacter(owner, broadcasterId);
-        if (!c) {
-          checkOwnerMissing = owner;
-          expression = "1d20";
-        } else {
-          const abilityMod = modifier(c.scores[checkKind.ability]);
-          const proficient = checkKind.type === "save" && classes[c.cls].savingThrows.includes(checkKind.ability);
-          const total = abilityMod + (proficient ? c.proficiency : 0);
-          expression = `1d20${total === 0 ? "" : total > 0 ? `+${total}` : `${total}`}`;
-          label = checkKind.label;
-          if (checkKind.type === "save") saveOwner = { username: owner, displayName: rollTarget ?? display };
-        }
-      } else {
-        expression = rest || "1d20";
-      }
-
-      if (checkOwnerMissing) {
+      const result = rollDice(rest || "1d20");
+      if (!result) {
         await sendChatMessage(
-          checkOwnerMissing === chatter
-            ? `@${display} you don't have a character yet — try !createchar`
-            : `@${display} @${checkOwnerMissing} doesn't have a character yet.`,
+          `@${display} that's not a valid roll — try !roll, !r, !d20, !roll 2d6+3, !roll stealth, !save dex, or !roll <question>?`,
           broadcasterId,
         );
       } else {
-        const result = rollDice(expression, label);
-        if (!result) {
-          await sendChatMessage(
-            `@${display} that's not a valid roll — try !roll, !r, !d20, !roll 2d6+3, !roll dex, !roll stealth, or !roll <question>?`,
-            broadcasterId,
-          );
-        } else {
-          if (result.rawD20 === 20 || result.rawD20 === 1) {
-            await recordDiceRollEvent(
-              broadcasterId,
-              chatter,
-              display,
-              result.rawD20 === 20 ? "nat20" : "nat1",
-            );
-          }
-          // Saving throws feed the tally under the theme's brb/chat cards (savingthrows.ts).
-          let verdict = "";
-          if (saveOwner && checkKind && result.rawD20 !== null) {
-            const dc = check?.dc ?? DEFAULT_DC;
-            await recordSavingThrow(broadcasterId, saveOwner, checkKind.ability, result.rawD20, result.total, dc);
-            if (check?.dc) verdict = result.total >= dc ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`;
-          }
-          if (rollTarget) {
-            await sendChatMessage(`@${display} rolled for @${rollTarget}: ${result.text}${verdict}`, broadcasterId);
-          } else {
-            await sendChatMessage(`@${display} ${result.text}${verdict}`, broadcasterId);
-          }
+        if (result.rawD20 === 20 || result.rawD20 === 1) {
+          await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
         }
+        await sendChatMessage(
+          rollTarget ? `@${display} rolled for @${rollTarget}: ${result.text}` : `@${display} ${result.text}`,
+          broadcasterId,
+        );
       }
     }
   } else if (/^!save(?:\s+.*)?$/i.test(chatMessage)) {
+    // !save <ability> [dc] — an ability saving throw with the saver's
+    // character sheet (!save dex, !save wis dc15, !save @user con).
     // !save [@user] [modifiers] — 1d20 + optional modifiers (!save +3,
     // !save -1 +1d4) against the bot's own 1d20; ties go to the saver.
     // !save @user [modifiers] makes @user roll the saving throw instead.
@@ -260,24 +265,29 @@ export async function handleBuiltinChatCommand(ctx: {
       saveTarget = targetMatch[1].replace(/[,:]+$/, "");
       rest = targetMatch[2].trim();
     }
-    const result = rollSaveContest(rest, saveTarget ?? undefined);
-    if (!result) {
-      await sendChatMessage(
-        `@${display} that's not a valid modifier — try !save, !save +3, !save -1 +1d4, or !save @user +2`,
-        broadcasterId,
-      );
+    const check = rest ? resolveCheckWithDc(rest) : null;
+    if (check?.kind.type === "save") {
+      await rollCharacterCheck({ broadcasterId, chatter, display, target: saveTarget, check });
     } else {
-      if (result.rawD20 === 20 || result.rawD20 === 1) {
-        const kind = result.rawD20 === 20 ? "nat20" : "nat1";
-        if (saveTarget) await recordDiceRollEvent(broadcasterId, saveTarget.toLowerCase(), saveTarget, kind);
-        else await recordDiceRollEvent(broadcasterId, chatter, display, kind);
+      const result = rollSaveContest(rest, saveTarget ?? undefined);
+      if (!result) {
+        await sendChatMessage(
+          `@${display} that's not a valid save — try !save dex, !save wis dc15, !save +3, !save -1 +1d4, or !save @user +2`,
+          broadcasterId,
+        );
+      } else {
+        if (result.rawD20 === 20 || result.rawD20 === 1) {
+          const kind = result.rawD20 === 20 ? "nat20" : "nat1";
+          if (saveTarget) await recordDiceRollEvent(broadcasterId, saveTarget.toLowerCase(), saveTarget, kind);
+          else await recordDiceRollEvent(broadcasterId, chatter, display, kind);
+        }
+        await sendChatMessage(
+          saveTarget
+            ? `@${display} calls for a saving throw from @${saveTarget}! ${result.text}`
+            : `@${display} ${result.text}`,
+          broadcasterId,
+        );
       }
-      await sendChatMessage(
-        saveTarget
-          ? `@${display} calls for a saving throw from @${saveTarget}! ${result.text}`
-          : `@${display} ${result.text}`,
-        broadcasterId,
-      );
     }
   } else if (/^!saves(?:\s+.*)?$/i.test(chatMessage)) {
     // !saves — this stream's saving throws tally; !saves reset (mod) starts it over.

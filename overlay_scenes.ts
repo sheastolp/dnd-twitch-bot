@@ -42,7 +42,7 @@
 // canvas and listed on the /overlays setup page.
 //
 // The Saving Throws tally (brb and chat) is this stream's saving throws from
-// chat (savingthrows.ts: !roll dex, !roll wis dc15) — saved / failed for each
+// chat (savingthrows.ts: !save dex, !save wis dc15) — saved / failed for each
 // ability and the latest roll — drawn by the theme from /overlay/data. It
 // starts fresh when the stream goes live (or on !saves reset) and is hidden
 // with the Saves & skill checks dashboard switch.
@@ -240,7 +240,7 @@ export function sceneHtml(scene: SceneDef): string {
     card = `<div class="scard sc-chat" style="${box(scene.card)}"><h1>Just Chatting</h1><div class="flourish"></div><div class="line" id="topic"></div></div>`;
   }
   const saves = scene.saves
-    ? `<div class="saves" id="saves" style="${box(scene.saves)}"><div class="plaque">Saving Throws</div><div class="empty">No saving throws yet — !roll dex to make one</div><div class="row" hidden></div><div class="latest" hidden></div></div>`
+    ? `<div class="saves" id="saves" style="${box(scene.saves)}"><div class="plaque">Saving Throws</div><div class="empty">No saving throws yet — !save dex to make one</div><div class="row" hidden></div><div class="latest" hidden></div></div>`
     : "";
   return hints + gate + tracker + card + saves;
 }

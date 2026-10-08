@@ -69,9 +69,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   charcreate: { section: "Adventurer's parchment", label: "Create and view (!newchar, !createchar, !char, !roster)", commands: ["newchar", "createchar", "char", "roster"], parent: "character" },
   streamstats: { section: "Adventurer's parchment", label: "Stream stats (!watchtime, !followage, !nick)", commands: ["watchtime", "followage", "nick"], parent: "misc" },
   // Fate's dice
-  d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r, !save)", commands: ["d20", "save"], parent: "dice" },
+  d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r, !save +mods)", commands: ["d20", "save"], parent: "dice" },
   diceroll: { section: "Fate's dice", label: "Dice expressions (!roll NdS, !roll @user)", commands: [], parent: "dice" },
-  rollchecks: { section: "Fate's dice", label: "Saves & skill checks (!roll dex, !roll stealth, !saves tally)", commands: ["saves"], parent: "dice" },
+  rollchecks: { section: "Fate's dice", label: "Saves & skill checks (!save dex, !roll stealth, !saves tally)", commands: ["saves"], parent: "dice" },
   rollfate: { section: "Fate's dice", label: "Ask fate (!roll <question>?)", commands: [], parent: "dice" },
   rollcall: { section: "Fate's dice", label: "Roll call (!rollcall)", commands: ["rollcall"], parent: "misc" },
   // Baldur's Gate 3
@@ -232,6 +232,12 @@ export function groupForMessage(
   switch (word) {
     case "d20":
       return "d20";
+    case "save": {
+      // Mirrors the !save dispatch in chat_builtin.ts: !save dex is an
+      // ability saving throw, anything else is the contest against the bot.
+      const rest = message.trim().replace(/^!save\s*/i, "").replace(/^@\S+\s*/, "").trim();
+      return rest && resolveCheckWithDc(rest)?.kind.type === "save" ? "rollchecks" : "d20";
+    }
     case "roll":
     case "r": {
       // Mirrors the !roll dispatch in main.ts.

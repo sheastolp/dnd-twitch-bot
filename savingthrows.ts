@@ -1,6 +1,6 @@
 // GuildScribe — the saving throws tally. Every saving throw rolled in chat
-// (`!roll dex`, `!roll @user wis`, optionally against a DC: `!roll dex dc15`
-// or `!roll dex 15`) is logged here, and the theme's Be right back and Just
+// (`!save dex`, `!save @user wis`, optionally against a DC: `!save dex dc15`
+// or `!save dex 15`) is logged here, and the theme's Be right back and Just
 // chatting scenes show this stream's tally under their card: saved / failed
 // for each ability, plus the latest roll (overlay_scenes.ts).
 //
@@ -135,7 +135,7 @@ export async function getSavingThrowTally(broadcasterId: string): Promise<SaveTa
 /** The tally as one chat line, for `!saves`. */
 export function savingThrowTallyText(t: SaveTally): string {
   const n = t.passed + t.failed;
-  if (!n) return `🛡️ No saving throws yet this stream — try !roll dex (or !roll wis dc15 against a DC).`;
+  if (!n) return `🛡️ No saving throws yet this stream — try !save dex (or !save wis dc15 against a DC).`;
   const per = t.abilities.filter((a) => a.passed + a.failed).map((a) => `${a.ability} ✔${a.passed} ✘${a.failed}`).join(" | ");
   const crits = t.nat20 || t.nat1 ? ` · 🌟 Nat20 x${t.nat20} · 💀 Nat1 x${t.nat1}` : "";
   return `🛡️ Saving throws this stream: ✔ ${t.passed} saved, ✘ ${t.failed} failed (of ${n})${crits} — ${per}`;
