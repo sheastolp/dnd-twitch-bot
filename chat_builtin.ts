@@ -12,7 +12,7 @@ import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from 
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
-import { DEFAULT_DC, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
+import { DEFAULT_DC, PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
@@ -281,6 +281,9 @@ export async function handleBuiltinChatCommand(ctx: {
           if (saveTarget) await recordDiceRollEvent(broadcasterId, saveTarget.toLowerCase(), saveTarget, kind);
           else await recordDiceRollEvent(broadcasterId, chatter, display, kind);
         }
+        // Counts on the saving throws tally too, with the bot's roll as the DC.
+        const saver = saveTarget ? { username: saveTarget, displayName: saveTarget } : { username: chatter, displayName: display };
+        await recordSavingThrow(broadcasterId, saver, PLAIN_SAVE, result.rawD20, result.total, result.botRoll);
         await sendChatMessage(
           saveTarget
             ? `@${display} calls for a saving throw from @${saveTarget}! ${result.text}`

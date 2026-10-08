@@ -2,7 +2,10 @@
 // (`!save dex`, `!save @user wis`, optionally against a DC: `!save dex dc15`
 // or `!save dex 15`) is logged here, and the theme's Be right back and Just
 // chatting scenes show this stream's tally under their card: saved / failed
-// for each ability, plus the latest roll (overlay_scenes.ts).
+// for each ability, plus the latest roll (overlay_scenes.ts). A plain
+// `!save` / `!save +3` against the bot's d20 counts too, as a "D20" save
+// whose DC is the bot's roll (a tie saves): it adds to the totals but has no
+// ability cell of its own.
 //
 // A roll saves when its total meets the DC (DEFAULT_DC when chat didn't name
 // one). "This stream" starts on stream.online, or when a mod types
@@ -15,6 +18,9 @@
 import { sqlite } from "./sqlite.ts";
 import { abilityNames } from "./data.ts";
 import type { Ability } from "./types.ts";
+
+/** The `ability` logged for a plain !save against the bot's d20. */
+export const PLAIN_SAVE = "D20";
 
 export const DEFAULT_DC = 10;
 const FALLBACK_MS = 12 * 3_600_000;
@@ -50,7 +56,7 @@ async function withTable<T>(run: () => Promise<T>): Promise<T> {
 export async function recordSavingThrow(
   broadcasterId: string,
   who: { username: string; displayName: string },
-  ability: Ability,
+  ability: Ability | typeof PLAIN_SAVE,
   raw: number,
   total: number,
   dc: number,
@@ -93,6 +99,8 @@ export type SaveTally = {
   nat20: number;
   nat1: number;
   abilities: Array<{ ability: string; passed: number; failed: number }>;
+  /** Plain !save rolls against the bot's d20 (already in passed/failed above). */
+  plain: { passed: number; failed: number };
   latest: { name: string; ability: string; total: number; dc: number; passed: boolean; raw: number } | null;
 };
 
@@ -113,16 +121,19 @@ export async function getSavingThrowTally(broadcasterId: string): Promise<SaveTa
       ),
     ]);
     const by = new Map((agg.rows as any[]).map((r) => [String(r.ability), r]));
-    const out: SaveTally = { since, dc: DEFAULT_DC, passed: 0, failed: 0, nat20: 0, nat1: 0, abilities: [], latest: null };
-    for (const ability of abilityNames) {
-      const r: any = by.get(ability);
+    const out: SaveTally = { since, dc: DEFAULT_DC, passed: 0, failed: 0, nat20: 0, nat1: 0, abilities: [], plain: { passed: 0, failed: 0 }, latest: null };
+    const add = (r: any) => {
       const passed = Number(r?.passed ?? 0), failed = Number(r?.failed ?? 0);
       out.passed += passed;
       out.failed += failed;
       out.nat20 += Number(r?.nat20 ?? 0);
       out.nat1 += Number(r?.nat1 ?? 0);
-      out.abilities.push({ ability: ability.toUpperCase(), passed, failed });
+      return { passed, failed };
+    };
+    for (const ability of abilityNames) {
+      out.abilities.push({ ability: ability.toUpperCase(), ...add(by.get(ability)) });
     }
+    out.plain = add(by.get(PLAIN_SAVE));
     const l: any = last.rows[0];
     if (l) {
       const total = Number(l.total), dc = Number(l.dc);
@@ -135,8 +146,11 @@ export async function getSavingThrowTally(broadcasterId: string): Promise<SaveTa
 /** The tally as one chat line, for `!saves`. */
 export function savingThrowTallyText(t: SaveTally): string {
   const n = t.passed + t.failed;
-  if (!n) return `🛡️ No saving throws yet this stream — try !save dex (or !save wis dc15 against a DC).`;
-  const per = t.abilities.filter((a) => a.passed + a.failed).map((a) => `${a.ability} ✔${a.passed} ✘${a.failed}`).join(" | ");
+  if (!n) return `🛡️ No saving throws yet this stream — try !save, !save dex, or !save wis dc15 against a DC.`;
+  const per = [
+    ...t.abilities.filter((a) => a.passed + a.failed).map((a) => `${a.ability} ✔${a.passed} ✘${a.failed}`),
+    ...(t.plain.passed + t.plain.failed ? [`vs bot ✔${t.plain.passed} ✘${t.plain.failed}`] : []),
+  ].join(" | ");
   const crits = t.nat20 || t.nat1 ? ` · 🌟 Nat20 x${t.nat20} · 💀 Nat1 x${t.nat1}` : "";
   return `🛡️ Saving throws this stream: ✔ ${t.passed} saved, ✘ ${t.failed} failed (of ${n})${crits} — ${per}`;
 }

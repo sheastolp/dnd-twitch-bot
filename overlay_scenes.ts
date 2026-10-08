@@ -240,7 +240,7 @@ export function sceneHtml(scene: SceneDef): string {
     card = `<div class="scard sc-chat" style="${box(scene.card)}"><h1>Just Chatting</h1><div class="flourish"></div><div class="line" id="topic"></div></div>`;
   }
   const saves = scene.saves
-    ? `<div class="saves" id="saves" style="${box(scene.saves)}"><div class="plaque">Saving Throws</div><div class="empty">No saving throws yet — !save dex to make one</div><div class="row" hidden></div><div class="latest" hidden></div></div>`
+    ? `<div class="saves" id="saves" style="${box(scene.saves)}"><div class="plaque">Saving Throws</div><div class="empty">No saving throws yet — !save or !save dex to make one</div><div class="row" hidden></div><div class="latest" hidden></div></div>`
     : "";
   return hints + gate + tracker + card + saves;
 }
@@ -305,7 +305,7 @@ if(savesEl){if(Q.get("saves")==="0")savesEl.remove();else{
   const drawSaves=t=>{savesEl.hidden=!t;if(!t)return;const any=t.passed+t.failed>0;
     sEmpty.hidden=any;sRow.hidden=!any;sLast.hidden=!any||!t.latest;if(!any)return;
     sRow.replaceChildren(cell("All",t.passed,t.failed,"all"),...t.abilities.map(a=>cell(a.ability,a.passed,a.failed)));
-    const l=t.latest;if(l)sLast.textContent="Latest: "+l.name+" · "+l.ability+" "+l.total+(l.raw===20?" (nat 20)":l.raw===1?" (nat 1)":"")+" vs DC "+l.dc+(l.passed?" — saved ✔":" — failed ✘")};
+    const l=t.latest;if(l)sLast.textContent="Latest: "+l.name+" · "+l.ability+" "+l.total+(l.raw===20?" (nat 20)":l.raw===1?" (nat 1)":"")+(l.ability==="D20"?" vs bot's ":" vs DC ")+l.dc+(l.passed?" — saved ✔":" — failed ✘")};
   const pollSaves=()=>{if(preview){drawSaves(DEMO);return}if(!obsActive&&!obsVisible)return;
     fetch("/overlay/data?channel="+encodeURIComponent(CFG.channel)+"&panels=saves").then(r=>r.ok?r.json():null).then(d=>{if(d&&d.ok)drawSaves(d.saves||null)}).catch(()=>{})};
   pollSaves();setInterval(pollSaves,10000)}}

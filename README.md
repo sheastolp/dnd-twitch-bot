@@ -238,7 +238,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!save dex` / `!save strength` / `!save dex dc15` / `!save @user wis` | **Saving throw** — uses your (or `@user`'s) saved character's ability modifier (+ proficiency if your class is proficient in that save); a DC adds ✔ Saved / ✘ Failed. `!roll dex` now points you to `!save dex` |
 | `!roll stealth` / `!roll animal handling` | **Skill check** — uses your saved character's modifier for that skill's ability |
 | `!roll @user dex` / `!roll @user stealth` | Saving throw / skill check using `@user`'s saved character instead of your own |
-| `!save` / `!save +3` / `!save -1 +1d4` | **Save vs the bot**: rolls 1d20 plus any modifiers (flat or dice) against GuildScribe's own 1d20 and announces whether you won (beat or tied the bot) or lost |
+| `!save` / `!save +3` / `!save -1 +1d4` | **Save vs the bot**: rolls 1d20 plus any modifiers (flat or dice) against GuildScribe's own 1d20 and announces whether you won (beat or tied the bot) or lost; it also counts on the `!saves` tally (the bot's roll as the DC) |
 | `!save @user [+mods]` | Call for a saving throw from `@user`: the same roll vs the bot, made and announced for them |
 | `!roll <question>?` | D&D-flavored yes/no fate verdict, e.g. `!roll is enya going to die this time?` |
 | `!bg3roll` | Random Baldur's Gate 3 style character: race/subrace, class/subclass, background, alignment, BG3-style point-buy scores, and an origin hook |
