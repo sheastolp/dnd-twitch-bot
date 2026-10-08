@@ -27,9 +27,9 @@
 // surface could reuse it later without changing this file — none is wired up
 // today, though.
 //
-// Requires no API key setup: uses Val Town's built-in std/openai wrapper.
+// AI replies go through openai.ts (OpenAI or Ollama, see there).
 
-import { OpenAI } from "https://esm.town/v/std/openai";
+import { OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
 import {

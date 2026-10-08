@@ -31,10 +31,10 @@
 // markListingHaggled in db.ts — so a discount can't be farmed by spamming the
 // same item.
 //
-// Requires no API key setup: uses Val Town's built-in std/openai wrapper,
+// AI replies go through openai.ts (OpenAI or Ollama, see there),
 // same pattern as npcs.ts.
 
-import { OpenAI } from "https://esm.town/v/std/openai";
+import { OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";

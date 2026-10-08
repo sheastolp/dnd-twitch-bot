@@ -1,8 +1,0 @@
-.git
-.vscode
-.cursorrules
-.DS_Store
-node_modules
-vendor
-# Docs live on GitHub; Val Town rejects files this large ("File is too large"), which failed every deploy
-README.md
