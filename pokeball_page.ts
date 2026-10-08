@@ -35,6 +35,11 @@ export function describeRule(b: Pick<Ball, "rule" | "value">): string {
   }
 }
 
+/** A stored multiplier as a percentage of a Poké Ball: 1.5 → 150. */
+export function pctOf(mult: number): number {
+  return Math.round(mult * 100);
+}
+
 type Result = { ok: boolean; message: string; edit?: string } | null;
 
 /** Check and normalize the add/edit form. */
@@ -60,8 +65,10 @@ function readBall(form: FormData): { ball?: Omit<Ball, "origin" | "seen" | "aske
   } else {
     value = "";
   }
-  const mult = Number(String(form.get("mult") ?? "").trim() || "1");
-  if (!Number.isFinite(mult) || mult <= 0 || mult > 255) return { error: "The multiplier must be a number above 0 and up to 255 (1 = Poké Ball)." };
+  // Entered as a percentage of a Poké Ball (150% = Great Ball); stored as a multiplier.
+  const pct = Number(String(form.get("pct") ?? "").trim().replace(/%$/, "") || "100");
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 25500) return { error: "The catch bonus must be a percentage above 0 and up to 25500 (100% = Poké Ball)." };
+  const mult = pct / 100;
   const note = String(form.get("note") ?? "").trim().slice(0, 120);
   return { ball: { key, name, rule, value, mult: Math.round(mult * 100) / 100, note, status: "active" } };
 }
@@ -132,7 +139,7 @@ export async function renderPokeballPage(d: {
       b.origin === "custom" ? btn("delete", "Delete", b.key) : b.origin === "override" ? btn("delete", "Reset", b.key) : "",
     ].join(" ");
     return `<tr data-search="${escapeHtml(search)}"${b.status === "off" ? ` class="off"` : ""}><td><strong>${escapeHtml(b.name)}</strong><div class="muted small"><code>!pokecatch ${escapeHtml(b.key)}</code></div></td>` +
-      `<td>${escapeHtml(describeRule(b))}</td><td class="num">${b.mult}×</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
+      `<td>${escapeHtml(describeRule(b))}</td><td class="num">${pctOf(b.mult)}%</td><td class="small">${b.note ? escapeHtml(b.note) : `<span class="muted">—</span>`}</td>` +
       `<td>${origin(b)}${b.status === "off" ? ` <span class="badge">off</span>` : ""}</td><td class="num actions">${actions}</td></tr>`;
   }).join("");
 
@@ -145,7 +152,7 @@ export async function renderPokeballPage(d: {
 <label>Name<input type="text" name="name" value="${escapeHtml(f.name)}" placeholder="Dusk Ball" required maxlength="30"></label>
 <label>Good for<select name="rule" id="rule">${f.rule === "unknown" ? `<option value="" selected disabled>Pick one…</option>` : ""}${ruleOptions}</select></label>
 <label id="valwrap">Value<input type="text" name="value" id="value" value="${escapeHtml(f.value)}" placeholder="dark, ghost"></label>
-<label>Catch multiplier<input type="number" name="mult" value="${f.mult}" min="0.1" max="255" step="0.1" required><span class="muted small">1 = Poké Ball, 1.5 = Great, 2 = Ultra, 3.5 = Net Ball on Water/Bug</span></label>
+<label>Catch bonus (%)<input type="number" name="pct" value="${pctOf(f.mult)}" min="1" max="25500" step="1" required><span class="muted small">100% = Poké Ball, 150% = Great, 200% = Ultra, 350% = Net Ball on Water/Bug</span></label>
 <label>Note <span class="muted small">(optional — shown in chat for timing balls)</span><input type="text" name="note" value="${escapeHtml(f.note)}" maxlength="120" placeholder="Best thrown right away."></label>
 <div class="row"><button type="submit" class="ember">${editing ? "Save" : "Add ball"}</button>${editing ? ` <a class="btn ghost" href="/dashboard/pokeballs?${qs}">Cancel</a>` : ""}</div></form>
 <p class="muted small">Pokémon types: ${POKEMON_TYPES.join(", ")}.</p>
@@ -164,9 +171,9 @@ ${form}
 <h2>Known balls</h2>
 <div class="stats"><div class="stat"><b>${known.filter((b) => b.status === "active").length}</b>in use</div><div class="stat"><b>${known.filter((b) => b.origin === "core").length + known.filter((b) => b.origin === "override").length}</b>core</div><div class="stat"><b>${known.filter((b) => b.origin === "custom").length}</b>added</div><div class="stat"><b>${pending.length}</b>unknown</div></div>
 <div class="controls"><input id="q" class="search" type="search" placeholder="Search balls…" autocomplete="off" aria-label="Search balls"></div>
-<div class="table-wrap"><table id="t"><thead><tr><th>Ball</th><th>Good for</th><th class="num">Multiplier</th><th>Note</th><th>Origin</th><th></th></tr></thead><tbody>${knownRows}</tbody></table></div>
+<div class="table-wrap"><table id="t"><thead><tr><th>Ball</th><th>Good for</th><th class="num">Catch bonus</th><th>Note</th><th>Origin</th><th></th></tr></thead><tbody>${knownRows}</tbody></table></div>
 <div class="card"><h2 style="margin-top:0">How the advisor picks</h2>
-<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (catch rate × multiplier at least 60% of 255), so your good balls are kept for hard catches. If none gets there, the strongest one. Balls of 100× or more are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
+<p>Of the balls whose “good for” fits the Pokémon, it suggests the <strong>weakest one that still gives a good chance</strong> (catch rate × catch bonus at least 60% of 255), so your good balls are kept for hard catches. If none gets there, the strongest one. Balls of 10000% or more (Master Ball) are only suggested for legendaries. The strongest timing ball is offered as the alternative.</p>
 <p class="muted small">Chat: <code>!ball on|off|status</code> (mods) · <code>!ball &lt;Pokémon&gt;</code> asks for a suggestion · <code>!ball balls</code> · <code>!ball unknown</code></p></div>
 <script>(function(){var q=document.getElementById("q"),rows=[].slice.call(document.querySelectorAll("#t tbody tr"));q.addEventListener("input",function(){var t=q.value.trim().toLowerCase();rows.forEach(function(r){r.hidden=!!t&&r.getAttribute("data-search").indexOf(t)===-1})})})();</script>`;
 
