@@ -12,6 +12,8 @@
 //   !jar -<amount>       take from the jar by hand (mod only)   e.g. !jar -8
 //   !jar giveaway        give the WHOLE jar to a random recent chatter (mod
 //                        only, at most once every 7 days per channel)
+//   !jar give @user      give the WHOLE jar to a chosen chatter (mod only, no
+//                        weekly limit; it still counts as the week's giveaway)
 //   !fine                fine the streamer one swear word (anyone)
 //
 // !jar and !fine deliberately have NO cooldown (main.ts exempts them from the
@@ -23,6 +25,11 @@
 // announces it. If the chatter can't afford the full fee they pay whatever
 // they have; a chatter with an empty purse pays nothing (and the bot stays
 // quiet rather than spamming chat). Needs the gold system on (!gold on).
+//
+// Channel points: redemptions.ts links rewards to the jar through !boon
+// (claim the jar, gift it to someone, or fine the streamer). It calls the
+// exported giveJarTo() and fineStreamer() below, so a redemption behaves
+// exactly like the chat command it mirrors.
 //
 // Learning: the jar teaches itself new swear words per channel (see "Learning"
 // below). Unknown words that keep turning up right next to swearing, from
@@ -41,6 +48,7 @@ import { pick } from "./utils.ts";
 import { formatCoins, MAX_COPPER, parseCoins } from "./coins.ts";
 import { adjustBalance, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { getBroadcaster } from "./db.ts";
+import { isChannelBot } from "./channel_bots.ts";
 import { optNum } from "./channel_options.ts";
 
 /** Copper charged per swear word. */
@@ -166,6 +174,66 @@ async function pickGiveawayWinner(broadcasterId: string, excludeLogin: string): 
   const row: any = res.rows[Math.floor(Math.random() * res.rows.length)];
   return { username: String(row.username), displayName: String(row.display_name || row.username) };
 }
+
+/** Why giveJarTo() paid nothing. */
+export type JarGiveFailure = "gold-off" | "empty";
+
+/** Pays the WHOLE jar into `username`'s gold and empties it. No weekly limit
+ * (the caller decided who gets it), but it is recorded as the latest
+ * giveaway, so !jar shows it and the random !jar giveaway waits its week.
+ * Returns the copper paid, or why nothing moved. */
+export async function giveJarTo(
+  broadcasterId: string,
+  username: string,
+  displayName: string,
+): Promise<{ amount: number } | { failure: JarGiveFailure }> {
+  if (!(await isPointsEnabled(broadcasterId))) return { failure: "gold-off" };
+  const amount = await getJarTotal(broadcasterId);
+  if (amount <= 0) return { failure: "empty" };
+  // Take exactly what we read, and only if it's still there, so two gives at
+  // once can't both pay out; a swear landing in between stays in the jar.
+  const res = await sqlite.execute(
+    "UPDATE swear_jar SET total = total - ?, updated_at = ? WHERE broadcaster_id = ? AND total >= ?",
+    [amount, Date.now(), broadcasterId, amount],
+  );
+  const affected = (res as any).rowsAffected;
+  if (typeof affected === "number" && affected === 0) return { failure: "empty" };
+  const paid = amount;
+  await adjustBalance(broadcasterId, username, displayName, paid);
+  await sqlite.execute(
+    `INSERT INTO swear_jar_giveaways (broadcaster_id, last_at, winner, amount) VALUES (?, ?, ?, ?)
+     ON CONFLICT(broadcaster_id) DO UPDATE SET last_at = excluded.last_at, winner = excluded.winner, amount = excluded.amount`,
+    [broadcasterId, Date.now(), username.toLowerCase(), paid],
+  );
+  return { amount: paid };
+}
+
+/** Moves up to `amount` copper of the streamer's gold into the jar (whatever
+ * they can afford). Shared by !fine and the "jarfine" channel-point reward.
+ * Null if gold is off or there's no connected streamer; paid 0 if broke. */
+export async function fineStreamer(
+  broadcasterId: string,
+  amount: number,
+): Promise<{ streamer: string; paid: number; total: number } | null> {
+  if (!(await isPointsEnabled(broadcasterId))) return null;
+  const row = await getBroadcaster(broadcasterId);
+  const login = String(row?.login ?? "").toLowerCase();
+  if (!login) return null;
+  const streamer = String(row?.display_name || login);
+  const bal = await getBalance(broadcasterId, login);
+  const pay = Math.min(amount, bal?.balance ?? 0);
+  if (pay <= 0 || !(await trySpend(broadcasterId, login, pay))) return { streamer, paid: 0, total: await getJarTotal(broadcasterId) };
+  return { streamer, paid: pay, total: await adjustJar(broadcasterId, pay) };
+}
+
+/** Flavor for a jar handed to someone on purpose (a mod's !jar give, or a
+ * channel-point reward). {by} is who handed it over. */
+export const GIFT_LINES: Array<(winner: string, amount: string, by: string) => string> = [
+  (w, a, by) => `🎉 @${by} hands the whole swear jar to @${w} — ${a} of hard-earned profanity!`,
+  (w, a, by) => `🎉 By decree of @${by}, the swear jar's ${a} is poured into @${w}'s purse!`,
+  (w, a, by) => `🎉 @${by} slides the swear jar across the tavern table. @${w} pockets ${a}!`,
+  (w, a, by) => `🎉 The guild treasurer, at @${by}'s word, counts out ${a} from the swear jar for @${w}.`,
+];
 
 function formatWait(ms: number): string {
   const mins = Math.max(1, Math.ceil(ms / 60_000));
@@ -483,6 +551,8 @@ export async function handleJarCommand(
   if (m[1].toLowerCase() === "fine") return await handleFine(display, broadcasterId);
 
   if (/^giveaway$/i.test(args)) return await handleGiveaway(display, broadcasterId, isModerator);
+  const give = args.match(/^give(?:\s+(\S+))?$/i);
+  if (give) return await handleGive(give[1] ?? "", display, broadcasterId, isModerator);
   if (/^words$/i.test(args)) return await handleWords(display, broadcasterId, isModerator);
   const forget = args.match(/^forget\s+(\S+)$/i);
   if (forget) return await handleForget(forget[1], display, broadcasterId, isModerator);
@@ -516,7 +586,7 @@ export async function handleJarCommand(
   }
   if (!adj || amount === null || amount <= 0) {
     await sendChatMessage(
-      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway (mod only) | !jar words / !jar forget <word> (mod: learned words) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
+      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway / !jar give @user (mod only) | !jar words / !jar forget <word> (mod: learned words) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
       broadcasterId,
     );
     return true;
@@ -569,20 +639,13 @@ export async function handleJarCommand(
 /** Anyone can fine the streamer one swear word's worth (SWEAR_COST_COPPER) of
  * the streamer's gold into the jar. No cooldown. Silent while gold is off. */
 async function handleFine(display: string, broadcasterId: string): Promise<boolean> {
-  if (!(await isPointsEnabled(broadcasterId))) return true;
-  const row = await getBroadcaster(broadcasterId);
-  const login = String(row?.login ?? "").toLowerCase();
-  if (!login) return true;
-  const streamer = String(row?.display_name || login);
-
-  const bal = await getBalance(broadcasterId, login);
-  const pay = Math.min(await optNum(broadcasterId, "jar.cost"), bal?.balance ?? 0);
-  if (pay <= 0 || !(await trySpend(broadcasterId, login, pay))) {
-    await sendChatMessage(`🫙 @${display} ${streamer} has no coin to put in the swear jar.`, broadcasterId);
+  const res = await fineStreamer(broadcasterId, await optNum(broadcasterId, "jar.cost"));
+  if (!res) return true;
+  if (res.paid <= 0) {
+    await sendChatMessage(`🫙 @${display} ${res.streamer} has no coin to put in the swear jar.`, broadcasterId);
     return true;
   }
-  const total = await adjustJar(broadcasterId, pay);
-  await sendChatMessage(pick(FINE_LINES)(display, streamer, formatCoins(pay), formatCoins(total)), broadcasterId);
+  await sendChatMessage(pick(FINE_LINES)(display, res.streamer, formatCoins(res.paid), formatCoins(res.total)), broadcasterId);
   return true;
 }
 
@@ -631,6 +694,40 @@ async function handleGiveaway(display: string, broadcasterId: string, isModerato
   await adjustBalance(broadcasterId, winner.username, winner.displayName, amount);
   await sqlite.execute("UPDATE swear_jar_giveaways SET amount = ? WHERE broadcaster_id = ?", [amount, broadcasterId]);
   await sendChatMessage(pick(GIVEAWAY_LINES)(winner.displayName, formatCoins(amount), display), broadcasterId);
+  return true;
+}
+
+// ── !jar give @user ──
+
+/** Mod/broadcaster only: pays the whole jar to a chosen chatter. The target
+ * must have a purse here already (has chatted), so a typo can't send the jar
+ * into the void, and bots can't receive it. */
+async function handleGive(rawTarget: string, display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can give away the swear jar.`, broadcasterId);
+    return true;
+  }
+  if (!(await isPointsEnabled(broadcasterId))) return true;
+  const target = rawTarget.replace(/^@/, "").toLowerCase();
+  if (!/^[a-z0-9_]{1,25}$/.test(target)) {
+    await sendChatMessage(`@${display} Usage: !jar give @user`, broadcasterId);
+    return true;
+  }
+  if (await isChannelBot(broadcasterId, target, "", Deno.env.get("TWITCH_BOT_ID") ?? "")) {
+    await sendChatMessage(`🫙 @${display} bots don't get the swear jar.`, broadcasterId);
+    return true;
+  }
+  const bal = await getBalance(broadcasterId, target);
+  if (!bal) {
+    await sendChatMessage(`🫙 @${display} ${target} has no purse here yet — they need to have chatted first.`, broadcasterId);
+    return true;
+  }
+  const res = await giveJarTo(broadcasterId, target, bal.displayName || target);
+  if ("failure" in res) {
+    if (res.failure === "empty") await sendChatMessage(`🫙 @${display} The swear jar is empty — nothing to give away yet.`, broadcasterId);
+    return true;
+  }
+  await sendChatMessage(pick(GIFT_LINES)(bal.displayName || target, formatCoins(res.amount), display), broadcasterId);
   return true;
 }
 

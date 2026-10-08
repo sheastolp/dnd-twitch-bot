@@ -115,7 +115,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   jar: { section: "Gold, leaderboard & giveaways", label: "Swear jar (!jar, auto-fines for swearing)", commands: [] },
   jarfine: { section: "Gold, leaderboard & giveaways", label: "Fine the streamer (!fine)", commands: ["fine"] },
   jarwords: { section: "Gold, leaderboard & giveaways", label: "Jar vocabulary (!jar words, !jar forget)", commands: [] },
-  jargiveaway: { section: "Gold, leaderboard & giveaways", label: "Jar giveaway (!jar giveaway)", commands: [] },
+  jargiveaway: { section: "Gold, leaderboard & giveaways", label: "Jar giveaway (!jar giveaway, !jar give)", commands: [] },
   boonsetup: { section: "Gold, leaderboard & giveaways", label: "Link channel-point rewards (!boon add/remove/clear)", commands: [] },
   boonstatus: { section: "Gold, leaderboard & giveaways", label: "Reward status (!boon list, !boon status)", commands: [] },
   // Custom commands & triggers
@@ -267,7 +267,7 @@ export function groupForMessage(
       return "goldcheck";
     case "jar":
       if (sub === "words" || sub === "forget") return "jarwords";
-      if (sub === "giveaway") return "jargiveaway";
+      if (sub === "giveaway" || sub === "give") return "jargiveaway";
       return "jar";
     case "boon":
       return ["add", "remove", "clear"].includes(sub) ? "boonsetup" : "boonstatus";

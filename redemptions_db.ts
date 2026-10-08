@@ -5,8 +5,10 @@
 //
 // Two tables:
 //   redemption_rewards — which channel-point reward (matched by title) does
-//     what: a robbery shield, or a "can't use <feature>" lockout, and for how
-//     many minutes. Managed by mods with !boon.
+//     what: a robbery shield, a "can't use <feature>" lockout, or a swear-jar
+//     action (claim it, gift it, fine the streamer), and for how many minutes.
+//     For "jarfine" the minutes column holds the fine in copper instead; for
+//     "jar"/"jargive" it is unused (0). Managed by mods with !boon.
 //   redemption_effects — the timed effects currently in force on a viewer.
 //     effect is "shield" or "lock:<feature>". Rows simply expire; nothing has
 //     to tick or clean them up except an occasional lazy sweep on grant.
@@ -16,11 +18,12 @@ import { sqlite } from "./sqlite.ts";
 /** No single viewer can have more than this much of one effect stacked up. */
 export const MAX_EFFECT_MS = 120 * 60 * 1000;
 
-export type RewardEffect = "shield" | "lockout";
+export type RewardEffect = "shield" | "lockout" | "jar" | "jargive" | "jarfine";
 
 export interface RewardMapping {
   title: string;
   effect: RewardEffect;
+  /** Minutes for shield/lockout; copper for jarfine; 0 for jar/jargive. */
   minutes: number;
 }
 

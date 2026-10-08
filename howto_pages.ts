@@ -133,7 +133,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
     steps: [
       `If you connected before this feature existed, <a href="/connect">reconnect</a> once so GuildScribe can see redemptions.`,
       `Create the reward in Twitch as usual. For a hex, tick <strong>Require viewer to enter text</strong>.`,
-      `Link it by its exact title. Shield (the redeemer can't be robbed): <code>!boon add shield 30 Guard Duty</code>. Hex (lock someone out of a feature): <code>!boon add lockout 10 Curse a Rival</code>.`,
+      `Link it by its exact title. Shield (the redeemer can't be robbed): <code>!boon add shield 30 Guard Duty</code>. Hex (lock someone out of a feature): <code>!boon add lockout 10 Curse a Rival</code>. Swear jar: <code>!boon add jar Claim the Jar</code> (the redeemer wins it), <code>!boon add jargive Gift the Jar</code> (they type who gets it; tick <strong>Require viewer to enter text</strong>), or <code>!boon add jarfine 5sp Fine the Streamer</code>.`,
       `Viewers redeem it. For a hex they type <code>&lt;user&gt; &lt;feature&gt;</code>, e.g. <code>bob rob</code>. Features: <code>rob</code>, <code>haggle</code>, <code>duel</code>, <code>autohunt</code>, <code>dice</code>, <code>gold</code>.`,
       `Check with <code>!boon list</code> and <code>!boon status [@user]</code>; unlink with <code>!boon remove &lt;title&gt;</code>; lift everything on someone with <code>!boon clear @user</code>.`,
     ],
@@ -157,7 +157,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
     ],
     tips: [
       `Show it on stream with the <code>giveaway</code> overlay; it shows the winners for ten minutes after the draw. See <a href="/howto/overlays">Add OBS overlays</a>.`,
-      `The swear jar has its own weekly giveaway: <code>!jar giveaway</code>.`,
+      `The swear jar has its own weekly giveaway: <code>!jar giveaway</code>, or <code>!jar give @user</code> to pick the winner yourself.`,
     ],
     codex: "gold",
   },

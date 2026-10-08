@@ -8,9 +8,16 @@
 //   lockout  — the redeemer picks another viewer and a feature (typed into
 //              the reward's text box as "<user> <feature>", e.g. "bob rob"),
 //              and that viewer cannot use that feature for N minutes.
+//   jar      — the redeemer wins the whole swear jar (see swearjar.ts).
+//   jargive  — the redeemer names a viewer in the text box; that viewer gets
+//              the whole swear jar.
+//   jarfine  — fines the streamer a set amount of their gold into the jar.
 //
 //   !boon add shield <minutes> <reward title>      (mod)
 //   !boon add lockout <minutes> <reward title>     (mod)
+//   !boon add jar <reward title>                   (mod)
+//   !boon add jargive <reward title>               (mod)
+//   !boon add jarfine <amount> <reward title>      (mod — e.g. 5sp, 1gp)
 //   !boon remove <reward title>                    (mod)
 //   !boon clear @user                              (mod — drops every active effect)
 //   !boon list                                     (everyone — what each reward does)
@@ -27,9 +34,12 @@
 //   - The broadcaster, the bot and yourself cannot be locked out.
 //   - Command named !boon because StreamElements already owns !redeem.
 
-import { getBroadcaster, isChannelBlocked, isChannelEnabled, saveExtraEventSubSubscription } from "./db.ts";
+import { getBroadcaster, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, saveExtraEventSubSubscription } from "./db.ts";
 import { createRedemptionEventSubscription, sendChatMessage } from "./twitch.ts";
 import { isChannelBot } from "./channel_bots.ts";
+import { fineStreamer, GIFT_LINES, giveJarTo } from "./swearjar.ts";
+import { formatCoins, parseCoins } from "./coins.ts";
+import { getBalance } from "./points_db.ts";
 import {
   clearEffects,
   getEffectRemainingMs,
@@ -39,6 +49,7 @@ import {
   listRewardMappings,
   MAX_EFFECT_MS,
   removeRewardMapping,
+  type RewardMapping,
   saveRewardMapping,
 } from "./redemptions_db.ts";
 
@@ -202,6 +213,11 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
   if (await isChannelBlocked(broadcasterId)) return;
   if (!(await isChannelEnabled(broadcasterId))) return;
 
+  if (mapping.effect === "jar" || mapping.effect === "jargive" || mapping.effect === "jarfine") {
+    await applyJarRedemption(mapping, event, broadcasterId, redeemer, display, title, botId);
+    return;
+  }
+
   if (mapping.effect === "shield") {
     const expiresAt = await grantEffect(broadcasterId, redeemer, "shield", mapping.minutes * 60_000, redeemer);
     await sendChatMessage(
@@ -251,6 +267,77 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
   );
 }
 
+// ── Swear-jar rewards ──
+// Same rules as the chat commands they mirror (!jar give, !fine): coin moves
+// need gold on, and the matching dashboard switches must be on. Unlike chat,
+// a redemption that can't apply says so, since the viewer spent points.
+
+async function applyJarRedemption(
+  mapping: RewardMapping,
+  // deno-lint-ignore no-explicit-any
+  event: any,
+  broadcasterId: string,
+  redeemer: string,
+  display: string,
+  title: string,
+  botId: string,
+): Promise<void> {
+  const refund = `a mod can refund "${title}" from the rewards queue.`;
+  const group = mapping.effect === "jarfine" ? "jarfine" : "jargiveaway";
+  if (!(await isCommandGroupEnabled(broadcasterId, group)) || !(await isCommandGroupEnabled(broadcasterId, "jar"))) {
+    await sendChatMessage(`@${display} the swear jar is switched off in this channel — ${refund}`, broadcasterId);
+    return;
+  }
+
+  if (mapping.effect === "jarfine") {
+    const res = await fineStreamer(broadcasterId, mapping.minutes);
+    if (!res) {
+      await sendChatMessage(`@${display} coin is switched off here (!gold on), so the jar can't take a fine — ${refund}`, broadcasterId);
+    } else if (res.paid <= 0) {
+      await sendChatMessage(`🫙 @${display} ${res.streamer} has no coin to put in the swear jar — ${refund}`, broadcasterId);
+    } else {
+      await sendChatMessage(
+        `🫙 @${display} spends channel points to fine ${res.streamer} ${formatCoins(res.paid)} for the swear jar! It now holds ${formatCoins(res.total)}.`,
+        broadcasterId,
+      );
+    }
+    return;
+  }
+
+  // jar: the redeemer takes it. jargive: whoever they typed into the text box.
+  let recipient = redeemer;
+  let recipientName = display;
+  if (mapping.effect === "jargive") {
+    const typed = String(event?.user_input ?? "").trim().split(/\s+/)[0]?.replace(/^@/, "").toLowerCase() ?? "";
+    if (!USERNAME_RE.test(typed)) {
+      await sendChatMessage(`@${display} your "${title}" redemption needs a username in its text box — ${refund}`, broadcasterId);
+      return;
+    }
+    if (await isChannelBot(broadcasterId, typed, "", botId)) {
+      await sendChatMessage(`@${display} bots don't get the swear jar — ${refund}`, broadcasterId);
+      return;
+    }
+    const bal = await getBalance(broadcasterId, typed);
+    if (!bal) {
+      await sendChatMessage(`@${display} ${typed} has no purse here yet (they need to have chatted) — ${refund}`, broadcasterId);
+      return;
+    }
+    recipient = typed;
+    recipientName = bal.displayName || typed;
+  }
+  const res = await giveJarTo(broadcasterId, recipient, recipientName);
+  if ("failure" in res) {
+    await sendChatMessage(
+      res.failure === "empty"
+        ? `🫙 @${display} the swear jar is empty — ${refund}`
+        : `@${display} coin is switched off here (!gold on), so the jar can't be paid out — ${refund}`,
+      broadcasterId,
+    );
+    return;
+  }
+  await sendChatMessage(pick(GIFT_LINES)(recipientName, formatCoins(res.amount), display), broadcasterId);
+}
+
 // ── Chat gate: is this viewer locked out of the command they just typed? ──
 
 /** Returns a chat notice (without the @name) if the chatter is locked out of
@@ -270,6 +357,24 @@ export async function robShieldRemainingMs(broadcasterId: string, target: string
 }
 
 // ── !boon ──
+
+/** How !boon list describes a linked reward. */
+function describeMapping(r: RewardMapping): string {
+  switch (r.effect) {
+    case "shield":
+      return `robbery shield ${r.minutes}m`;
+    case "lockout":
+      return `lockout ${r.minutes}m`;
+    case "jar":
+      return "redeemer wins the swear jar";
+    case "jargive":
+      return "gift the swear jar to a named viewer";
+    case "jarfine":
+      return `fine the streamer ${formatCoins(r.minutes)} into the swear jar`;
+  }
+}
+
+const ADD_USAGE = "!boon add shield|lockout <minutes> <title> | !boon add jar|jargive <title> | !boon add jarfine <amount> <title>";
 
 function describeEffect(effect: string): string {
   if (effect === "shield") return "🛡️ robbery shield";
@@ -299,7 +404,7 @@ export async function handleBoonCommand(
     const active = await listActiveEffects(broadcasterId, name);
     if (!active.length) {
       const hint = sub === "" && isModerator
-        ? " Mods: !boon add shield|lockout <minutes> <reward title> | !boon remove <title> | !boon clear @user | !boon list."
+        ? ` Mods: ${ADD_USAGE} | !boon remove <title> | !boon clear @user | !boon list.`
         : "";
       await sendChatMessage(`@${display} ${label} no active boons or hexes.${hint}`, broadcasterId);
     } else {
@@ -316,9 +421,7 @@ export async function handleBoonCommand(
     if (!rewards.length) {
       await sendChatMessage(`@${display} no channel-point rewards are linked to GuildScribe yet.`, broadcasterId);
     } else {
-      const parts = rewards.map((r) =>
-        `"${r.title}" → ${r.effect === "shield" ? "robbery shield" : "lockout"} ${r.minutes}m`
-      );
+      const parts = rewards.map((r) => `"${r.title}" → ${describeMapping(r)}`);
       await sendChatMessage(`@${display} linked rewards: ${parts.join(" | ")}`, broadcasterId);
     }
     return true;
@@ -326,7 +429,7 @@ export async function handleBoonCommand(
 
   // Everything below changes configuration: mods and the broadcaster only.
   if (!["add", "remove", "clear"].includes(sub)) {
-    await sendChatMessage(`@${display} usage: !boon status [@user] | !boon list${isModerator ? " | !boon add shield|lockout <minutes> <reward title> | !boon remove <title> | !boon clear @user" : ""}`, broadcasterId);
+    await sendChatMessage(`@${display} usage: !boon status [@user] | !boon list${isModerator ? ` | ${ADD_USAGE} | !boon remove <title> | !boon clear @user` : ""}`, broadcasterId);
     return true;
   }
   if (!isModerator) {
@@ -335,9 +438,11 @@ export async function handleBoonCommand(
   }
 
   if (sub === "add") {
+    const jar = rest.match(/^(jar|jargive)\s+([\s\S]+)$/i) ?? rest.match(/^(jarfine)\s+(\S+)\s+([\s\S]+)$/i);
+    if (jar) return await addJarReward(jar, display, broadcasterId);
     const add = rest.match(/^(shield|lockout)\s+(\d+)\s+([\s\S]+)$/i);
     if (!add) {
-      await sendChatMessage(`@${display} usage: !boon add shield|lockout <minutes> <exact reward title>`, broadcasterId);
+      await sendChatMessage(`@${display} usage: ${ADD_USAGE} (use the exact reward title)`, broadcasterId);
       return true;
     }
     const effect = add[1].toLowerCase() as "shield" | "lockout";
@@ -383,6 +488,36 @@ export async function handleBoonCommand(
   const cleared = await clearEffects(broadcasterId, target);
   await sendChatMessage(
     cleared ? `@${display} lifted ${cleared} boon${cleared === 1 ? "" : "s"}/hex${cleared === 1 ? "" : "es"} from ${target}.` : `@${display} ${target} has nothing active to lift.`,
+    broadcasterId,
+  );
+  return true;
+}
+
+/** !boon add jar|jargive <title> and !boon add jarfine <amount> <title>. */
+async function addJarReward(m: RegExpMatchArray, display: string, broadcasterId: string): Promise<boolean> {
+  const effect = m[1].toLowerCase() as "jar" | "jargive" | "jarfine";
+  let amount = 0;
+  if (effect === "jarfine") {
+    const parsed = parseCoins(m[2]);
+    if (parsed === null || parsed <= 0) {
+      await sendChatMessage(`@${display} usage: !boon add jarfine <amount> <reward title>, e.g. !boon add jarfine 5sp Fine the Streamer`, broadcasterId);
+      return true;
+    }
+    amount = parsed;
+  }
+  const title = (effect === "jarfine" ? m[3] : m[2]).trim().replace(/\s+/g, " ");
+  if (title.length > MAX_TITLE) {
+    await sendChatMessage(`@${display} Twitch reward titles are at most ${MAX_TITLE} characters.`, broadcasterId);
+    return true;
+  }
+  await saveRewardMapping(broadcasterId, title, effect, amount);
+  const what = effect === "jar"
+    ? "the redeemer wins the whole swear jar"
+    : effect === "jargive"
+    ? "the redeemer gifts the whole swear jar to a viewer. Make the reward require viewer input; they type the username"
+    : `fines the streamer ${formatCoins(amount)} into the swear jar`;
+  await sendChatMessage(
+    `@${display} linked "${title}" → ${what}. Needs gold on. The title must match the Twitch reward exactly (case ignored).`,
     broadcasterId,
   );
   return true;

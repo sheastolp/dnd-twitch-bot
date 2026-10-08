@@ -90,7 +90,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "jar", icon: "🫙", name: "Swear jar",
-    what: "Swearing in chat costs a few copper into the jar, and viewers can !fine you. Shows on the overlays; give the jar away with !jar giveaway.",
+    what: "Swearing in chat costs a few copper into the jar, and viewers can !fine you. Shows on the overlays; give the jar away with !jar giveaway (random) or !jar give @user, or link it to a channel-point reward with !boon add jar.",
     yourPart: "Nothing.",
     switches: ["jar", "jarfine", "jarwords", "jargiveaway"],
     needs: ["gold"],
