@@ -59,6 +59,7 @@ import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
+import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
@@ -797,6 +798,33 @@ export async function handleBotListForm(form: FormData, baseUrl: string, cookieH
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/bots?${params.toString()}`);
+}
+
+// ── Pokéball advisor's ball list (pokeball_page.ts), behind the same key + login ──
+
+export async function handlePokeballPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderPokeballPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+    edit: url.searchParams.get("edit") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handlePokeballForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyPokeballForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  if (result && !result.ok && result.edit) params.set("edit", result.edit);
+  return redirectTo(`${baseUrl}/dashboard/pokeballs?${params.toString()}${result && !result.ok ? "#edit" : ""}`);
 }
 
 // ── Now playing page (nowplaying.ts), behind the same key + login ──

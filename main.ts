@@ -54,7 +54,7 @@ import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
-import { ensurePokeballTables, handlePokeballCommand, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
+import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -474,6 +474,8 @@ async function handleRequest(req: Request): Promise<Response> {
     if (Number(connection.is_live) === 1) defer(trackWatchtime(broadcasterId, chatter, display));
     // Ad-break heads-up (adalerts.ts): at most one schedule check a minute per channel.
     if (Number(connection.is_live) === 1) defer(maybeAdHeadsUp(broadcasterId, baseUrl));
+    // Pokéball advisor (pokeball.ts): a viewer's !pokecatch with a ball it doesn't know gets asked about.
+    if (/^!pokecatch\s/i.test(chatMessage)) defer(maybeAskAboutBall(broadcasterId, chatter, chatMessage));
 
     if (chatMessage.startsWith("!")) {
       // Throttle non-mod command spam before it reaches any handler or the DB.

@@ -15,7 +15,7 @@ import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { renderGearPage } from "./gear_page.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
@@ -379,6 +379,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Spotify's OAuth return; trusted by its one-time state, created behind the dashboard gate.
     return await handleSpotifyCallback(url);
   }
+  if (req.method === "GET" && path === "/dashboard/pokeballs") {
+    // The Pokéball advisor's ball list (pokeball_page.ts) — same gate.
+    return await handlePokeballPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/bots") {
     // The channel's bot list (channel_bots.ts) — same gate.
     return await handleBotListPage(url, req.headers.get("Cookie"));
@@ -628,6 +632,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/music") {
     return await handleNowPlayingForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/pokeballs") {
+    return await handlePokeballForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/bots") {
     return await handleBotListForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

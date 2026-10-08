@@ -4,68 +4,95 @@
 // Off by default per channel; !pokeball on/off/status (mod/broadcaster).
 //
 // The pick uses the species' real data from PokeAPI (types, weight, base
-// stats, catch rate, legendary/mythical), cached per isolate:
-//   legendary/mythical or catch rate ≤ 3  → Ultra Ball (Master Ball if you have one)
-//   Water or Bug type                     → Net Ball
-//   weight ≥ 200 kg                       → Heavy Ball
-//   base Speed ≥ 100                      → Fast Ball
-//   otherwise by catch rate: ≥ 150 Poké Ball, ≥ 75 Great Ball, else Ultra Ball
-// A Quick Ball (thrown right away) is always offered as the alternative.
+// stats, catch rate, legendary/mythical; cached per isolate) against the
+// channel's ball list (pokeball_db.ts — built-in core balls plus whatever
+// mods add on /dashboard/pokeballs, pokeball_page.ts). Each ball has a rule
+// (works on anything, better against certain types, heavy, fast, hard or
+// easy catches, legendaries, or timing) and a catch multiplier. Of the balls
+// whose rule fits, the advisor suggests the weakest one that still gives a
+// good chance (catch rate × multiplier ≥ 60% of 255), so good balls are kept
+// for hard catches; if none gets there, the strongest. Balls of 100× or more
+// (Master Ball) are only suggested for legendaries. A timing ball (Quick
+// Ball) is offered as the alternative.
+//
+// Unknown balls: when a viewer throws one the channel doesn't know
+// (!pokecatch duskball), or PokemonCommunityGame mentions one, it's recorded
+// as pending on the dashboard page, and the first time a viewer uses it the
+// advisor asks chat what it does so a mod can teach it there.
 //
 // PokemonCommunityGame is a bot account, so its messages reach this through
 // the bot branch in main.ts (maybePokeballAdvice), never the command router.
 
-import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, isChannelBlocked, isChannelEnabled } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
+import {
+  type Ball,
+  ballKey,
+  ballNameFromKey,
+  isPokeballEnabled,
+  listBalls,
+  recordUnknownBall,
+  setPokeballEnabled,
+} from "./pokeball_db.ts";
+
+export { ensurePokeballTables, purgePokeballData } from "./pokeball_db.ts";
 
 export const POKEMON_GAME_BOT = "pokemoncommunitygame";
 
-export async function ensurePokeballTables() {
-  await sqlite.execute(
-    `CREATE TABLE IF NOT EXISTS pokeball_settings (broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
-  );
-}
+/** Catch rate × multiplier, out of 255, that counts as "a good chance". */
+const GOOD_CHANCE = 0.6;
+/** Balls this strong are saved for legendaries. */
+const RESERVE_MULT = 100;
+/** At most one "what's that ball?" question per channel this often. */
+const ASK_COOLDOWN_MS = 2 * 60_000;
 
-export async function purgePokeballData(broadcasterId: string) {
-  await sqlite.execute("DELETE FROM pokeball_settings WHERE broadcaster_id = ?", [broadcasterId]);
-}
-
-export async function isPokeballEnabled(broadcasterId: string): Promise<boolean> {
-  const res = await sqlite.execute("SELECT enabled FROM pokeball_settings WHERE broadcaster_id = ?", [broadcasterId]);
-  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
-}
-
-export async function setPokeballEnabled(broadcasterId: string, enabled: boolean) {
-  await sqlite.execute("INSERT OR REPLACE INTO pokeball_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)", [
-    broadcasterId,
-    enabled ? 1 : 0,
-    Date.now(),
-  ]);
-}
-
-/** !pokeball on|off|status. Status answers anyone; on/off is mod-only. */
+/** !pokeball on|off|status, !pokeball balls, !pokeball unknown, !pokeball <Pokémon>. */
 export async function handlePokeballCommand(
   chatMessage: string,
   display: string,
   broadcasterId: string,
   isModerator: boolean,
 ): Promise<boolean> {
-  const m = chatMessage.trim().match(/^!pokeball(?:\s+(on|off|status))?$/i);
+  const m = chatMessage.trim().match(/^!pokeball(?:\s+(.+))?$/i);
   if (!m) return false;
-  const action = (m[1] ?? "status").toLowerCase();
+  const arg = (m[1] ?? "status").trim();
+  const action = arg.toLowerCase();
   const say = (text: string) => sendChatMessage(`@${display} ${text}`, broadcasterId);
+
   if (action === "status") {
     const on = await isPokeballEnabled(broadcasterId);
-    await say(`🔴 The Pokéball advisor is ${on ? "on — I'll suggest a ball whenever PokemonCommunityGame spawns a Pokémon" : "off in this channel"}.${isModerator ? ` Mods: !pokeball ${on ? "off" : "on"}.` : ""}`);
-  } else if (!isModerator) {
-    await say("only the broadcaster or a moderator can turn the Pokéball advisor on or off.");
-  } else {
-    await setPokeballEnabled(broadcasterId, action === "on");
-    await say(action === "on"
-      ? "🔴 Pokéball advisor on! When PokemonCommunityGame spawns a Pokémon I'll suggest which ball to throw."
-      : "Pokéball advisor off.");
+    await say(`🔴 The Pokéball advisor is ${on ? "on — I'll suggest a ball whenever PokemonCommunityGame spawns a Pokémon" : "off in this channel"}.${isModerator ? ` Mods: !pokeball ${on ? "off" : "on"}; edit the balls on !dashboard → 🔴 Pokéballs.` : ""}`);
+    return true;
   }
+  if (action === "on" || action === "off") {
+    if (!isModerator) {
+      await say("only the broadcaster or a moderator can turn the Pokéball advisor on or off.");
+    } else {
+      await setPokeballEnabled(broadcasterId, action === "on");
+      await say(action === "on"
+        ? "🔴 Pokéball advisor on! When PokemonCommunityGame spawns a Pokémon I'll suggest which ball to throw. Mods can add balls on !dashboard → 🔴 Pokéballs."
+        : "Pokéball advisor off.");
+    }
+    return true;
+  }
+
+  // Everything else only answers while the module is on.
+  if (!(await isPokeballEnabled(broadcasterId))) return false;
+  const balls = await listBalls(broadcasterId);
+  if (action === "balls" || action === "list") {
+    const known = balls.filter((b) => b.status === "active").map((b) => b.name);
+    await say(`🔴 Balls I know: ${known.join(", ")}.`);
+    return true;
+  }
+  if (action === "unknown" || action === "pending") {
+    const pending = balls.filter((b) => b.status === "pending");
+    await say(pending.length
+      ? `🔴 Balls I don't know yet: ${pending.map((b) => b.name).join(", ")}. Mods can teach them on !dashboard → 🔴 Pokéballs.`
+      : "🔴 No unknown balls — I know every ball chat has used.");
+    return true;
+  }
+  // !pokeball <Pokémon> — the same suggestion a spawn gets.
+  await sendChatMessage(await adviceFor(arg.slice(0, 40), balls), broadcasterId);
   return true;
 }
 
@@ -75,6 +102,26 @@ export function parseSpawn(text: string): string | null {
   if (!m) return null;
   const name = m[1].replace(/[!.]+$/, "").trim();
   return name && name.length <= 40 ? name : null;
+}
+
+const NOT_BALL_WORDS = new Set(["a", "an", "the", "any", "your", "this", "that", "no", "one", "each", "every", "my", "their", "his", "her", "of", "with", "and", "foot", "base", "snow", "basket", "hair"]);
+
+/** Ball keys mentioned in a message: "Dusk Ball", "duskball". */
+export function ballsMentioned(text: string): string[] {
+  const keys = new Set<string>();
+  for (const m of text.matchAll(/(?:^|[^a-zé])([a-zé]+)\s?ball(?:s)?\b/gi)) {
+    const word = m[1].toLowerCase();
+    if (!NOT_BALL_WORDS.has(word)) keys.add(ballKey(word));
+  }
+  return [...keys].filter((k) => k.length > 4 && k.length <= 24);
+}
+
+/** The ball a viewer threw: "!pokecatch dusk ball" / "!pokecatch duskball" / "!pokecatch dusk" → "duskball". */
+export function thrownBall(text: string): string | null {
+  const m = text.trim().match(/^!pokecatch\s+([a-zé]+)(?:\s?ball)?\b/i);
+  if (!m) return null;
+  const key = ballKey(m[1]);
+  return key.length > 4 && key.length <= 24 ? key : null;
 }
 
 const REGIONS: Record<string, string> = { alolan: "alola", galarian: "galar", hisuian: "hisui", paldean: "paldea" };
@@ -95,7 +142,7 @@ export function pokeApiSlugs(name: string): string[] {
   return suffix ? [`${base}${suffix}`, base] : [base];
 }
 
-interface PokeInfo {
+export interface PokeInfo {
   name: string;
   types: string[];
   weightKg: number;
@@ -104,7 +151,7 @@ interface PokeInfo {
   legendary: boolean;
 }
 
-const cache = new Map<string, PokeInfo | null>();
+const cache = new Map<string, PokeInfo>();
 
 async function getJson(url: string): Promise<any | null> {
   try {
@@ -122,7 +169,7 @@ async function lookupPokemon(name: string): Promise<PokeInfo | null> {
   let info: PokeInfo | null = null;
   for (const slug of pokeApiSlugs(name)) {
     let poke = await getJson(`https://pokeapi.co/api/v2/pokemon/${slug}`);
-    let species = null;
+    let species: any = null;
     if (!poke) {
       // Species with forms (e.g. "Deoxys", "Toxtricity") have no plain /pokemon/<name>.
       species = await getJson(`https://pokeapi.co/api/v2/pokemon-species/${slug}`);
@@ -141,7 +188,7 @@ async function lookupPokemon(name: string): Promise<PokeInfo | null> {
     };
     break;
   }
-  // Don't remember a failed lookup forever — only cache hits, plus a small cap.
+  // Only hits are cached (a failed lookup is retried next time), with a small cap.
   if (info) {
     if (cache.size > 500) cache.clear();
     cache.set(key, info);
@@ -151,49 +198,110 @@ async function lookupPokemon(name: string): Promise<PokeInfo | null> {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** The ball to throw and why. */
-export function recommendBall(p: PokeInfo): { ball: string; why: string } {
-  const rate = p.captureRate;
-  if (p.legendary || rate <= 3) return { ball: "Ultra Ball (Master Ball if you have one)", why: p.legendary ? "legendary — very hard catch" : "very hard catch" };
-  if (rate >= 190) return { ball: "Poké Ball", why: "easy catch — save your good balls" };
-  if (p.types.includes("water") || p.types.includes("bug")) return { ball: "Net Ball", why: `${p.types.includes("water") ? "Water" : "Bug"} type` };
-  if (p.weightKg >= 200) return { ball: "Heavy Ball", why: `heavy (${p.weightKg} kg)` };
-  if (p.speed >= 100) return { ball: "Fast Ball", why: `fast (base Speed ${p.speed})` };
-  if (rate >= 150) return { ball: "Poké Ball", why: "easy catch" };
-  if (rate >= 75) return { ball: "Great Ball", why: "medium catch" };
-  return { ball: "Ultra Ball", why: "tough catch" };
+/** Why this ball fits this Pokémon ("" for a ball that works on anything), or null if its rule doesn't apply. */
+export function ballFits(b: Ball, p: PokeInfo): string | null {
+  const n = Number(b.value);
+  switch (b.rule) {
+    case "always": return "";
+    case "types": {
+      const hit = p.types.find((t) => b.value.toLowerCase().split(/[\s,]+/).includes(t));
+      return hit ? `${cap(hit)} type` : null;
+    }
+    case "heavy": return p.weightKg >= n ? `heavy (${p.weightKg} kg)` : null;
+    case "fast": return p.speed >= n ? `fast (base Speed ${p.speed})` : null;
+    case "hardcatch": return p.captureRate <= n ? "hard catch" : null;
+    case "easycatch": return p.captureRate >= n ? "easy catch" : null;
+    case "legendary": return p.legendary ? "legendary" : null;
+    default: return null; // timing, unknown
+  }
+}
+
+/** The ball to throw, why, and a timing ball to offer as the alternative. */
+export function recommendBall(p: PokeInfo, balls: Ball[]): { ball: string; why: string; alt: Ball | null } {
+  const active = balls.filter((b) => b.status === "active");
+  const alt = active.filter((b) => b.rule === "timing").sort((a, b) => b.mult - a.mult)[0] ?? null;
+  // Weakest first; on a tie a ball that works on anything comes first (it's the cheaper kind).
+  const fits = active
+    .map((b) => ({ b, why: ballFits(b, p) }))
+    .filter((c): c is { b: Ball; why: string } => c.why !== null && (p.legendary || c.b.mult < RESERVE_MULT))
+    .sort((x, y) => x.b.mult - y.b.mult || (x.why ? 1 : 0) - (y.why ? 1 : 0));
+  if (!fits.length) return { ball: "Poké Ball", why: "no other ball fits", alt };
+  const chance = (mult: number) => (p.captureRate * mult) / 255;
+  const pick = p.legendary
+    ? fits[fits.length - 1]
+    : fits.find((c) => chance(c.b.mult) >= GOOD_CHANCE) ?? fits[fits.length - 1];
+  let why = pick.why;
+  if (!why) why = p.captureRate >= 150 ? "easy catch — save your good balls" : p.captureRate >= 75 ? "medium catch" : "tough catch";
+  if (p.legendary && pick.why !== "legendary") why = `legendary — ${why}`;
+  return { ball: pick.b.name, why, alt };
+}
+
+async function adviceFor(name: string, balls: Ball[]): Promise<string> {
+  const info = await lookupPokemon(name);
+  if (!info) return `🔴 ${name}? I couldn't look it up — try a Great Ball, or a Quick Ball thrown right away.`;
+  const { ball, why, alt } = recommendBall(info, balls);
+  const types = info.types.map(cap).join("/");
+  const altText = alt && alt.name !== ball ? ` Alt: ${alt.name}${alt.note ? ` — ${alt.note.replace(/\.$/, "")}` : ""}.` : "";
+  return `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${why}).${altText}`;
+}
+
+/** Whether the advisor may talk in this channel right now. */
+async function advisorLive(broadcasterId: string): Promise<boolean> {
+  const [on, connection, blocked, channelOn] = await Promise.all([
+    isPokeballEnabled(broadcasterId),
+    getBroadcaster(broadcasterId),
+    isChannelBlocked(broadcasterId),
+    isChannelEnabled(broadcasterId),
+  ]);
+  if (!on || !connection || Number(connection.connected) !== 1 || blocked || !channelOn) return false;
+  return Number(connection.is_live) === 1; // quiet while offline, like other ambient sends
 }
 
 /**
  * Called for every bot-account chat message (main.ts). Replies with a ball
- * suggestion when PokemonCommunityGame announces a spawn in a channel that
- * has the advisor on. Never throws.
+ * suggestion when PokemonCommunityGame announces a spawn, and notes any
+ * ball it mentions that this channel doesn't know. Never throws.
  */
 export async function maybePokeballAdvice(broadcasterId: string, chatter: string, text: string): Promise<void> {
   try {
     if (chatter.toLowerCase() !== POKEMON_GAME_BOT) return;
     const name = parseSpawn(text);
-    if (!name) return;
-    const [on, connection, blocked, channelOn] = await Promise.all([
-      isPokeballEnabled(broadcasterId),
-      getBroadcaster(broadcasterId),
-      isChannelBlocked(broadcasterId),
-      isChannelEnabled(broadcasterId),
-    ]);
-    if (!on || !connection || Number(connection.connected) !== 1 || blocked || !channelOn) return;
-    if (Number(connection.is_live) !== 1) return; // quiet while offline, like other ambient sends
-    const info = await lookupPokemon(name);
-    if (!info) {
-      await sendChatMessage(`🔴 ${name} spotted! I couldn't look it up — try a Great Ball, or a Quick Ball thrown right away.`, broadcasterId);
-      return;
-    }
-    const { ball, why } = recommendBall(info);
-    const types = info.types.map(cap).join("/");
+    const mentioned = ballsMentioned(text);
+    if (!name && !mentioned.length) return;
+    if (!(await advisorLive(broadcasterId))) return;
+    const balls = await listBalls(broadcasterId);
+    const known = new Set(balls.map((b) => b.key));
+    // Unknown balls the game mentions are listed on the page quietly — only a viewer's throw asks chat.
+    for (const key of mentioned) if (!known.has(key)) await recordUnknownBall(broadcasterId, key, POKEMON_GAME_BOT);
+    if (name) await sendChatMessage(await adviceFor(name, balls), broadcasterId);
+  } catch {
+    // advisory only — never break chat handling
+  }
+}
+
+const lastAsk = new Map<string, number>();
+
+/**
+ * Called for viewers' chat messages (main.ts). When someone throws a ball
+ * this channel doesn't know (!pokecatch duskball), it goes on the page's
+ * unknown list, and the first time, chat is asked what it does. Never
+ * claims the message — PokemonCommunityGame still gets it. Never throws.
+ */
+export async function maybeAskAboutBall(broadcasterId: string, chatter: string, text: string): Promise<void> {
+  try {
+    const key = thrownBall(text);
+    if (!key || !(await advisorLive(broadcasterId))) return;
+    const balls = await listBalls(broadcasterId);
+    if (balls.some((b) => b.key === key && b.status !== "pending")) return;
+    const first = await recordUnknownBall(broadcasterId, key, chatter);
+    const now = Date.now();
+    if (!first || now - (lastAsk.get(broadcasterId) ?? 0) < ASK_COOLDOWN_MS) return;
+    lastAsk.set(broadcasterId, now);
     await sendChatMessage(
-      `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${why}). Alt: Quick Ball if you throw right away.`,
+      `🔴 @${chatter} I don't know the ${ballNameFromKey(key)} yet — what does it do? (Better against a type? Heavy or fast Pokémon? Hard catches? Timing?) Mods can teach me on !dashboard → 🔴 Pokéballs.`,
       broadcasterId,
     );
   } catch {
-    // advisory only — never break chat handling
+    // advisory only
   }
 }
