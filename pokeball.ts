@@ -31,7 +31,7 @@ import {
   type Ball,
   ballKey,
   ballNameFromKey,
-  weightSteps,
+  weightPct,
   isPokeballEnabled,
   listBalls,
   recordUnknownBall,
@@ -213,7 +213,7 @@ export function ballFits(b: Ball, p: PokeInfo): string | null {
       return hit ? `${cap(hit)} type` : null;
     }
     case "heavy": return p.weightKg >= n ? `heavy (${p.weightKg} kg)` : null;
-    case "weight": return weightSteps(b.value).some((s) => p.weightKg >= s.kg) ? `heavy (${p.weightKg} kg)` : "";
+    case "weight": return p.weightKg >= 200 ? `heavy (${p.weightKg} kg)` : "";
     case "fast": return p.speed >= n ? `fast (base Speed ${p.speed})` : null;
     case "hardcatch": return p.captureRate <= n ? "hard catch" : null;
     case "easycatch": return p.captureRate >= n ? "easy catch" : null;
@@ -222,10 +222,9 @@ export function ballFits(b: Ball, p: PokeInfo): string | null {
   }
 }
 
-/** This ball's catch bonus against this Pokémon: a "weight" ball's highest step it reaches, else the ball's own. */
+/** This ball's catch bonus against this Pokémon (a "weight" ball's depends on how heavy it is). */
 export function ballPct(b: Ball, p: PokeInfo): number {
-  if (b.rule !== "weight") return b.pct;
-  return weightSteps(b.value).filter((s) => p.weightKg >= s.kg).pop()?.pct ?? b.pct;
+  return b.rule === "weight" ? weightPct(b.pct, p.weightKg) : b.pct;
 }
 
 /** The ball to throw, why, and a timing ball to offer as the alternative. */
