@@ -18,6 +18,7 @@ import {
   saveBall,
   setBallStatus,
   setPokeballEnabled,
+  weightSteps,
 } from "./pokeball_db.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
@@ -25,10 +26,14 @@ import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 const NAME_RE = /^[A-Za-zÀ-ÿ0-9' -]{2,30}$/;
 
 /** What the rule means for this ball, in a few words. */
-export function describeRule(b: Pick<Ball, "rule" | "value">): string {
+export function describeRule(b: Pick<Ball, "rule" | "value" | "pct">): string {
   switch (b.rule) {
     case "types": return `vs ${b.value.split(/[\s,]+/).filter(Boolean).map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(", ")} types`;
     case "heavy": return `vs Pokémon ${b.value} kg+`;
+    case "weight": {
+      const steps = weightSteps(b.value);
+      return `scales with weight: under ${steps[0]?.kg ?? 0} kg ${b.pct}%, ${steps.map((s) => `${s.kg} kg+ ${s.pct}%`).join(", ")}`;
+    }
     case "fast": return `vs base Speed ${b.value}+`;
     case "hardcatch": return `vs catch rate ${b.value} or lower`;
     case "easycatch": return `vs catch rate ${b.value} or higher`;
@@ -53,6 +58,13 @@ function readBall(form: FormData): { ball?: Pick<Ball, "key" | "name" | "rule" |
     if (!types.length) return { error: "List the types it's good against, e.g. dark, ghost." };
     if (bad.length) return { error: `"${bad[0]}" isn't a Pokémon type. Types: ${POKEMON_TYPES.join(", ")}.` };
     value = types.join(",");
+  } else if (rule === "weight") {
+    const parts = value.split(/[\s,]+/).filter(Boolean);
+    const steps = weightSteps(value);
+    if (!parts.length || steps.length !== parts.length || steps.some((s) => s.kg > 1000)) {
+      return { error: "Scales with weight: list weight:catch % steps, e.g. 100:30, 200:55, 300:80 (kg up to 1000, % up to 100)." };
+    }
+    value = steps.map((s) => `${s.kg}:${s.pct}`).join(",");
   } else if (BALL_RULES[rule].value) {
     const n = Number(value);
     const max = rule === "heavy" ? 1000 : 255;
@@ -146,7 +158,7 @@ export async function renderPokeballPage(d: {
 <label>Name<input type="text" name="name" value="${escapeHtml(f.name)}" placeholder="Dusk Ball" required maxlength="30"></label>
 <label>Good for<select name="rule" id="rule">${f.rule === "unknown" ? `<option value="" selected disabled>Pick one…</option>` : ""}${ruleOptions}</select></label>
 <label id="valwrap">Value<input type="text" name="value" id="value" value="${escapeHtml(f.value)}" placeholder="dark, ghost"></label>
-<label>Catch bonus (%)<input type="number" name="pct" value="${f.pct}" min="1" max="100" step="any" required><span class="muted small">Poké Ball 30%, Cherish 30%, Great 55%, Ultra 80%, Master 100%</span></label>
+<label>Catch bonus (%)<input type="number" name="pct" value="${f.pct}" min="1" max="100" step="any" required><span class="muted small">Poké Ball 30%, Cherish 30%, Great 55%, Ultra 80%, Master 100%. For “Scales with weight”, the bonus below the first step.</span></label>
 <label>Note <span class="muted small">(optional — shown in chat for timing balls)</span><input type="text" name="note" value="${escapeHtml(f.note)}" maxlength="120" placeholder="Best thrown right away."></label>
 <div class="row"><button type="submit" class="ember">${editing ? "Save" : "Add ball"}</button>${editing ? ` <a class="btn ghost" href="/dashboard/pokeballs?${qs}">Cancel</a>` : ""}</div></form>
 <p class="muted small">Pokémon types: ${POKEMON_TYPES.join(", ")}.</p>

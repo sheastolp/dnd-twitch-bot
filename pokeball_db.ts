@@ -20,6 +20,7 @@ export type BallRule =
   | "always" //   works on anything at its catch bonus
   | "types" //    bonus against the listed types (value: "water,bug")
   | "heavy" //    bonus at value+ kg
+  | "weight" //   catch bonus scales with weight (value: "100:30,200:55,300:80" — kg+:%; below the first, the ball's own bonus)
   | "fast" //     bonus at base Speed value+
   | "hardcatch" // bonus at catch rate value or lower
   | "easycatch" // bonus at catch rate value or higher
@@ -31,6 +32,7 @@ export const BALL_RULES: Record<BallRule, { label: string; value?: string }> = {
   always: { label: "Works on anything" },
   types: { label: "Better against types", value: "types, e.g. water, bug" },
   heavy: { label: "Better against heavy Pokémon", value: "minimum weight in kg" },
+  weight: { label: "Scales with weight", value: "kg:catch % steps, e.g. 100:30, 200:55, 300:80" },
   fast: { label: "Better against fast Pokémon", value: "minimum base Speed" },
   hardcatch: { label: "Better against hard catches", value: "catch rate at or below (0–255)" },
   easycatch: { label: "Better against easy catches", value: "catch rate at or above (0–255)" },
@@ -73,13 +75,21 @@ export const CORE_BALLS: Ball[] = [
   core("Ultra Ball", "always", "", 80, ""),
   core("Master Ball", "legendary", "", 100, "Never fails — saved for legendaries."),
   core("Net Ball", "types", "water,bug", 80, ""),
-  core("Heavy Ball", "heavy", "200", 80, ""),
+  core("Heavy Ball", "weight", "100:40,200:70,300:90", 20, "Weaker on light Pokémon."),
   core("Fast Ball", "fast", "100", 80, ""),
   core("Quick Ball", "timing", "", 80, "Best thrown right away."),
 ];
 
 /** The broadcaster_id of ball definitions every channel shares. */
 const GLOBAL = "*";
+
+/** A "weight" ball's steps, lightest first: "100:30, 200:55" → [{kg:100,pct:30},{kg:200,pct:55}]. Bad entries are skipped. */
+export function weightSteps(value: string): { kg: number; pct: number }[] {
+  return value.split(/[\s,]+/).map((part) => part.split(":").map(Number))
+    .filter(([kg, pct]) => Number.isFinite(kg) && Number.isFinite(pct) && kg >= 0 && pct > 0 && pct <= 100)
+    .map(([kg, pct]) => ({ kg, pct }))
+    .sort((a, b) => a.kg - b.kg);
+}
 
 /** "Net Ball", "netball", "net" → "netball". */
 export function ballKey(raw: string): string {
