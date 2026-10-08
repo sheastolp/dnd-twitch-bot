@@ -7,8 +7,8 @@
 // whose DC is the bot's roll (a tie saves): it adds to the totals but has no
 // ability cell of its own.
 //
-// A roll saves when its total meets the DC (DEFAULT_DC when chat didn't name
-// one). "This stream" starts on stream.online, or when a mod types
+// A roll saves when its total meets the DC: the one chat named, else the
+// bot's own d20 roll (a tie saves). "This stream" starts on stream.online, or when a mod types
 // `!saves reset`; before either has happened the tally covers FALLBACK_MS.
 // `!saves` posts the tally in chat. Both ride on the `rollchecks` dashboard
 // switch (Saves & skill checks), which also hides the overlay tally.

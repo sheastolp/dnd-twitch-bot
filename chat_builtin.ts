@@ -12,7 +12,7 @@ import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from 
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
-import { DEFAULT_DC, PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
+import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
@@ -64,11 +64,17 @@ async function rollCharacterCheck(opts: {
   if (result.rawD20 === 20 || result.rawD20 === 1) {
     await recordDiceRollEvent(broadcasterId, chatter, display, result.rawD20 === 20 ? "nat20" : "nat1");
   }
+  // A saving throw goes against the bot's own 1d20 (a tie saves), unless
+  // chat named a DC (!save dex dc15).
   let verdict = "";
   if (kind.type === "save" && result.rawD20 !== null) {
-    const dc = check.dc ?? DEFAULT_DC;
+    const botRoll = check.dc ? null : 1 + Math.floor(Math.random() * 20);
+    const dc = check.dc ?? botRoll!;
     await recordSavingThrow(broadcasterId, { username: owner, displayName: target ?? display }, kind.ability, result.rawD20, result.total, dc);
-    if (check.dc) verdict = result.total >= dc ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`;
+    const saved = result.total >= dc;
+    verdict = botRoll === null
+      ? (saved ? ` ✔ Saved vs DC ${dc}!` : ` ✘ Failed vs DC ${dc}.`)
+      : ` vs 🤖 GuildScribe's 1d20 → [${botRoll}]. ${saved ? (result.total === botRoll ? "✔ Tied — ties go to the saver. SAVED!" : "✔ SAVED!") : "✘ FAILED the save!"}`;
   }
   await sendChatMessage(
     target ? `@${display} rolled for @${target}: ${result.text}${verdict}` : `@${display} ${result.text}${verdict}`,
@@ -254,7 +260,8 @@ export async function handleBuiltinChatCommand(ctx: {
     }
   } else if (/^!save(?:\s+.*)?$/i.test(chatMessage)) {
     // !save <ability> [dc] — an ability saving throw with the saver's
-    // character sheet (!save dex, !save wis dc15, !save @user con).
+    // character sheet (!save dex, !save @user con) against the bot's 1d20,
+    // or against a DC when one is named (!save wis dc15).
     // !save [@user] [modifiers] — 1d20 + optional modifiers (!save +3,
     // !save -1 +1d4) against the bot's own 1d20; ties go to the saver.
     // !save @user [modifiers] makes @user roll the saving throw instead.

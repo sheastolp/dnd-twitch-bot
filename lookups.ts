@@ -148,7 +148,10 @@ export function formatSpellSections(data: any, bonus: number | null = null) {
               .join("/")
       }`
     : "no direct damage";
-  const dc = data.dc ? `${data.dc.dc_type?.name ?? "save"} save (${data.dc.dc_success ?? "normal"})` : "no save";
+  const saveStat = String(data.dc?.dc_type?.index ?? "").toLowerCase();
+  const dc = data.dc
+    ? `${data.dc.dc_type?.name ?? "save"} save (${data.dc.dc_success ?? "normal"})${/^(str|dex|con|int|wis|cha)$/.test(saveStat) ? ` — roll !save ${saveStat}` : ""}`
+    : "no save";
   const area = data.area_of_effect
     ? `${data.area_of_effect.size}-ft ${data.area_of_effect.type}`
     : "not listed";
