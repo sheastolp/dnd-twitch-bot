@@ -197,6 +197,10 @@ export async function ensureTables() {
       last_posts_ok INTEGER NOT NULL DEFAULT 0, last_posts_failed INTEGER NOT NULL DEFAULT 0
     )`,
   );
+  // A table copied from an older deployment can predate these columns.
+  for (const col of ["last_run_at INTEGER", "channels_due INTEGER NOT NULL DEFAULT 0", "last_posts_ok INTEGER NOT NULL DEFAULT 0", "last_posts_failed INTEGER NOT NULL DEFAULT 0"]) {
+    try { await sqlite.execute(`ALTER TABLE merchant_cron_status ADD COLUMN ${col}`); } catch (_) {}
+  }
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS eventsub_messages (message_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL)`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS command_rate_limits (broadcaster_id TEXT, username TEXT, last_at INTEGER NOT NULL, PRIMARY KEY (broadcaster_id, username))`);
   await sqlite.execute(`CREATE TABLE IF NOT EXISTS pending_eventsub_cancellations (subscription_id TEXT PRIMARY KEY, broadcaster_id TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, updated_at INTEGER NOT NULL)`);
