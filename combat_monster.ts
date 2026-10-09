@@ -5,9 +5,9 @@
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { combatStats, heroAc } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
-import { simulateMonsterFight } from "./battle.ts";
+import { BattleLog, simulateMonsterFight } from "./battle.ts";
+import { classicText, heroFighter, heroTurn, monsterFighter, monsterTurn } from "./combat_abilities.ts";
 import { getCharacter, getMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -298,28 +298,23 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const pStats = combatStats(player);
     const playerHp = Number(active.player_hp ?? player.hpMax);
-    const roll = 1 + Math.floor(Math.random() * 20);
-    const toHitBonus = pStats.toHit + 1;
-    const total = roll + toHitBonus;
-    const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= Number(active.monster_ac));
-    const dmgDie = 10;
-    const dice = critical
-      ? 1 + Math.floor(Math.random() * dmgDie) + 1 +
-        Math.floor(Math.random() * dmgDie)
-      : 1 + Math.floor(Math.random() * dmgDie);
-    const damage = hit ? Math.max(1, dice + pStats.mod + 1) : 0;
-    active.monster_hp = Math.max(0, Number(active.monster_hp) - damage);
-    const playerResult =
-      `${username} attacks ${active.monster_name}: d20 ${roll}${
-        critical ? " CRITICAL" : ""
-      } + ${toHitBonus} = ${total} vs AC ${active.monster_ac} → ${
-        hit
-          ? `hit for ${damage} (${active.monster_name} ${active.monster_hp}/${active.monster_hp_max} HP)`
-          : "miss"
-      }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
+    // Classic turns keep no state between commands, so only always-on
+    // abilities apply (combat_abilities.ts). Same d10 and hunter's edge as
+    // the auto fight.
+    const hero = heroFighter(username, player, playerHp, 11, { stateless: true, minDie: 10, edge: 1 });
+    const foe = monsterFighter(
+      {
+        name: String(active.monster_name), ac: Number(active.monster_ac), attack: Number(active.monster_attack),
+        die: Number(active.monster_damage_die), bonus: Number(active.monster_damage_bonus),
+      },
+      Number(active.monster_hp),
+      Number(active.monster_hp_max),
+    );
+    const strikes = heroTurn(hero, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
+    active.monster_hp = foe.hp;
+    const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
+    const playerResult = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;
     if (active.monster_hp <= 0) {
       await sqlite.execute(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",
@@ -351,24 +346,10 @@ export async function handleMonsterDuelCommand(
       );
       return true;
     }
-    const monsterRoll = 1 + Math.floor(Math.random() * 20);
-    const monsterTotal = monsterRoll + Number(active.monster_attack);
-    const playerAc = heroAc(player, 11).ac;
-    const monsterHit = monsterRoll !== 1 &&
-      (monsterRoll === 20 || monsterTotal >= playerAc);
-    const monsterDice = 1 +
-      Math.floor(Math.random() * Number(active.monster_damage_die));
-    const monsterDamage = monsterHit
-      ? Math.max(1, monsterDice + Number(active.monster_damage_bonus))
-      : 0;
-    const nextPlayerHp = Math.max(0, playerHp - monsterDamage);
+    const strikeBack = monsterTurn(foe, hero, new BattleLog(), 2);
+    const nextPlayerHp = hero.hp;
     active.player_hp = nextPlayerHp;
-    const monsterResult =
-      `${active.monster_name} strikes back at ${username}: d20 ${monsterRoll} + ${active.monster_attack} = ${monsterTotal} vs AC ${playerAc} → ${
-        monsterHit
-          ? `hit for ${monsterDamage} (${username} ${nextPlayerHp}/${player.hpMax} HP)`
-          : "miss"
-      }. ${duelNarration(monsterHit ? "hit" : "miss")}`;
+    const monsterResult = `${classicText([strikeBack])} ${duelNarration(strikeBack.hit ? "hit" : "miss")}`;
     if (nextPlayerHp <= 0) {
       await sqlite.execute(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",

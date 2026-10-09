@@ -4,7 +4,8 @@
 // under Val Town's per-file size ceiling.
 
 import { duelNarration } from "./narration.ts";
-import { BattleLog, fighterLine, simulateAttack } from "./battle.ts";
+import { BattleLog, fighterLine } from "./battle.ts";
+import { heroFighter, heroTurn } from "./combat_abilities.ts";
 import { getCharacter, sqlite } from "./db.ts";
 import { initiativeMod, rollInitiative } from "./utils.ts";
 import { sendChatMessage } from "./twitch.ts";
@@ -105,11 +106,9 @@ export function resolvePlayerDuel(
   aChar: any,
   bChar: any,
 ): { winner: string; log: string; fullLog: string; rounds: number; hp: Record<string, number> } {
-  const hp: Record<string, number> = {
-    [aName]: aChar.hpMax,
-    [bName]: bChar.hpMax,
-  };
-  const maxRounds = 20; // 40 swings, same cap as before
+  const a = heroFighter(aName, aChar, aChar.hpMax, 10);
+  const b = heroFighter(bName, bChar, bChar.hpMax, 10);
+  const maxRounds = 20;
   const battle = new BattleLog();
   battle.describe(fighterLine(aName, aChar, aChar.hpMax, 10));
   battle.describe(fighterLine(bName, bChar, bChar.hpMax, 10));
@@ -119,21 +118,20 @@ export function resolvePlayerDuel(
   const aFirst = aInit.total !== bInit.total
     ? aInit.total > bInit.total
     : initiativeMod(aChar) >= initiativeMod(bChar);
-  const [first, second] = aFirst ? [aName, bName] : [bName, aName];
-  const chars: Record<string, any> = { [aName]: aChar, [bName]: bChar };
+  const [first, second] = aFirst ? [a, b] : [b, a];
   battle.describe(
-    `Initiative (d20 + DEX): ${aName} ${aInit.total}, ${bName} ${bInit.total} — ${first} swings first each round; ${second} answers if still standing.`,
+    `Initiative (d20 + DEX): ${aName} ${aInit.total}, ${bName} ${bInit.total} — ${first.name} swings first each round; ${second.name} answers if still standing.`,
   );
   let rounds = 0;
-  while (hp[aName] > 0 && hp[bName] > 0 && rounds < maxRounds) {
+  while (a.hp > 0 && b.hp > 0 && rounds < maxRounds) {
     rounds++;
     battle.nextRound();
-    battle.strike(simulateAttack(first, second, chars[first], chars[second], hp));
-    if (hp[second] > 0) {
-      battle.strike(simulateAttack(second, first, chars[second], chars[first], hp));
-    }
+    heroTurn(first, () => (second.hp > 0 ? second : undefined), battle, rounds);
+    if (second.hp > 0) heroTurn(second, () => (first.hp > 0 ? first : undefined), battle, rounds);
   }
-  const winner = hp[aName] > 0 ? aName : bName;
+  // Both still standing at the cap: the one with more of their HP left wins.
+  const winner = b.hp <= 0 || (a.hp > 0 && a.hp / a.max >= b.hp / b.max) ? aName : bName;
+  const hp: Record<string, number> = { [aName]: a.hp, [bName]: b.hp };
   const shown = battle.render();
   const log = [
     `${aName} (${aChar.hpMax} HP) vs ${bName} (${bChar.hpMax} HP) — auto-resolved in ${rounds} round${

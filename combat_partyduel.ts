@@ -5,9 +5,10 @@
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { combatStats, firstAlive, heroAc, initiativeMod } from "./utils.ts";
+import { firstAlive, initiativeMod } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
-import { BattleLog, fighterLine, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
+import { BattleLog, fighterLine } from "./battle.ts";
+import { classicText, firstStanding, heroFighter, heroTurn, monsterFighter, monsterTurn, team } from "./combat_abilities.ts";
 import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -136,27 +137,21 @@ export async function handlePartyDuelCommand(
         );
         return true;
       }
-      const stats = combatStats(attacker);
-      const roll = 1 + Math.floor(Math.random() * 20);
-      const total = roll + stats.toHit;
-      const critical = roll === 20;
-      const hit = critical ||
-        (roll !== 1 && total >= Number(partyHunt.monster_ac));
-      const dice = critical
-        ? 1 + Math.floor(Math.random() * 8) + 1 + Math.floor(Math.random() * 8)
-        : 1 + Math.floor(Math.random() * 8);
-      const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-      partyHunt.monster_hp = Math.max(0, Number(partyHunt.monster_hp) - damage);
-      const playerResult =
-        `${attackerName} attacks ${partyHunt.monster_name}: d20 ${roll}${
-          critical ? " CRITICAL" : ""
-        } + ${
-          stats.toHit
-        } = ${total} vs AC ${partyHunt.monster_ac} → ${
-          hit
-            ? `hit for ${damage} (${partyHunt.monster_name} ${partyHunt.monster_hp}/${partyHunt.monster_hp_max} HP)`
-            : "miss"
-        }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
+      // Classic turns keep no state between commands, so only always-on
+      // abilities apply (combat_abilities.ts).
+      const hunter = heroFighter(attackerName, attacker, Number(partyHunt.member_hp[attackerName] ?? attacker.hpMax), 10, { stateless: true });
+      const foe = monsterFighter(
+        {
+          name: String(partyHunt.monster_name), ac: Number(partyHunt.monster_ac), attack: Number(partyHunt.monster_attack),
+          die: Number(partyHunt.monster_damage_die), bonus: Number(partyHunt.monster_damage_bonus),
+        },
+        Number(partyHunt.monster_hp),
+        Number(partyHunt.monster_hp_max),
+      );
+      const strikes = heroTurn(hunter, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
+      partyHunt.monster_hp = foe.hp;
+      const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
+      const playerResult = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;
 
       if (partyHunt.monster_hp <= 0) {
         await sqlite.execute(
@@ -205,27 +200,11 @@ export async function handlePartyDuelCommand(
       const targetName = living[Math.floor(Math.random() * living.length)] ??
         attackerName;
       const targetChar = await getCharacter(targetName, broadcasterId);
-      const playerAc = targetChar ? heroAc(targetChar, 10).ac : 12;
-      const mRoll = 1 + Math.floor(Math.random() * 20);
-      const mTotal = mRoll + Number(partyHunt.monster_attack);
-      const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
-      const mDice = 1 +
-        Math.floor(Math.random() * Number(partyHunt.monster_damage_die));
-      const mDamage = mHit
-        ? Math.max(1, mDice + Number(partyHunt.monster_damage_bonus))
-        : 0;
-      if (mHit) {
-        partyHunt.member_hp[targetName] = Math.max(
-          0,
-          (partyHunt.member_hp[targetName] ?? 0) - mDamage,
-        );
-      }
-      const monsterResult =
-        `${partyHunt.monster_name} strikes ${targetName}: d20 ${mRoll} + ${partyHunt.monster_attack} = ${mTotal} vs AC ${playerAc} → ${
-          mHit
-            ? `hit for ${mDamage} (${targetName} ${partyHunt.member_hp[targetName]}/${targetChar?.hpMax ?? "?"} HP)`
-            : "miss"
-        }.`;
+      const victim = targetChar
+        ? heroFighter(targetName, targetChar, Number(partyHunt.member_hp[targetName] ?? 0), 10, { stateless: true })
+        : { name: targetName, hp: Number(partyHunt.member_hp[targetName] ?? 0), max: 0, ac: 12, acWhy: "" };
+      const monsterResult = classicText([monsterTurn(foe, victim, new BattleLog(), 2)]);
+      partyHunt.member_hp[targetName] = victim.hp;
 
       const stillAlive = partyHunt.members.some((n: string) =>
         (partyHunt.member_hp[n] ?? 0) > 0
@@ -382,88 +361,30 @@ export async function handlePartyDuelCommand(
     if (!(await claimHunt(broadcasterId, livingMembers, display, { self: username }))) return true;
 
     if (!classic) {
-      // Auto-resolve: each living member attacks, then monster hits a random member
-      let monsterHp = monster.hp;
-      const hp = { ...memberHp };
+      // Auto-resolve: each living member takes their turn, then the monster
+      // hits a random member. Class abilities: combat_abilities.ts.
       const battle = new BattleLog();
-      for (const n of livingMembers) battle.describe(fighterLine(n, chars[n], hp[n], 10));
+      for (const n of livingMembers) battle.describe(fighterLine(n, chars[n], memberHp[n], 10));
       battle.describe(
         `${monster.name}: CR ${monster.cr}, ${monster.hp} HP (scaled ×${sizeScale.toFixed(2)} for a party of ${livingMembers.length}), AC ${monster.ac} (stat block), ` +
           `attack d20 + ${monster.attack}, damage 1d${monster.die} + ${monster.bonus}; strikes one random standing member after each round of party attacks.`,
       );
-      let swings = 0;
-      const maxSwings = 100;
-      while (
-        monsterHp > 0 && livingMembers.some((n) => hp[n] > 0) &&
-        swings < maxSwings
-      ) {
-        swings++;
+      const heroes = team(...livingMembers.map((n) => heroFighter(n, chars[n], memberHp[n], 10)));
+      const foe = monsterFighter(monster, monster.hp, monster.hp);
+      const maxRounds = 100;
+      for (let round = 1; round <= maxRounds && foe.hp > 0 && heroes.some((h) => h.hp > 0); round++) {
         battle.nextRound();
-        for (const n of livingMembers) {
-          if (hp[n] <= 0 || monsterHp <= 0) continue;
-          const stats = combatStats(chars[n]);
-          const ability = stats.ability;
-          const roll = 1 + Math.floor(Math.random() * 20);
-          const total = roll + stats.toHit;
-          const critical = roll === 20;
-          const hit = critical || (roll !== 1 && total >= monster.ac);
-          const rolls = rollDice(critical ? 2 : 1, 8);
-          const dice = rolls.reduce((x, y) => x + y, 0);
-          const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-          const monsterHpBefore = monsterHp;
-          if (hit) monsterHp = Math.max(0, monsterHp - damage);
-          battle.strike({
-            actor: n,
-            target: monster.name,
-            hit,
-            crit: critical,
-            fumble: roll === 1,
-            roll,
-            total,
-            ac: monster.ac,
-            damage,
-            targetHp: monsterHp,
-            targetMax: monster.hp,
-            acWhy: MONSTER_AC_WHY,
-            atk: [[ability, stats.mod], ["prof", chars[n].proficiency]],
-            dmgDice: hit ? rolls : undefined,
-            dmgDie: 8,
-            dmgMods: [[ability, stats.mod]],
-            hpBefore: monsterHpBefore,
-          });
+        for (const h of heroes) {
+          if (foe.hp <= 0) break;
+          heroTurn(h, () => (foe.hp > 0 ? foe : undefined), battle, round);
         }
-        if (monsterHp <= 0) break;
-        const living = livingMembers.filter((n) => hp[n] > 0);
+        if (foe.hp <= 0) break;
+        const living = heroes.filter((h) => h.hp > 0);
         if (!living.length) break;
-        const victim = living[Math.floor(Math.random() * living.length)];
-        const playerAc = heroAc(chars[victim], 10).ac;
-        const mRoll = 1 + Math.floor(Math.random() * 20);
-        const mTotal = mRoll + monster.attack;
-        const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
-        const mDice = 1 + Math.floor(Math.random() * monster.die);
-        const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
-        const victimHpBefore = hp[victim];
-        if (mHit) hp[victim] = Math.max(0, hp[victim] - mDamage);
-        battle.strike({
-          actor: monster.name,
-          target: victim,
-          hit: mHit,
-          crit: mRoll === 20,
-          fumble: mRoll === 1,
-          roll: mRoll,
-          total: mTotal,
-          ac: playerAc,
-          damage: mDamage,
-          targetHp: hp[victim],
-          targetMax: Number(chars[victim].hpMax ?? memberHp[victim] ?? 0),
-          acWhy: heroAcWhy(10, chars[victim]),
-          atk: [["atk", monster.attack]],
-          dmgDice: mHit ? [mDice] : undefined,
-          dmgDie: monster.die,
-          dmgMods: [["bonus", monster.bonus]],
-          hpBefore: victimHpBefore,
-        });
+        monsterTurn(foe, living[Math.floor(Math.random() * living.length)], battle, round);
       }
+      const monsterHp = foe.hp;
+      const hp: Record<string, number> = Object.fromEntries(heroes.map((h) => [h.name, h.hp]));
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, partyWon, avgLevel);
       await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyName), foe: monster.name, outcome: partyWon ? "win" : "loss" });
@@ -656,9 +577,9 @@ export async function handlePartyDuelCommand(
     }
 
     // Auto-resolve party duel. One round = each side's front-line fighter
-    // (first member still standing) swings once. Each side rolls initiative
-    // once, d20 + its quickest member's DEX modifier; the higher total swings
-    // first every round (ties: the challenger).
+    // (first member still standing) takes their turn. Each side rolls
+    // initiative once, d20 + its quickest member's DEX modifier; the higher
+    // total goes first every round (ties: the challenger).
     const battle = new BattleLog();
     for (const n of attackers) battle.describe(`[${challenge.challenger_party}] ${fighterLine(n, aChars[n], aHp[n], 10)}`);
     for (const n of defenders) battle.describe(`[${challenge.defender_party}] ${fighterLine(n, dChars[n], dHp[n], 10)}`);
@@ -671,36 +592,29 @@ export async function handlePartyDuelCommand(
         order[0] === "challenger" ? challenge.challenger_party : challenge.defender_party
       } swings first each round.`,
     );
+    const sides = {
+      challenger: team(...attackers.map((n) => heroFighter(n, aChars[n], aHp[n], 10))),
+      defender: team(...defenders.map((n) => heroFighter(n, dChars[n], dHp[n], 10))),
+    };
     let rounds = 0;
-    const maxRounds = 40; // 80 swings, same cap as before
+    const maxRounds = 40;
     while (
-      attackers.some((n) => aHp[n] > 0) &&
-      defenders.some((n) => dHp[n] > 0) &&
+      sides.challenger.some((f) => f.hp > 0) &&
+      sides.defender.some((f) => f.hp > 0) &&
       rounds < maxRounds
     ) {
       rounds++;
       battle.nextRound();
       for (const side of order) {
-        const atkMembers = side === "challenger" ? attackers : defenders;
-        const atkHp = side === "challenger" ? aHp : dHp;
-        const atkChars = side === "challenger" ? aChars : dChars;
-        const defMembers = side === "challenger" ? defenders : attackers;
-        const defHp = side === "challenger" ? dHp : aHp;
-        const defChars = side === "challenger" ? dChars : aChars;
-        const attackerName = atkMembers.find((n) => atkHp[n] > 0);
-        const defenderName = defMembers.find((n) => defHp[n] > 0);
-        if (!attackerName || !defenderName) break;
-        battle.strike(
-          simulateAttack(
-            attackerName,
-            defenderName,
-            atkChars[attackerName],
-            defChars[defenderName],
-            defHp,
-          ),
-        );
+        const mine = sides[side];
+        const theirs = sides[side === "challenger" ? "defender" : "challenger"];
+        const front = mine.find((f) => f.hp > 0);
+        if (!front || !theirs.some((f) => f.hp > 0)) break;
+        heroTurn(front, firstStanding(theirs), battle, rounds);
       }
     }
+    for (const f of sides.challenger) aHp[f.name] = f.hp;
+    for (const f of sides.defender) dHp[f.name] = f.hp;
     const challengerAlive = attackers.some((n) => aHp[n] > 0);
     const winnerParty = challengerAlive
       ? challenge.challenger_party
@@ -826,26 +740,12 @@ export async function handlePartyDuelCommand(
       );
       return true;
     }
-    const stats = combatStats(attacker);
-    const targetAc = combatStats(target).ac;
-    const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + stats.toHit;
-    const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= targetAc);
-    const dice = critical
-      ? 1 + Math.floor(Math.random() * 8) + (1 + Math.floor(Math.random() * 8))
-      : 1 + Math.floor(Math.random() * 8);
-    const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-    enemyHp[targetName] = Math.max(0, enemyHp[targetName] - damage);
-    const result = `${attackerName} attacks ${targetName}: d20 ${roll}${
-      critical ? " CRITICAL" : ""
-    } + ${
-      stats.toHit
-    } = ${total} vs AC ${targetAc} → ${
-      hit
-        ? `hit for ${damage} (${targetName} ${enemyHp[targetName]}/${target.hpMax} HP)`
-        : "miss"
-    }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
+    const me = heroFighter(attackerName, attacker, Number(ownHp[attackerName] ?? attacker.hpMax), 10, { stateless: true });
+    const foe = heroFighter(targetName, target, Number(enemyHp[targetName]), 10, { stateless: true });
+    const strikes = heroTurn(me, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
+    enemyHp[targetName] = foe.hp;
+    const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
+    const result = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;
     const defeated = enemyMembers.every((n: string) => Number(enemyHp[n]) <= 0);
     if (defeated) {
       const winner = active.current_side === "challenger"

@@ -4,7 +4,8 @@
 // is close to Val Town's per-file size ceiling (a push with an oversized file
 // is rejected and the deploy silently stays on old code).
 
-import { attackAbility, combatStats, heroAc, modifier } from "./utils.ts";
+import { attackAbility, heroAc } from "./utils.ts";
+import { heroFighter, heroTurn, makeKit, kitLine, monsterFighter, monsterTurn } from "./combat_abilities.ts";
 
 // Auto solo monster duels (bare !dndduel / !dndduel <name>) are decided by the
 // actual dice, not a fixed win rate: the odds come from the real matchup
@@ -29,7 +30,7 @@ const FATE_STAYS_HAND_DC = 18;
 // ---------------------------------------------------------------------------
 
 /** One resolved swing. */
-interface Strike {
+export interface Strike {
   actor: string;
   target: string;
   hit: boolean;
@@ -51,6 +52,13 @@ interface Strike {
   dmgDie?: number;
   dmgMods?: Mods;
   hpBefore?: number;
+  /** Abilities that shaped the swing, e.g. "sneak attack" or "smite". */
+  tag?: string;
+  /** A save instead of an attack roll (Breath Weapon): roll/total are the
+   * target's save, `ac` its DC. */
+  save?: { dc: number; saved: boolean; what: string };
+  /** Never rolls to hit (Magic Missile). */
+  auto?: boolean;
 }
 
 /** Labelled modifiers, e.g. [["DEX", 3], ["prof", 2]]. */
@@ -80,13 +88,21 @@ function fmtStrikeDetailed(s: Strike): string {
   const targetCap = s.target === YOU ? "You" : s.target;
   const atk = s.atk ? modsText(s.atk) : (s.total - s.roll ? ` ${signed(s.total - s.roll)}` : "");
   const ac = `AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}`;
+  const tag = s.tag ? ` (${s.tag})` : "";
   let out = `${actor} → ${target}: ${s.roll}${atk} = ${s.total} vs ${ac}`;
-  if (s.fumble) return `${out} → nat 1, FUMBLE`;
-  if (!s.hit) return `${out} → MISS by ${s.ac - s.total}`;
-  out += s.crit ? " → nat 20, CRIT" : s.total === s.ac ? " → HIT (exact)" : ` → HIT by ${s.total - s.ac}`;
+  if (s.auto) {
+    out = `${actor} → ${target}: auto-hit${tag}`;
+  } else if (s.save) {
+    const extra = s.tag?.replace(/^saved: half(, )?/, "");
+    out = `${actor} → ${target}: ${s.save.what}, ${target} DEX save ${s.roll} ${signed(s.total - s.roll)} = ${s.total} vs DC ${s.save.dc} → ${s.save.saved ? "saved, half" : "failed"}${extra ? ` (${extra})` : ""}`;
+  } else if (s.fumble) return `${out} → nat 1, FUMBLE${tag}`;
+  else if (!s.hit) return `${out} → ${s.total >= s.ac ? "BLOCKED" : `MISS by ${s.ac - s.total}`}${tag}`;
+  else out += (s.crit ? ` → nat ${s.roll}, CRIT` : s.total === s.ac ? " → HIT (exact)" : ` → HIT by ${s.total - s.ac}`) + tag;
   if (s.dmgDice?.length) {
     const raw = s.dmgDice.reduce((a, b) => a + b, 0) + (s.dmgMods ?? []).reduce((a, [, v]) => a + v, 0);
-    out += ` · ${s.dmgDice.length}d${s.dmgDie} (${s.dmgDice.join("+")})${modsText(s.dmgMods ?? [])} = ${s.damage}${raw < s.damage ? " (min 1)" : ""}`;
+    const dealt = s.save?.saved ? Math.max(1, Math.floor(raw / 2)) : raw;
+    const taken = dealt < s.damage ? " (min 1)" : dealt > s.damage ? ` → ${s.damage} taken` : "";
+    out += ` · ${s.dmgDice.length}d${s.dmgDie} (${s.dmgDice.join("+")})${modsText(s.dmgMods ?? [])} = ${raw}${s.save?.saved ? `, halved to ${dealt}` : ""}${taken}`;
   } else {
     out += ` · ${s.damage} dmg`;
   }
@@ -112,16 +128,15 @@ export function fighterLine(
   c: any,
   hp: number,
   acBase: number,
-  opts: { die?: number; edge?: number } = {},
+  opts: { die?: number; edge?: number; stateless?: boolean } = {},
 ): string {
-  const stats = combatStats(c);
-  const a = fightingAbility(c);
-  const die = opts.die ?? stats.die;
+  const k = makeKit(c, { minDie: opts.die, edge: opts.edge, stateless: opts.stateless });
   const edge = opts.edge ?? 0;
   const edgeText = edge ? ` +${edge} edge (hunter's edge)` : "";
+  const swings = k.attacks > 1 ? `${k.attacks} attacks a turn, each ` : "attack ";
   return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${heroAc(c, acBase).ac} (${heroAcWhy(acBase, c)}), ` +
-    `attack d20 ${signed(stats.mod)} ${a.name} +${c.proficiency} prof${edgeText}, ` +
-    `damage 1d${die} ${signed(stats.mod)} ${a.name}${edge ? ` +${edge} edge` : ""}.`;
+    `${swings}d20 ${signed(k.mod)} ${k.ability} +${k.prof} prof${edgeText}, ` +
+    `damage ${k.dice}d${k.die}${k.dmgMod ? ` ${signed(k.dmgMod)} ${k.ability}` : ""}${edge ? ` +${edge} edge` : ""}.${kitLine(k)}`;
 }
 
 /** acWhy for a hero, naming the abilities their AC comes from. */
@@ -141,13 +156,23 @@ function fmtStrike(s: Strike, showAc = false): string {
     : "";
   const you = s.actor === YOU;
   const actor = you ? "You" : s.actor;
-  if (s.fumble) return `${actor} ${you ? "fumble" : "fumbles"}${showAc ? ` [nat 1 vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ""}`;
-  if (!s.hit) return `${actor} ${you ? "miss" : "misses"}${showAc ? ` ${s.target}${ac}` : ""}`;
+  const tag = s.tag ? ` (${s.tag})` : "";
+  if (s.save) {
+    const tail = s.targetHp <= 0 ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!` : ` (${s.targetHp}/${s.targetMax})`;
+    const verb = s.save.what === "breath weapon" ? (you ? "breathe on" : "breathes on") : (you ? "fireball" : "fireballs");
+    return `${actor} ${verb} ${s.target}${showAc ? ` [save ${s.total} vs DC ${s.save.dc}]` : ""} ${s.damage}${tag}${tail}`;
+  }
+  if (s.auto) {
+    const tail = s.targetHp <= 0 ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!` : ` (${s.targetHp}/${s.targetMax})`;
+    return `${actor} ${you ? "hit" : "hits"} ${s.target} ${s.damage}${tag}${tail}`;
+  }
+  if (s.fumble) return `${actor} ${you ? "fumble" : "fumbles"}${showAc ? ` [nat 1 vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ""}${tag}`;
+  if (!s.hit) return `${actor} ${you ? "miss" : "misses"}${showAc ? ` ${s.target}${ac}` : ""}${tag}`;
   const verb = s.crit ? (you ? "💥crit" : "💥crits") : (you ? "hit" : "hits");
   const tail = s.targetHp <= 0
     ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!`
     : ` (${s.targetHp}/${s.targetMax})`;
-  return `${actor} ${verb} ${s.target}${s.crit && showAc ? ` [nat 20 vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ac} ${s.damage}${tail}`;
+  return `${actor} ${verb} ${s.target}${s.crit && showAc ? ` [nat ${s.roll} vs AC ${s.ac}${s.acWhy ? ` (${s.acWhy})` : ""}]` : ac} ${s.damage}${tag}${tail}`;
 }
 
 export class BattleLog {
@@ -247,173 +272,54 @@ export class BattleLog {
   }
 }
 
-/** Simulate one attack; mutates hp map. Returns the structured result. */
-export function simulateAttack(
-  attackerName: string,
-  defenderName: string,
-  attacker: { proficiency: number; scores: Record<string, number>; cls?: string },
-  defender: { proficiency: number; scores: Record<string, number>; cls?: string },
-  hp: Record<string, number>,
-): Strike {
-  const stats = combatStats(attacker as any);
-  const targetAc = heroAc(defender as any, 10).ac;
-  const ability = stats.ability;
-  const roll = 1 + Math.floor(Math.random() * 20);
-  const total = roll + stats.toHit;
-  const critical = roll === 20;
-  const hit = critical || (roll !== 1 && total >= targetAc);
-  const rolls = rollDice(critical ? 2 : 1, stats.die);
-  const dice = rolls.reduce((a, b) => a + b, 0);
-  const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-  const hpBefore = hp[defenderName] ?? 0;
-  if (hit) hp[defenderName] = Math.max(0, (hp[defenderName] ?? 0) - damage);
-  return {
-    actor: attackerName,
-    target: defenderName,
-    hit,
-    crit: critical,
-    fumble: roll === 1,
-    roll,
-    total,
-    ac: targetAc,
-    damage,
-    targetHp: hp[defenderName] ?? 0,
-    targetMax: Number((defender as any).hpMax ?? hp[defenderName] ?? 0),
-    acWhy: heroAcWhy(10, defender),
-    atk: [[ability, stats.mod], ["prof", attacker.proficiency]],
-    dmgDice: hit ? rolls : undefined,
-    dmgDie: stats.die,
-    dmgMods: [[ability, stats.mod]],
-    hpBefore,
-  };
-}
-
 /**
  * Auto-resolve one solo hero-vs-monster fight with the real dice. Shared by
- * the chat command (!dndduel / !dndduel <monster>) and the autohunt
- * (autohunt.ts) so both fight with exactly the same engine and odds.
+ * the chat command (!dndduel / !dndduel <monster>), the autohunt
+ * (autohunt.ts) and Hunt and Hoard (hoard.ts) so all fight with exactly the
+ * same engine and odds, class abilities included (combat_abilities.ts).
  * Pure simulation: no DB writes, no chat. `username` is the display label
  * used in the battle log.
  */
 /** `opts.startHp` starts the hero wounded (Hunt and Hoard keeps HP between
  * hunts, see hoard.ts); every other fight starts at full HP. */
 export function simulateMonsterFight(c: any, username: string, monster: any, opts: { startHp?: number } = {}) {
-  let playerHp = Math.max(1, Math.min(c.hpMax, Math.floor(opts.startHp ?? c.hpMax)));
-  let monsterHp = monster.hp;
-  const pStats = combatStats(c);
-  // Slightly forgiving AC for stream pacing
-  const playerAc = heroAc(c, 11).ac;
+  const startHp = Math.max(1, Math.min(c.hpMax, Math.floor(opts.startHp ?? c.hpMax)));
+  // Slightly forgiving AC (base 11) for stream pacing; heroes hit a bit
+  // harder vs monsters (d10 weapons) plus the hunter's edge.
+  const hero = heroFighter(username, c, startHp, 11, { minDie: 10, edge: 1, fateDc: FATE_STAYS_HAND_DC });
+  const foe = monsterFighter(monster, monster.hp, monster.hp);
   const battle = new BattleLog();
-  let swings = 0;
-  // High enough that even a long slog against a big monster is settled by
-  // the dice; the cap only exists to guarantee the loop ends.
-  const maxSwings = 100;
-  const dmgDie = 10; // heroes hit a bit harder vs monsters than PvP d8
-  let fateUsed = false;
-  const ability = pStats.ability;
-  const conMod = modifier(Number(c.scores?.CON ?? 10));
   const label = username === YOU ? "You" : username;
-  battle.describe(
-    `${label}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${playerHp < c.hpMax ? `${playerHp}/` : ""}${c.hpMax} HP, AC ${playerAc} (${heroAcWhy(11, c)}), ` +
-      `attack d20 ${signed(pStats.mod)} ${ability} +${c.proficiency} prof +1 edge (hunter's edge), damage 1d${dmgDie} ${signed(pStats.mod)} ${ability} +1 edge.`,
-  );
+  battle.describe(fighterLine(label, c, startHp, 11, { die: 10, edge: 1 }));
   battle.describe(
     `${monster.name}: CR ${monster.cr ?? "?"}, ${monster.hp} HP, AC ${monster.ac} (stat block), attack d20 + ${monster.attack}, damage 1d${monster.die} ${signed(monster.bonus)}.`,
   );
-
-  while (playerHp > 0 && monsterHp > 0 && swings < maxSwings) {
-    swings++;
+  // High enough that even a long slog against a big monster is settled by
+  // the dice; the cap only exists to guarantee the loop ends.
+  const maxRounds = 100;
+  for (let round = 1; round <= maxRounds && hero.hp > 0 && foe.hp > 0; round++) {
     battle.nextRound();
-    const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + pStats.toHit + 1; // +1 to-hit bias
-    const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= monster.ac);
-    const rolls = rollDice(critical ? 2 : 1, dmgDie);
-    const dice = rolls.reduce((a, b) => a + b, 0);
-    const damage = hit ? Math.max(1, dice + pStats.mod + 1) : 0;
-    const monsterHpBefore = monsterHp;
-    if (hit) monsterHp = Math.max(0, monsterHp - damage);
-    battle.strike({
-      actor: username,
-      target: monster.name,
-      hit,
-      crit: critical,
-      fumble: roll === 1,
-      roll,
-      total,
-      ac: monster.ac,
-      damage,
-      targetHp: monsterHp,
-      targetMax: monster.hp,
-      acWhy: MONSTER_AC_WHY,
-      atk: [[ability, pStats.mod], ["prof", c.proficiency], ["edge", 1]],
-      dmgDice: hit ? rolls : undefined,
-      dmgDie,
-      dmgMods: [[ability, pStats.mod], ["edge", 1]],
-      hpBefore: monsterHpBefore,
-    });
-    if (monsterHp <= 0) break;
-    const mRoll = 1 + Math.floor(Math.random() * 20);
-    const mTotal = mRoll + monster.attack;
-    const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
-    const mDice = 1 + Math.floor(Math.random() * monster.die);
-    const mDamage = mHit ? Math.max(1, mDice + monster.bonus) : 0;
-    const playerHpBefore = playerHp;
-    if (mHit) playerHp = Math.max(0, playerHp - mDamage);
-    let fateSaved = false;
-    let fateRoll = 0;
-    if (playerHp <= 0 && !fateUsed) {
-      fateUsed = true;
-      fateRoll = 1 + Math.floor(Math.random() * 20);
-      if (fateRoll + conMod >= FATE_STAYS_HAND_DC) {
-        playerHp = 1;
-        fateSaved = true;
-      }
-    }
-    battle.strike({
-      actor: monster.name,
-      target: username,
-      hit: mHit,
-      crit: mRoll === 20,
-      fumble: mRoll === 1,
-      roll: mRoll,
-      total: mTotal,
-      ac: playerAc,
-      damage: mDamage,
-      // Show the blow's true result even when fate then rescues the hero.
-      targetHp: fateSaved ? 0 : playerHp,
-      targetMax: c.hpMax,
-      acWhy: heroAcWhy(11, c),
-      atk: [["atk", monster.attack]],
-      dmgDice: mHit ? [mDice] : undefined,
-      dmgDie: monster.die,
-      dmgMods: [["bonus", monster.bonus]],
-      hpBefore: playerHpBefore,
-    });
-    if (fateSaved) {
-      battle.note(`✨ fate stays its hand — ${username === YOU ? "you are" : username + " is"} left at 1 HP`);
-      battle.explain(`(Fate's roll, d20 ${fateRoll} ${signed(conMod)} CON = ${fateRoll + conMod}, met DC ${FATE_STAYS_HAND_DC}: once per fight, a blow that would drop the hero leaves them at 1 HP instead.)`);
-    }
+    heroTurn(hero, () => (foe.hp > 0 ? foe : undefined), battle, round);
+    if (foe.hp <= 0) break;
+    monsterTurn(foe, hero, battle, round);
   }
-
-  // Only reachable if the swing cap is hit with both sides standing: the one
+  // Only reachable if the round cap is hit with both sides standing: the one
   // in better shape (by share of HP left) is the last one on its feet.
-  if (playerHp > 0 && monsterHp > 0) {
-    const playerWins = playerHp / c.hpMax >= monsterHp / monster.hp;
+  if (hero.hp > 0 && foe.hp > 0) {
+    const playerWins = hero.hp / c.hpMax >= foe.hp / monster.hp;
     battle.note(
       playerWins
         ? `${monster.name} falters, spent, as ${username === YOU ? "you stand" : username + " stands"} firm`
         : `${username === YOU ? "you falter" : username + " falters"}, spent, as ${monster.name} presses on`,
     );
-    if (playerWins) monsterHp = 0;
-    else playerHp = 0;
+    if (playerWins) foe.hp = 0;
+    else hero.hp = 0;
   }
   return {
-    won: monsterHp <= 0 && playerHp > 0,
-    playerHp,
-    monsterHp,
+    won: foe.hp <= 0 && hero.hp > 0,
+    playerHp: hero.hp,
+    monsterHp: foe.hp,
     rounds: battle.roundCount,
     battle,
   };
 }
-

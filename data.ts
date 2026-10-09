@@ -2131,7 +2131,12 @@ export function scaleMonsterForLevel(
   // forgiving while high-level ones are a real, losable fight (~90% win
   // rate at L1 tapering to ~65% at L20 in simulation).
   const growth = (lv - 1) / 19; // 0 at L1 → 1 at L20
-  const hpScale = 0.8 + growth * 0.5; // ~0.80–1.30
+  // Class abilities (combat_abilities.ts) step a hero's damage up at L5
+  // (Extra Attack, a second cantrip die, Fireball), so monster HP steps up
+  // with it. With abilities, simulated solo win rates run ~88% at L1 to
+  // ~69% at L20 averaged over the classes, each class within ~±15 of that.
+  const spike = lv >= 5 ? 0.2 : 0;
+  const hpScale = 0.8 + growth * 0.5 + spike; // ~0.80–1.50
   return {
     ...base,
     hp: Math.max(6, Math.round(base.hp * hpScale)),

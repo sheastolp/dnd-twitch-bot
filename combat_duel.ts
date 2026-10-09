@@ -2,7 +2,8 @@
 // Split out of combat.ts (which re-exports it) to keep every file well
 // under Val Town's per-file size ceiling.
 
-import { combatStats } from "./utils.ts";
+import { BattleLog } from "./battle.ts";
+import { classicText, heroFighter, heroTurn } from "./combat_abilities.ts";
 import { duelNarration } from "./narration.ts";
 import { getCharacter, getDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
@@ -179,33 +180,17 @@ export async function handleDuelCommand(
       );
       return true;
     }
-    const stats = combatStats(attacker);
-    const targetAc = combatStats(target).ac;
-    const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + stats.toHit;
-    const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= targetAc);
-    const dice = critical
-      ? 1 + Math.floor(Math.random() * stats.die) +
-        (1 + Math.floor(Math.random() * stats.die))
-      : 1 + Math.floor(Math.random() * stats.die);
-    const damage = hit ? Math.max(1, dice + stats.mod) : 0;
-    if (active.challenger === username) {
-      active.defender_hp = Math.max(0, active.defender_hp - damage);
-    } else active.challenger_hp = Math.max(0, active.challenger_hp - damage);
+    // Classic turns keep no state between commands, so only always-on
+    // abilities apply (combat_abilities.ts).
+    const mine = active.challenger === username ? "challenger_hp" : "defender_hp";
+    const theirs = active.challenger === username ? "defender_hp" : "challenger_hp";
+    const me = heroFighter(username, attacker, Number(active[mine]), 10, { stateless: true });
+    const foe = heroFighter(targetName, target, Number(active[theirs]), 10, { stateless: true });
+    const strikes = heroTurn(me, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
+    active[theirs] = foe.hp;
     const defeated = active.challenger_hp <= 0 || active.defender_hp <= 0;
-    const targetHpNow = active.challenger === username
-      ? active.defender_hp
-      : active.challenger_hp;
-    const result = `${username} attacks ${targetName}: d20 ${roll}${
-      critical ? " CRITICAL" : ""
-    } + ${
-      stats.toHit
-    } = ${total} vs AC ${targetAc} → ${
-      hit
-        ? `hit for ${damage} (${targetName} ${targetHpNow}/${target.hpMax} HP)`
-        : "miss"
-    }. ${duelNarration(critical ? "critical" : hit ? "hit" : "miss")}`;
+    const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
+    const result = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;
     if (defeated) {
       const winner = active.challenger_hp > 0
         ? active.challenger

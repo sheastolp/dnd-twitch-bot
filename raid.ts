@@ -31,7 +31,8 @@ import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCom
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { BattleLog, fighterLine, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
+import { BattleLog, fighterLine } from "./battle.ts";
+import { heroFighter, heroTurn, monsterFighter, monsterTurn, team } from "./combat_abilities.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import { creditBounty } from "./hoard.ts";
@@ -39,7 +40,6 @@ import { monsterLootCopper, splitLoot } from "./loot.ts";
 import { adjustBalance, canEarnGold } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
-import { combatStats, heroAc } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { forgetOptionCache, optNum } from "./channel_options.ts";
@@ -55,7 +55,8 @@ export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
 // The muster time, party size, boss HP and hoard multipliers are per-channel
 // options (channel_options.ts: raid.muster, raid.party, raid.hp, raid.loot),
 // defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (6),
-// RAID_HP_MULTIPLIER (2) and RAID_LOOT_MULTIPLIER (5).
+// RAID_HP_MULTIPLIER (5: class abilities hit hard, see combat_abilities.ts)
+// and RAID_LOOT_MULTIPLIER (5).
 const raidOpts = async (broadcasterId: string) => {
   const [muster, party, hp, loot] = await Promise.all(["raid.muster", "raid.party", "raid.hp", "raid.loot"].map((k) => optNum(broadcasterId, k)));
   return { musterMs: muster * 1000, partyMax: party, hpMult: hp, lootMult: loot };
@@ -163,7 +164,7 @@ async function raidWaitMs(q: RaidQuest, now = Date.now()): Promise<number> {
 /** A random boss from the top of the bestiary (CR RAID_MIN_CR and up). The
  * pool is the channel's live roster (core + learned, see bestiary.ts), so a
  * learned high-CR monster can be posted as a raid boss. */
-export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonster[] = SOLO_MONSTERS, hpMult = 2): SoloMonster {
+export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonster[] = SOLO_MONSTERS, hpMult = 5): SoloMonster {
   const source = roster.length ? roster : SOLO_MONSTERS;
   let pool = source.filter((m) => m.crValue >= RAID_MIN_CR);
   // Fallback grows with the roster (~3% of it, never fewer than 5).
@@ -279,62 +280,34 @@ export function simulateRaidFight(
   }
   const battle = new BattleLog();
   const bossAttacks = 1 + Math.floor(heroes.length / 2);
-  const d = (sides: number) => 1 + Math.floor(Math.random() * sides);
   for (const h of heroes) battle.describe(fighterLine(h.name, h.c, hp[h.name], 11, { die: 10, edge: 1 }));
   battle.describe(
     `${boss.name}: ${bossHpStart}/${boss.hpMax} HP going in, AC ${boss.ac} (stat block), attack d20 + ${boss.attack}, damage 1d${boss.die} + ${boss.bonus}; ` +
       `strikes back ${bossAttacks} time${bossAttacks === 1 ? "" : "s"} a round (1 + a legendary action for every 2nd raider).`,
   );
   let slayer: string | null = null;
+  // Class abilities and racial traits: combat_abilities.ts. Raiders swing a
+  // d10 with the hunter's edge, the same as solo monster fights.
+  const party = team(...heroes.map((h) => heroFighter(h.name, h.c, hp[h.name], 11, { minDie: 10, edge: 1 })));
+  const foe = monsterFighter({ name: boss.name, ac: boss.ac, attack: boss.attack, die: boss.die, bonus: boss.bonus }, bossHp, boss.hpMax);
 
-  for (let round = 0; round < maxRounds && bossHp > 0 && heroes.some((h) => hp[h.name] > 0); round++) {
+  for (let round = 1; round <= maxRounds && foe.hp > 0 && party.some((f) => f.hp > 0); round++) {
     battle.nextRound();
-    for (const h of heroes) {
-      if (hp[h.name] <= 0 || bossHp <= 0) continue;
-      const s = combatStats(h.c);
-      const ability = s.ability;
-      const roll = d(20);
-      const total = roll + s.toHit + 1; // same +1 to-hit as solo monster fights
-      const crit = roll === 20;
-      const hit = crit || (roll !== 1 && total >= boss.ac);
-      const rolls = rollDice(crit ? 2 : 1, 10);
-      const dmg = hit ? Math.max(1, rolls.reduce((x, y) => x + y, 0) + s.mod + 1) : 0;
-      const bossHpBefore = bossHp;
-      if (hit) {
-        const dealt = Math.min(bossHp, dmg);
-        bossHp -= dealt;
-        damage[h.name] += dealt;
-        if (bossHp <= 0) slayer = h.name;
-      }
-      battle.strike({
-        actor: h.name, target: boss.name, hit, crit, fumble: roll === 1, roll, total, ac: boss.ac,
-        damage: dmg, targetHp: bossHp, targetMax: boss.hpMax, acWhy: MONSTER_AC_WHY,
-        atk: [[ability, s.mod], ["prof", h.c.proficiency], ["edge", 1]],
-        dmgDice: hit ? rolls : undefined, dmgDie: 10, dmgMods: [[ability, s.mod], ["edge", 1]],
-        hpBefore: bossHpBefore,
-      });
+    for (const f of party) {
+      if (foe.hp <= 0) break;
+      const before = foe.hp;
+      heroTurn(f, () => (foe.hp > 0 ? foe : undefined), battle, round);
+      damage[f.name] += before - foe.hp;
+      if (before > 0 && foe.hp <= 0) slayer = f.name;
     }
-    for (let a = 0; a < bossAttacks && bossHp > 0; a++) {
-      const standing = heroes.filter((h) => hp[h.name] > 0);
+    for (let a = 0; a < bossAttacks && foe.hp > 0; a++) {
+      const standing = party.filter((f) => f.hp > 0);
       if (!standing.length) break;
-      const v = standing[Math.floor(Math.random() * standing.length)];
-      const ac = heroAc(v.c, 11).ac;
-      const roll = d(20);
-      const total = roll + boss.attack;
-      const hit = roll !== 1 && (roll === 20 || total >= ac);
-      const rolls = rollDice(roll === 20 ? 2 : 1, boss.die);
-      const dmg = hit ? Math.max(1, rolls.reduce((x, y) => x + y, 0) + boss.bonus) : 0;
-      const victimHpBefore = hp[v.name];
-      if (hit) hp[v.name] = Math.max(0, hp[v.name] - dmg);
-      battle.strike({
-        actor: boss.name, target: v.name, hit, crit: roll === 20, fumble: roll === 1, roll, total, ac,
-        damage: dmg, targetHp: hp[v.name], targetMax: v.c.hpMax, acWhy: heroAcWhy(11, v.c),
-        atk: [["atk", boss.attack]],
-        dmgDice: hit ? rolls : undefined, dmgDie: boss.die, dmgMods: [["bonus", boss.bonus]],
-        hpBefore: victimHpBefore,
-      });
+      monsterTurn(foe, standing[Math.floor(Math.random() * standing.length)], battle, round);
     }
   }
+  bossHp = foe.hp;
+  for (const f of party) hp[f.name] = f.hp;
   return { bossHp, hp, damage, slayer, rounds: battle.roundCount, battle };
 }
 
