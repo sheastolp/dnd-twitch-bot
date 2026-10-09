@@ -7,6 +7,7 @@ import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
 import { handleHaggleCommand } from "./haggle.ts";
+import { handleAbilitiesCommand } from "./abilities_cmd.ts";
 import { handleAdCommand } from "./ads.ts";
 import { disconnectAdToken, ensureAdTables, purgeAdData } from "./ads_db.ts";
 import { handleOracleCommand } from "./oracle.ts";
@@ -549,6 +550,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleAbilitiesCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
     if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

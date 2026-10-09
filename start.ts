@@ -10,7 +10,7 @@ export function startGuideText(topic: string | undefined, publicBaseUrl: string)
   switch (topic) {
     case "char":
     case "character":
-      return "📜 1/5 Your hero: !createchar for an instant level 1 hero, !newchar to pick race + class step by step, or !bg3 for BG3-style. !char shows your sheet. !savechar keeps a backup. Next: !start dice";
+      return "📜 1/5 Your hero: !createchar for an instant level 1 hero, !newchar to pick race + class step by step, or !bg3 for BG3-style. !char shows your sheet, !abilities what you can do in a fight. !savechar keeps a backup. Next: !start dice";
     case "dice":
     case "roll":
       return "🎲 2/5 Dice: !d20 quick roll | !roll 2d6+3 any dice | !roll stealth for a check or !save dex for a save with your sheet | !roll <question>? for an omen. Nat 1s & 20s go on !rollcall. Next: !start fight";

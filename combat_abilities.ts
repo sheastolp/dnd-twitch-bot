@@ -62,6 +62,10 @@ const cantripDice = (level: number) => (level >= 17 ? 4 : level >= 11 ? 3 : leve
 
 /** Fireball: 8d6 at L5, +1d6 per two levels after. */
 const fireballDice = (level: number) => 8 + Math.floor((level - 5) / 2);
+/** Wizard/Sorcerer leveled spells a fight. */
+const bigSpellUses = (level: number) => (level >= 17 ? 3 : level >= 9 ? 2 : 1);
+const bigSpellName = (level: number) =>
+  `${level >= 5 ? `Fireball (${fireballDice(level)}d6` : "Magic Missile (3d4 + 3, never misses"}, ${bigSpellUses(level)}/fight)`;
 
 const CANTRIP: Record<string, { die: number; name: string }> = {
   wizard: { die: 10, name: "Fire Bolt" },
@@ -180,18 +184,18 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
   switch (cls) {
     case "barbarian":
       k.rage = level >= 16 ? 4 : level >= 9 ? 3 : 2;
-      names.push(`Rage (+${k.rage} dmg, 25% less damage taken)`);
+      names.push(`Rage (+${k.rage} damage, 25% less taken)`);
       if (level >= 9) {
         k.critDice += level >= 17 ? 3 : level >= 13 ? 2 : 1;
-        names.push("Brutal Critical");
+        names.push(`Brutal Critical (+${k.critDice} crit ${k.critDice > 1 ? "dice" : "die"})`);
       }
       break;
     case "fighter":
       k.secondWind = !opts.stateless;
-      names.push("Second Wind");
+      names.push(`Second Wind (1d10 + ${level} HP, 1/fight)`);
       if (level >= 2) {
         k.actionSurge = !opts.stateless;
-        names.push("Action Surge");
+        names.push("Action Surge (1/fight)");
       }
       if (level >= 3) {
         k.critOn = 19;
@@ -200,15 +204,16 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       break;
     case "paladin":
       k.layOnHands = limited(2 * level);
-      names.push(`Lay on Hands (${2 * level})`);
+      names.push(`Lay on Hands (${2 * level} HP/fight)`);
       if (level >= 2) {
         k.smiteDice = 2;
-        k.smites = limited(level >= 13 ? 4 : level >= 9 ? 3 : level >= 5 ? 2 : 1);
-        names.push(`Divine Smite (${k.smiteDice}d8)`);
+        const smites = level >= 13 ? 4 : level >= 9 ? 3 : level >= 5 ? 2 : 1;
+        k.smites = limited(smites);
+        names.push(`Divine Smite (+${k.smiteDice}d8, ${smites}/fight)`);
       }
       if (level >= 11) {
         k.improvedSmite = true;
-        names.push("Improved Divine Smite");
+        names.push("Improved Divine Smite (+1d8)");
       }
       break;
     case "ranger":
@@ -226,7 +231,7 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       names.push(`Sneak Attack (${k.sneak}d6)`);
       if (level >= 5) {
         k.uncanny = limited(prof);
-        names.push(`Uncanny Dodge (${prof} a fight)`);
+        names.push(`Uncanny Dodge (${prof}/fight)`);
       }
       break;
     case "monk":
@@ -234,33 +239,33 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       names.push(`Martial Arts (bonus strike 1d${k.martialDie})`);
       if (level >= 2) {
         k.ki = limited(level);
-        names.push(`Flurry of Blows (${level} ki)`);
+        names.push(`Flurry of Blows (${level}/fight)`);
       }
       break;
     case "wizard":
       k.shields = limited(level >= 5 ? 3 : 2);
-      names.push("Shield (+5 AC)");
-      k.bigSpells = limited(level >= 17 ? 3 : level >= 9 ? 2 : 1);
-      names.push(level >= 5 ? `Fireball (${fireballDice(level)}d6)` : "Magic Missile");
+      names.push(`Shield (+5 AC, ${level >= 5 ? 3 : 2}/fight)`);
+      k.bigSpells = limited(bigSpellUses(level));
+      names.push(bigSpellName(level));
       break;
     case "sorcerer":
-      k.bigSpells = limited(level >= 17 ? 3 : level >= 9 ? 2 : 1);
-      names.push(level >= 5 ? `Fireball (${fireballDice(level)}d6)` : "Magic Missile");
+      k.bigSpells = limited(bigSpellUses(level));
+      names.push(bigSpellName(level));
       if (level >= 3) {
         k.quickened = limited(level >= 10 ? 2 : 1);
-        names.push("Quickened Spell");
+        names.push(`Quickened Spell (${level >= 10 ? 2 : 1}/fight)`);
       }
       break;
     case "warlock":
       k.attacks = cantripDice(level);
       k.markName = "hex";
       names.push("Hex (+1d6)");
-      if (level >= 2) names.push("Agonizing Blast");
+      if (level >= 2) names.push("Agonizing Blast (+CHA)");
       break;
     case "cleric":
       k.heals = limited(level >= 9 ? 4 : level >= 3 ? 3 : 2);
       k.healDice = 1 + Math.floor(level / 4);
-      names.push(`Healing Word (${k.healDice}d4 + WIS)`);
+      names.push(`Healing Word (${k.healDice}d4 + WIS, ${level >= 9 ? 4 : level >= 3 ? 3 : 2}/fight)`);
       if (level >= 3) {
         k.spiritDice = level >= 15 ? 3 : level >= 9 ? 2 : 1;
         names.push(`Spiritual Weapon (${k.spiritDice}d8)`);
@@ -269,19 +274,19 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
     case "druid":
       k.heals = limited(level >= 9 ? 3 : 2);
       k.healDice = 1 + Math.floor(level / 4);
-      names.push(`Healing Word (${k.healDice}d4 + WIS)`);
+      names.push(`Healing Word (${k.healDice}d4 + WIS, ${level >= 9 ? 3 : 2}/fight)`);
       if (level >= 2) {
         k.wildShape = limited(5 + 2 * level);
-        names.push(`Wild Shape (${5 + 2 * level} HP form)`);
+        names.push(`Wild Shape (${5 + 2 * level} HP beast form, 1/fight)`);
       }
       break;
     case "bard":
       k.inspiration = limited(Math.max(1, sc("CHA")));
       k.inspireDie = level >= 15 ? 12 : level >= 10 ? 10 : level >= 5 ? 8 : 6;
-      names.push(`Bardic Inspiration (d${k.inspireDie})`);
+      names.push(`Bardic Inspiration (d${k.inspireDie}, ${Math.max(1, sc("CHA"))}/fight)`);
       k.heals = limited(level >= 9 ? 2 : 1);
       k.healDice = 1 + Math.floor(level / 4);
-      names.push(`Healing Word (${k.healDice}d4 + CHA)`);
+      names.push(`Healing Word (${k.healDice}d4 + CHA, ${level >= 9 ? 2 : 1}/fight)`);
       break;
   }
   if (extraAttack) {
@@ -290,20 +295,20 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
   }
   if (has("lucky")) {
     k.lucky = true;
-    names.push("Lucky");
+    names.push("Lucky (reroll natural 1s)");
   }
   if (has("relentless endurance")) {
     k.relentless = !opts.stateless;
-    names.push("Relentless Endurance");
+    names.push("Relentless Endurance (1/fight)");
   }
   if (has("savage attacks")) {
     k.critDice += 1;
-    names.push("Savage Attacks");
+    names.push("Savage Attacks (+1 crit die)");
   }
   if (has("breath weapon") && !opts.stateless) {
     k.breathDice = level >= 16 ? 5 : level >= 11 ? 4 : level >= 6 ? 3 : 2;
     k.breathDc = 8 + sc("CON") + prof;
-    names.push(`Breath Weapon (${k.breathDice}d6, DC ${k.breathDc})`);
+    names.push(`Breath Weapon (${k.breathDice}d6, DC ${k.breathDc}, 1/fight)`);
   }
   return k;
 }
@@ -653,4 +658,28 @@ export function classicText(strikes: Strike[]): string {
       ? `${head} → hit for ${s.damage}${tag} (${s.target} ${s.targetHp}/${s.targetMax} HP)`
       : `${head} → miss${tag}`;
   }).join("; ") + ".";
+}
+
+/** Ability name without its numbers: "Divine Smite (+2d8, 1/fight)" → "Divine Smite". */
+const baseName = (n: string) => n.replace(/\s*\(.*\)$/, "");
+
+/** For !abilities: a hero's attack line, their abilities, and the next one
+ * they unlock by levelling (null at the top). */
+export function abilitySummary(c: any): { attack: string; abilities: string[]; next: string | null } {
+  const k = makeKit(c);
+  const ac = heroAc(c, 10);
+  const signed = (n: number) => `${n < 0 ? "−" : "+"}${Math.abs(n)}`;
+  const swings = k.attacks > 1 ? `${k.attacks}× ` : "";
+  // Against monsters a weapon is a d10, the hunter's edge adds +1 to hit
+  // and damage, and AC is on base 11 (simulateMonsterFight, raids).
+  const vsMonsters = CANTRIP[k.cls] ? "" : `, 1d${Math.max(10, k.die)} vs monsters`;
+  const attack = `${swings}d20 ${signed(k.mod + k.prof)} to hit (${k.ability} ${signed(k.mod)}, prof +${k.prof}), ` +
+    `${k.dice}d${k.die}${k.dmgMod ? ` ${signed(k.dmgMod)}` : ""} damage${vsMonsters}, AC ${ac.ac} (${ac.ac + 1} vs monsters)`;
+  const have = new Set(k.names.map(baseName));
+  let next: string | null = null;
+  for (let lv = k.level + 1; lv <= 20 && !next; lv++) {
+    const gained = makeKit({ ...c, level: lv, proficiency: Math.floor((lv - 1) / 4) + 2 }).names.map(baseName).find((n) => !have.has(n));
+    if (gained) next = `${gained} at Lv ${lv}`;
+  }
+  return { attack, abilities: k.names, next };
 }
