@@ -6,7 +6,7 @@
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
-import { sqlite } from "./sqlite.ts";
+import { INSTANCE, sqlite } from "./sqlite.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
@@ -65,8 +65,11 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   if (req.method === "GET" && path === "/healthz") {
     try {
       try { await retryPendingEventSubCancellations(); } catch (e) { await recordMonitorEvent("eventsub_retry_loop_error", String(e)); }
-      await sqlite.execute("SELECT 1");
-      return new Response(JSON.stringify({ ok: true, service: "GuildScribe", time: new Date().toISOString() }), {
+      // Newest long-reply save: if a page link from chat is newer than this,
+      // another copy of the bot (another database) wrote it.
+      const last = await sqlite.execute("SELECT MAX(updated_at) AS t FROM reply_links").catch(() => null);
+      const lastReply = Number(last?.rows[0]?.t) || 0;
+      return new Response(JSON.stringify({ ok: true, service: "GuildScribe", time: new Date().toISOString(), instance: INSTANCE, last_reply_page: lastReply ? new Date(lastReply).toISOString() : null }), {
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     } catch (e) {

@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
+import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -72,7 +72,17 @@ function initiatorNames(): string[] {
   return i ? [i.display, i.login] : [];
 }
 
-export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = []) {
+/** Logs a reply to someone's !command on their reply page (replypages.ts)
+ * without making the reply wait. No-op outside a command. */
+function logReply(broadcasterId: string, summary: string, detail = summary) {
+  const i = getReplyInitiator();
+  if (!i || i.broadcasterId !== broadcasterId || !detail.trim()) return;
+  defer(saveReplyPage(broadcasterId, i.login, summary, detail));
+}
+
+// opts.log: false when the caller logs the reply as a whole itself (parts of
+// a longer reply, or the summary of one already saved).
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean }) {
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   const guard = [...names, ...initiatorNames()];
@@ -129,6 +139,7 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
       await recordMonitorEvent("chat_message_dropped", `${broadcasterId} ${why} | ${message.slice(0, 200)}`).catch(() => {});
       return false;
     }
+    if (opts?.log !== false) logReply(broadcasterId, message);
     return true;
   } catch (err) {
     console.error("sendChatMessage failed", err);
@@ -168,11 +179,13 @@ export async function sendChatMessages(
   if (summarized !== null) return summarized;
   // True only when every part was posted (callers may send a fallback).
   let allSent = true;
+  if (parts.length > 1) logReply(broadcasterId, parts.join(" "), opts?.detail ?? parts.join(" "));
+  const log = parts.length === 1;
   for (let i = 0; i < parts.length; i++) {
-    let ok = await sendChatMessage(parts[i], broadcasterId);
+    let ok = await sendChatMessage(parts[i], broadcasterId, [], { log });
     if (!ok && i < parts.length - 1) {
       await sleep(700);
-      ok = await sendChatMessage(parts[i], broadcasterId);
+      ok = await sendChatMessage(parts[i], broadcasterId, [], { log });
     }
     if (!ok) allSent = false;
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
@@ -216,7 +229,7 @@ async function summarizeLongReply(
   }
   const tail = ` 📜 Full ${summary ? "battle log" : "reply"}: ${link}`;
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
-  const posted = await sendChatMessage(head + tail, broadcasterId, names);
+  const posted = await sendChatMessage(head + tail, broadcasterId, names, { log: false });
   // Bonus copy by whisper; silently skipped until /connect-bot is done.
   if (initiator) await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
   return posted;
@@ -237,8 +250,9 @@ export async function sendSpellSections(sections: string[], display: string, bro
   }
   const seen = new Map<string, number>(); // 2-appearances-per-name cap across all parts
   const guard = [display, ...initiatorNames()];
+  logReply(broadcasterId, parts.join(" "), full);
   for (let i = 0; i < parts.length; i++) {
-    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard);
+    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard, { log: false });
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
 }
