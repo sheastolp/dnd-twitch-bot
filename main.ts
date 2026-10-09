@@ -14,6 +14,7 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
+import { handleBribeCommand } from "./bribe.ts";
 import { handlePeddlerAssault } from "./peddler_guard.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
@@ -554,6 +555,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
     if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    if (await handleBribeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleAbilitiesCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
     if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

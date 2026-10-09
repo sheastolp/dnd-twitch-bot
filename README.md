@@ -382,6 +382,7 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!jar giveaway` | Give the **whole jar** to a random chatter from the past week (paid into their gold, never the streamer) and empty it *(mod)*. Limited to **once every 7 days**; an empty jar or empty pool doesn't use up the week |
 | `!jar words` / `!jar forget <word>` | *(mod)* See the words the jar has **learned** in this channel, or veto one. The jar learns by itself: an unknown word used right next to swearing, 5+ times by 3+ different chatters, and almost never otherwise (60%+ of its uses), starts charging. Emotes, common words and links are never learned; a charge for a learned word names it in chat |
 | `!fine` | Fine the streamer one swear word (2 cp from the streamer's gold into the jar). Anyone can use it, no cooldown |
+| `!bribe [someone]` | **Bribery never works** (`bribe.ts`): whoever you bribe (the town guard by default, or anyone you name) pockets a random **50–90%** of your purse, mocks you in chat, and does nothing in return. The coin is gone. An empty purse just gets you laughed at. Needs coin on; dashboard switch: *Bribing* |
 | `!gold on` / `off` | Turn coin, the leaderboard, giveaways and paid haggling on or off; on by default *(mod)* |
 | `!gold status` | Check whether it's on (open to everyone) |
 | `!giveaway` | Current giveaway, ticket price and entry counts |
