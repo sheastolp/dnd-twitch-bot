@@ -12,8 +12,7 @@
 import { ensureTables, recordMonitorEvent } from "./db.ts";
 import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
 import { ensureBestiaryTables } from "./bestiary.ts";
-import { settleAutohunt } from "./autohunt.ts";
-import { sendChatMessages } from "./twitch.ts";
+import { postAutohuntReport, settleAutohunt } from "./autohunt.ts";
 import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid.ts";
 
 export default async function () {
@@ -31,9 +30,9 @@ export default async function () {
       continue;
     }
     try {
-      const text = await settleAutohunt(session, { now });
-      if (text) {
-        await sendChatMessages(text, session.broadcaster_id);
+      const report = await settleAutohunt(session, { now });
+      if (report) {
+        await postAutohuntReport(report, session.broadcaster_id);
         reports++;
       }
     } catch (e) {

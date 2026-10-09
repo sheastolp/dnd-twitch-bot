@@ -19,6 +19,7 @@ export interface AutohuntSession {
   total_copper: number;
   levels_gained: number;
   reports_sent: number; // unprompted (cron) reports posted so far; see TAGGED_REPORTS in autohunt.ts
+  log: string; // every bout of the trip so far, one line each ("\n"-separated), for the full report
 }
 
 export async function ensureAutohuntTables() {
@@ -29,12 +30,19 @@ export async function ensureAutohuntTables() {
       bouts INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
       total_xp INTEGER NOT NULL DEFAULT 0, total_copper INTEGER NOT NULL DEFAULT 0,
       levels_gained INTEGER NOT NULL DEFAULT 0, reports_sent INTEGER NOT NULL DEFAULT 0,
+      log TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
   // Tables created before reports_sent existed.
   try {
     await sqlite.execute(`ALTER TABLE autohunt_sessions ADD COLUMN reports_sent INTEGER NOT NULL DEFAULT 0`);
+  } catch (_) {
+    /* column already exists */
+  }
+  // Tables created before the per-trip bout log existed.
+  try {
+    await sqlite.execute(`ALTER TABLE autohunt_sessions ADD COLUMN log TEXT NOT NULL DEFAULT ''`);
   } catch (_) {
     /* column already exists */
   }
@@ -55,6 +63,7 @@ function rowToSession(r: any): AutohuntSession {
     total_copper: Number(r.total_copper),
     levels_gained: Number(r.levels_gained),
     reports_sent: Number(r.reports_sent ?? 0),
+    log: String(r.log ?? ""),
   };
 }
 
@@ -77,11 +86,11 @@ export async function countAutohuntSessions(broadcasterId: string): Promise<numb
 export async function createAutohuntSession(s: AutohuntSession) {
   await sqlite.execute(
     `INSERT OR REPLACE INTO autohunt_sessions
-      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained, reports_sent)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained, reports_sent, log)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       s.broadcaster_id, s.username.toLowerCase(), s.display_name, s.started_at, s.ends_at, s.next_at,
-      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained, s.reports_sent,
+      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained, s.reports_sent, s.log,
     ],
   );
 }
@@ -111,13 +120,16 @@ export async function claimAutohuntBouts(
 export async function addAutohuntProgress(
   broadcasterId: string,
   username: string,
-  d: { bouts: number; wins: number; losses: number; xp: number; copper: number; levels: number },
+  d: { bouts: number; wins: number; losses: number; xp: number; copper: number; levels: number; lines: string[] },
 ) {
+  // Appends this settle's bout lines to the trip log.
+  const add = d.lines.join("\n");
   await sqlite.execute(
     `UPDATE autohunt_sessions SET bouts = bouts + ?, wins = wins + ?, losses = losses + ?,
-       total_xp = total_xp + ?, total_copper = total_copper + ?, levels_gained = levels_gained + ?
+       total_xp = total_xp + ?, total_copper = total_copper + ?, levels_gained = levels_gained + ?,
+       log = CASE WHEN log = '' THEN ? WHEN ? = '' THEN log ELSE log || char(10) || ? END
      WHERE broadcaster_id = ? AND username = ?`,
-    [d.bouts, d.wins, d.losses, d.xp, d.copper, d.levels, broadcasterId, username.toLowerCase()],
+    [d.bouts, d.wins, d.losses, d.xp, d.copper, d.levels, add, add, add, broadcasterId, username.toLowerCase()],
   );
 }
 
