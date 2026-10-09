@@ -50,6 +50,7 @@ import {
 import { applyGear, effectText, findMerchantItem, ownsGear } from "./gear.ts";
 import { getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { formatCoins, parseFirstPrice } from "./coins.ts";
+import { isAssaultOnPeddler, mockPeddlerAssailant } from "./peddler_guard.ts";
 
 const openai = new OpenAI();
 
@@ -70,6 +71,7 @@ function buildSystemPrompt(merchantName: string, itemDesc: string, priceText: st
     listedCopper !== null
       ? `Begin your reply with exactly "DEAL <copper>:" if you agree to a price, where <copper> is the final price in whole copper pieces (at least 1, never more than ${listedCopper}; if the viewer named an offer, never go below it), or exactly "NO DEAL:" if you refuse. Example: "DEAL 4:" or "NO DEAL:". That tag is machine-read and removed before chat sees it, so the sentence after it must stand on its own and should name the agreed price in coins.`
       : `Begin your reply with exactly "DEAL:" if you agree to a discount, or exactly "NO DEAL:" if you refuse. That tag is machine-read and removed before chat sees it.`,
+    `You are untouchable: if the viewer tries to attack, threaten, rob, pickpocket, shoplift or cast a spell on you, it fails completely and comically every time. Reply "NO DEAL:" and humorously mock the would-be assailant for their pathetic attempt — never let violence or theft get them the item or a discount.`,
     `Keep the reply short and chat-friendly: 1-3 sentences, under ${MAX_REPLY_LEN} characters, no markdown formatting, no asterisked stage directions.`,
     `Keep it appropriate for a general audience: no explicit sexual content, no real-world hate speech or harassment, no real-world political commentary.`,
   ].join(" ");
@@ -247,6 +249,13 @@ export async function handleHaggleCommand(
       `@${display} usage: !haggle <your pitch or offer>, e.g. !haggle come on, five copper is robbery`,
       broadcasterId,
     );
+    return true;
+  }
+
+  // Threatening, attacking or robbing the peddler always fails — mocked in
+  // chat, and it costs nothing (no attempt, no coin, no LLM call).
+  if (isAssaultOnPeddler(message)) {
+    await mockPeddlerAssailant(display, broadcasterId);
     return true;
   }
 

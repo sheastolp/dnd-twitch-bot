@@ -14,6 +14,7 @@ import { handleOracleCommand } from "./oracle.ts";
 import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
+import { handlePeddlerAssault } from "./peddler_guard.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
@@ -535,6 +536,9 @@ async function handleRequest(req: Request): Promise<Response> {
     if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return new Response("OK");
     if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
     if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+    // The peddler can't be attacked or robbed: !rob peddler, !stall rob,
+    // !dndduel merchant, !attack the stall ... all fail with a mocking line.
+    if (await handlePeddlerAssault(chatMessage, display, broadcasterId)) return new Response("OK");
     // Monster first: only claims exact "!dndduel" / "!dndduel attack" / "!dndduel monster …"
     // so player-vs-player "!dndduel @user" still falls through to handleDuelCommand.
     if (await handleMonsterDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
