@@ -23,6 +23,7 @@ import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapLis
 import { DISCORD_INVITE_URL, PUBLIC_BASE_URL, PUBLIC_ORIGIN } from "./config.ts";
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
+import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
 import { handleHowtoRoute } from "./howto.ts";
@@ -503,6 +504,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
+  }
+
+  // Where Twitch delivers each channel's events (eventsub_admin.ts).
+  if (path === "/admin/eventsub" || path === "/admin/eventsub/repoint") {
+    const routed = await handleEventSubAdminRoute(req, url, path);
+    if (routed) return routed;
   }
 
   // Every connected channel's connection health (see channel_status.ts):

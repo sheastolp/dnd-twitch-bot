@@ -503,11 +503,14 @@ async function createEventSubSubscription(
   });
   const text = await res.text();
   if (res.status === 409 && !retried) {
-    // Twitch already has this exact subscription — e.g. our row for it was
-    // lost, so a reconnect couldn't delete it first. Adopt it when it's
-    // healthy; otherwise remove the dead one and create it fresh.
-    const existing = await findEventSubSubscription(type, version, condition, callbackUrl);
-    if (existing?.status === "enabled") return existing;
+    // Twitch already has a subscription for this type and condition — e.g.
+    // our row for it was lost, so a reconnect couldn't delete it first.
+    // Twitch allows one per type+condition whatever the callback, so it may
+    // deliver somewhere else (another copy of the bot, an old address).
+    // Adopt it only when it's healthy and delivers here; otherwise remove it
+    // and create it fresh.
+    const existing = await findEventSubSubscription(type, version, condition);
+    if (existing?.status === "enabled" && existing.transport?.callback === callbackUrl) return existing;
     if (existing) {
       await deleteEventSubSubscription(String(existing.id));
       return createEventSubSubscription(type, version, condition, callbackUrl, true);
@@ -517,13 +520,12 @@ async function createEventSubSubscription(
   return JSON.parse(text).data[0];
 }
 
-/** The app's existing subscription with this type, version, condition and
- * callback, or null. */
+/** The app's existing subscription with this type, version and condition
+ * (whatever its callback), or null. */
 async function findEventSubSubscription(
   type: string,
   version: string,
   condition: Record<string, string>,
-  callbackUrl: string,
 ) {
   const userId = condition.broadcaster_user_id ?? condition.to_broadcaster_user_id ?? Object.values(condition)[0];
   const appToken = await getAppToken();
@@ -538,7 +540,7 @@ async function findEventSubSubscription(
     const json = await res.json();
     // deno-lint-ignore no-explicit-any
     const hit = (json.data ?? []).find((s: any) =>
-      s.type === type && String(s.version) === version && s.transport?.callback === callbackUrl &&
+      s.type === type && String(s.version) === version &&
       Object.entries(condition).every(([k, v]) => String(s.condition?.[k] ?? "") === v)
     );
     if (hit) return hit;
@@ -619,6 +621,54 @@ export async function createStreamStatusEventSubscriptions(broadcasterId: string
     createEventSubSubscription("stream.offline", "1", { broadcaster_user_id: broadcasterId }, callbackUrl),
   ]);
   return { online, offline };
+}
+
+export interface EventSubSubscription {
+  id: string;
+  type: string;
+  version: string;
+  status: string;
+  condition: Record<string, string>;
+  callback: string;
+  createdAt: string;
+}
+
+/** Every EventSub subscription this app (TWITCH_CLIENT_ID) has, any status
+ * and any callback — what Twitch will actually deliver, and where. */
+export async function listAppEventSubSubscriptions(): Promise<EventSubSubscription[]> {
+  const appToken = await getAppToken();
+  const out: EventSubSubscription[] = [];
+  let cursor = "";
+  for (let page = 0; page < 50; page++) {
+    const qs = new URLSearchParams({ first: "100" });
+    if (cursor) qs.set("after", cursor);
+    const res = await fetch(`https://api.twitch.tv/helix/eventsub/subscriptions?${qs}`, {
+      headers: { Authorization: `Bearer ${appToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+    });
+    if (!res.ok) throw new Error(`EventSub list failed: ${res.status} ${await res.text()}`);
+    const json = await res.json();
+    for (const s of json.data ?? []) {
+      out.push({
+        id: String(s.id),
+        type: String(s.type),
+        version: String(s.version),
+        status: String(s.status),
+        condition: s.condition ?? {},
+        callback: String(s.transport?.callback ?? ""),
+        createdAt: String(s.created_at ?? ""),
+      });
+    }
+    cursor = String(json.pagination?.cursor ?? "");
+    if (!cursor) break;
+  }
+  return out;
+}
+
+/** Replaces `sub` with the same subscription delivering to `callbackUrl`
+ * (and this server's EVENTSUB_SECRET); returns the new one. */
+export async function repointEventSubSubscription(sub: EventSubSubscription, callbackUrl: string) {
+  await deleteEventSubSubscription(sub.id);
+  return createEventSubSubscription(sub.type, sub.version, sub.condition, callbackUrl, true);
 }
 
 export async function deleteEventSubSubscription(subscriptionId: string) {

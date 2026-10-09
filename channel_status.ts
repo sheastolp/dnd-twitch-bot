@@ -212,7 +212,7 @@ export function renderAdminChannelsPage(list: ChannelStatus[], key: string): str
     return `<tr><td><a href="/admin/dashboard-link?channel=${encodeURIComponent(s.broadcasterId)}&key=${k}">${escapeHtml(s.name)}</a><br><span class="muted small">${escapeHtml(s.broadcasterId)}</span></td><td class="health ${s.health}">${HEALTH_LABEL[s.health]}</td><td>${s.enabled ? "on" : "off"}${s.isLive ? " · 🔴" : ""}</td><td>${when(s.connectedAt)}</td><td class="small">${detail || "—"}</td></tr>`;
   }).join("");
   return `<h1>Channel connections</h1>
-  <p><a href="/admin/logs?key=${k}">Operator logs</a> · <a href="/">Bot home</a></p>
+  <p><a href="/admin/eventsub?key=${k}">EventSub subscriptions</a> · <a href="/admin/logs?key=${k}">Operator logs</a> · <a href="/">Bot home</a></p>
   <p>${list.length} channel(s): ${counts.ok} connected, ${counts.partial} reconnect recommended, ${counts.disconnected} disconnected, ${counts.blocked} blocked. Click a channel to open its dashboard.</p>
   <div class="table-wrap"><table><thead><tr><th>Channel</th><th>Status</th><th>Bot</th><th>Connected</th><th>Details</th></tr></thead><tbody>${rows || `<tr><td colspan="5">No channels have connected yet.</td></tr>`}</tbody></table></div>`;
 }
