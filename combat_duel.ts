@@ -8,7 +8,7 @@ import { duelNarration } from "./narration.ts";
 import { getCharacter, getDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
-import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, resolvePlayerDuel } from "./combat_shared.ts";
+import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, recordDuelNaturals, resolvePlayerDuel, strikeD20s } from "./combat_shared.ts";
 import { recordBattle } from "./battle_log.ts";
 
 export async function handleDuelCommand(
@@ -101,6 +101,10 @@ export async function handleDuelCommand(
       challenger,
       defender,
     );
+    await recordDuelNaturals(broadcasterId, result.d20s, {
+      [String(challenge.challenger)]: String(challenge.challenger),
+      [username]: display,
+    });
     const loser = result.winner === username ? String(challenge.challenger) : display;
     await recordBattle(broadcasterId, {
       kind: "duel",
@@ -188,6 +192,7 @@ export async function handleDuelCommand(
     const foe = heroFighter(targetName, target, Number(active[theirs]), 10, { stateless: true });
     const strikes = heroTurn(me, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
     active[theirs] = foe.hp;
+    await recordDuelNaturals(broadcasterId, strikeD20s(strikes), { [username]: display, [targetName]: targetName });
     const defeated = active.challenger_hp <= 0 || active.defender_hp <= 0;
     const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
     const result = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;

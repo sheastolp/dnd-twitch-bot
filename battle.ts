@@ -178,6 +178,9 @@ function fmtStrike(s: Strike, showAc = false): string {
 export class BattleLog {
   private rounds: { lines: string[]; details: string[]; notable: boolean }[] = [];
   private intro: string[] = [];
+  /** Every swing recorded, in order (duels log their natural 1s/20s on
+   * !rollcall from these). */
+  readonly strikes: Strike[] = [];
 
   /** Start a new round (call once per round, before its first swing). */
   nextRound() {
@@ -211,6 +214,7 @@ export class BattleLog {
 
   /** Record a swing. Crits, fumbles and knockouts mark the round notable. */
   strike(s: Strike) {
+    this.strikes.push(s);
     if (!this.rounds.length) this.nextRound();
     const r = this.rounds[this.rounds.length - 1];
     r.lines.push(fmtStrike(s, this.rounds.length === 1));

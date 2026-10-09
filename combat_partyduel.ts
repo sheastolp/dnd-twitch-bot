@@ -17,7 +17,7 @@ import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import { creditBounty } from "./hoard.ts";
-import { withArticle, isChallengeExpired, forfeitIfIdlePartyDuel, forfeitIfIdlePartyHunt } from "./combat_shared.ts";
+import { withArticle, isChallengeExpired, forfeitIfIdlePartyDuel, forfeitIfIdlePartyHunt, recordDuelNaturals, strikeD20s } from "./combat_shared.ts";
 
 export async function partyDuelText(d: any) {
   const left = d.challenger_members.map((n: string) =>
@@ -615,6 +615,11 @@ export async function handlePartyDuelCommand(
     }
     for (const f of sides.challenger) aHp[f.name] = f.hp;
     for (const f of sides.defender) dHp[f.name] = f.hp;
+    await recordDuelNaturals(
+      broadcasterId,
+      strikeD20s(battle.strikes),
+      Object.fromEntries([...attackers, ...defenders].map((n) => [n, n === me ? display : n])),
+    );
     const challengerAlive = attackers.some((n) => aHp[n] > 0);
     const winnerParty = challengerAlive
       ? challenge.challenger_party
@@ -744,6 +749,7 @@ export async function handlePartyDuelCommand(
     const foe = heroFighter(targetName, target, Number(enemyHp[targetName]), 10, { stateless: true });
     const strikes = heroTurn(me, () => (foe.hp > 0 ? foe : undefined), new BattleLog(), 2);
     enemyHp[targetName] = foe.hp;
+    await recordDuelNaturals(broadcasterId, strikeD20s(strikes), { [attackerName]: display, [targetName]: targetName });
     const best = strikes.find((x) => x.crit) ?? strikes.find((x) => x.hit);
     const result = `${classicText(strikes)} ${duelNarration(best?.crit ? "critical" : best ? "hit" : "miss")}`;
     const defeated = enemyMembers.every((n: string) => Number(enemyHp[n]) <= 0);

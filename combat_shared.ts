@@ -4,11 +4,12 @@
 // under Val Town's per-file size ceiling.
 
 import { duelNarration } from "./narration.ts";
-import { BattleLog, fighterLine } from "./battle.ts";
+import { BattleLog, fighterLine, type Strike } from "./battle.ts";
 import { heroFighter, heroTurn } from "./combat_abilities.ts";
 import { getCharacter, sqlite } from "./db.ts";
 import { initiativeMod, rollInitiative } from "./utils.ts";
 import { sendChatMessage } from "./twitch.ts";
+import { recordDiceRollEvent } from "./social_db.ts";
 
 export const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
 
@@ -88,6 +89,29 @@ export async function forfeitIfIdlePartyHunt(broadcasterId: string, active: any)
   return true;
 }
 
+/** The natural d20s rolled in `strikes`, credited to whoever rolled them:
+ * the attacker, or the target for a save against a breath weapon/fireball.
+ * Magic Missile never rolls, so it is skipped. */
+export function strikeD20s(strikes: Strike[]): { name: string; roll: number }[] {
+  return strikes.filter((s) => !s.auto).map((s) => ({ name: s.save ? s.target : s.actor, roll: s.roll }));
+}
+
+/** Logs a duel's natural 1s and 20s on !rollcall (see recordDiceRollEvent).
+ * `players` maps each duelist's name (as the fighters are named) to the
+ * display name to log; any other roller is skipped. */
+export async function recordDuelNaturals(
+  broadcasterId: string,
+  rolls: { name: string; roll: number }[],
+  players: Record<string, string>,
+) {
+  for (const { name, roll } of rolls) {
+    if (roll !== 1 && roll !== 20) continue;
+    const displayName = players[name];
+    if (displayName === undefined) continue;
+    await recordDiceRollEvent(broadcasterId, name, displayName, roll === 20 ? "nat20" : "nat1");
+  }
+}
+
 export async function duelSummary(d: any) {
   const a = await getCharacter(d.challenger, d.broadcaster_id);
   const b = await getCharacter(d.defender, d.broadcaster_id);
@@ -105,7 +129,15 @@ export function resolvePlayerDuel(
   bName: string,
   aChar: any,
   bChar: any,
-): { winner: string; log: string; fullLog: string; rounds: number; hp: Record<string, number> } {
+): {
+  winner: string;
+  log: string;
+  fullLog: string;
+  rounds: number;
+  hp: Record<string, number>;
+  /** Every natural d20 rolled (initiative, attacks, saves), for !rollcall. */
+  d20s: { name: string; roll: number }[];
+} {
   const a = heroFighter(aName, aChar, aChar.hpMax, 10);
   const b = heroFighter(bName, bChar, bChar.hpMax, 10);
   const maxRounds = 20;
@@ -143,5 +175,6 @@ export function resolvePlayerDuel(
     }/${aChar.hpMax} HP, ${bName} ${hp[bName]}/${bChar.hpMax} HP.`,
   ].join(" ");
   // fullLog: every round, uncut, for the reply's detail page (replypages.ts).
-  return { winner, log, fullLog: log.replace(shown, battle.renderDetailed()), rounds, hp };
+  const d20s = [{ name: aName, roll: aInit.roll }, { name: bName, roll: bInit.roll }, ...strikeD20s(battle.strikes)];
+  return { winner, log, fullLog: log.replace(shown, battle.renderDetailed()), rounds, hp, d20s };
 }
