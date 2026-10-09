@@ -3,8 +3,8 @@
 // The robber's saved character and the target's saved character are put
 // through exactly the same auto-resolved duel as !dndduel @user (the shared
 // resolvePlayerDuel engine in combat.ts). There is no accept step: a robbery
-// isn't a polite challenge, but it is a fair fight: a coin flip decides who
-// swings first. When the duel ends, the LOSER hands the WINNER a
+// isn't a polite challenge, but it is a fair fight: initiative (d20 + DEX)
+// decides who swings first. When the duel ends, the LOSER hands the WINNER a
 // random single-digit percentage (1-9%) of the loser's own coin, at least
 // 1 cp. So a botched robbery is expensive: if the robber loses, the robber
 // pays the target.
@@ -143,10 +143,10 @@ export async function handleRobCommand(
   // Start the clocks before the fight so a burst of messages can't stack.
   await stampRobbery(broadcasterId, robber, target);
 
-  // The engine gives the first swing to whoever is passed first, and level-1
-  // fights are short, so going first is a real edge (measured over random
-  // character pairs: the robber won ~58% when always first, ~50% with a coin
-  // flip). Flip for initiative so a robbery is a fair fight.
+  // The engine rolls initiative (d20 + DEX) for the first swing, and a dead
+  // heat (same total, same DEX) goes to whoever is passed first. Level-1
+  // fights are short, so going first is a real edge: flip for that slot so
+  // the robber never wins the tie by default.
   const robberStrikesFirst = Math.random() < 0.5;
   const result = robberStrikesFirst
     ? resolvePlayerDuel(robber, target, robberChar, targetChar)

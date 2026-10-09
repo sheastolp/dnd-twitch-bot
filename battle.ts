@@ -4,7 +4,7 @@
 // is close to Val Town's per-file size ceiling (a push with an oversized file
 // is rejected and the deploy silently stays on old code).
 
-import { combatStats } from "./utils.ts";
+import { attackAbility, combatStats, heroAc, modifier } from "./utils.ts";
 
 // Auto solo monster duels (bare !dndduel / !dndduel <name>) are decided by the
 // actual dice, not a fixed win rate: the odds come from the real matchup
@@ -12,8 +12,9 @@ import { combatStats } from "./utils.ts";
 // novice, a dragon is a death wish, and every fight can still turn on a
 // natural 20. The only nudge fate gives is FATE_STAYS_HAND below.
 //
-// Once per fight, when a blow would drop the hero to 0 HP, they roll a d20;
-// this number or higher and fate stays its hand, leaving them on 1 HP.
+// Once per fight, when a blow would drop the hero to 0 HP, they roll a d20 +
+// their CON modifier; this number or higher and fate stays its hand, leaving
+// them on 1 HP.
 const FATE_STAYS_HAND_DC = 18;
 
 // ---------------------------------------------------------------------------
@@ -55,11 +56,11 @@ interface Strike {
 /** Labelled modifiers, e.g. [["DEX", 3], ["prof", 2]]. */
 export type Mods = Array<[string, number]>;
 
-/** Which ability a hero fights with (combatStats uses the higher of the
- * two; STR on a tie) — "DEX 16". */
-export function fightingAbility(c: { scores: Record<string, number> }): { name: string; score: number } {
-  const str = Number(c.scores?.STR ?? 10), dex = Number(c.scores?.DEX ?? 10);
-  return dex > str ? { name: "DEX", score: dex } : { name: "STR", score: str };
+/** Which ability a hero fights with (see attackAbility in utils.ts: the
+ * casting stat for spellcasters, else the higher of STR/DEX) — "DEX 16". */
+export function fightingAbility(c: { scores: Record<string, number>; cls?: string }): { name: string; score: number } {
+  const name = attackAbility(c as any);
+  return { name, score: Number(c.scores?.[name] ?? 10) };
 }
 
 /** Rolls `count` dice of `sides`, returning each result. */
@@ -99,10 +100,9 @@ function fmtStrikeDetailed(s: Strike): string {
  * name, which Twitch boxes on every appearance. */
 export const YOU = "you";
 
-/** "10 base +3 STR/DEX +2 prof" — how a hero's AC is built. Pass `ability`
- * ("DEX 16", see fightingAbility) to name the stat it actually comes from. */
-export function acWhy(base: number, mod: number, prof: number, ability = "STR/DEX"): string {
-  return `${base} base ${mod < 0 ? "-" : "+"}${Math.abs(mod)} ${ability} +${prof} prof`;
+/** "10 base +2 DEX +3 CON +2 prof" — how an AC is built from its parts. */
+export function acWhy(base: number, parts: Mods): string {
+  return `${base} base${parts.map(([label, v]) => ` ${v < 0 ? "-" : "+"}${Math.abs(v)} ${label}`).join("")}`;
 }
 
 /** A hero's fight stats for the full-reply page: level, class, HP, AC (and
@@ -119,15 +119,14 @@ export function fighterLine(
   const die = opts.die ?? stats.die;
   const edge = opts.edge ?? 0;
   const edgeText = edge ? ` +${edge} edge (hunter's edge)` : "";
-  return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${acBase + stats.mod + c.proficiency} (${heroAcWhy(acBase, c)}), ` +
+  return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${heroAc(c, acBase).ac} (${heroAcWhy(acBase, c)}), ` +
     `attack d20 ${signed(stats.mod)} ${a.name} +${c.proficiency} prof${edgeText}, ` +
     `damage 1d${die} ${signed(stats.mod)} ${a.name}${edge ? ` +${edge} edge` : ""}.`;
 }
 
-/** acWhy for a hero, naming the ability their AC comes from. */
-export function heroAcWhy(base: number, c: { proficiency: number; scores: Record<string, number> }): string {
-  const a = fightingAbility(c);
-  return acWhy(base, combatStats(c as any).mod, c.proficiency, `${a.name} ${a.score}`);
+/** acWhy for a hero, naming the abilities their AC comes from. */
+export function heroAcWhy(base: number, c: { proficiency: number; scores: Record<string, number>; cls?: string }): string {
+  return acWhy(base, heroAc(c as any, base).parts);
 }
 
 /** A monster's AC comes straight from its bestiary entry. */
@@ -252,17 +251,17 @@ export class BattleLog {
 export function simulateAttack(
   attackerName: string,
   defenderName: string,
-  attacker: { proficiency: number; scores: Record<string, number> },
-  defender: { proficiency: number; scores: Record<string, number> },
+  attacker: { proficiency: number; scores: Record<string, number>; cls?: string },
+  defender: { proficiency: number; scores: Record<string, number>; cls?: string },
   hp: Record<string, number>,
 ): Strike {
   const stats = combatStats(attacker as any);
-  const targetStats = combatStats(defender as any);
-  const ability = fightingAbility(attacker).name;
+  const targetAc = heroAc(defender as any, 10).ac;
+  const ability = stats.ability;
   const roll = 1 + Math.floor(Math.random() * 20);
-  const total = roll + stats.mod + attacker.proficiency;
+  const total = roll + stats.toHit;
   const critical = roll === 20;
-  const hit = critical || (roll !== 1 && total >= targetStats.attack);
+  const hit = critical || (roll !== 1 && total >= targetAc);
   const rolls = rollDice(critical ? 2 : 1, stats.die);
   const dice = rolls.reduce((a, b) => a + b, 0);
   const damage = hit ? Math.max(1, dice + stats.mod) : 0;
@@ -276,7 +275,7 @@ export function simulateAttack(
     fumble: roll === 1,
     roll,
     total,
-    ac: targetStats.attack,
+    ac: targetAc,
     damage,
     targetHp: hp[defenderName] ?? 0,
     targetMax: Number((defender as any).hpMax ?? hp[defenderName] ?? 0),
@@ -303,7 +302,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any, opt
   let monsterHp = monster.hp;
   const pStats = combatStats(c);
   // Slightly forgiving AC for stream pacing
-  const playerAc = 11 + pStats.mod + c.proficiency;
+  const playerAc = heroAc(c, 11).ac;
   const battle = new BattleLog();
   let swings = 0;
   // High enough that even a long slog against a big monster is settled by
@@ -311,7 +310,8 @@ export function simulateMonsterFight(c: any, username: string, monster: any, opt
   const maxSwings = 100;
   const dmgDie = 10; // heroes hit a bit harder vs monsters than PvP d8
   let fateUsed = false;
-  const ability = fightingAbility(c).name;
+  const ability = pStats.ability;
+  const conMod = modifier(Number(c.scores?.CON ?? 10));
   const label = username === YOU ? "You" : username;
   battle.describe(
     `${label}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${playerHp < c.hpMax ? `${playerHp}/` : ""}${c.hpMax} HP, AC ${playerAc} (${heroAcWhy(11, c)}), ` +
@@ -325,7 +325,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any, opt
     swings++;
     battle.nextRound();
     const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + pStats.mod + c.proficiency + 1; // +1 to-hit bias
+    const total = roll + pStats.toHit + 1; // +1 to-hit bias
     const critical = roll === 20;
     const hit = critical || (roll !== 1 && total >= monster.ac);
     const rolls = rollDice(critical ? 2 : 1, dmgDie);
@@ -361,9 +361,11 @@ export function simulateMonsterFight(c: any, username: string, monster: any, opt
     const playerHpBefore = playerHp;
     if (mHit) playerHp = Math.max(0, playerHp - mDamage);
     let fateSaved = false;
+    let fateRoll = 0;
     if (playerHp <= 0 && !fateUsed) {
       fateUsed = true;
-      if (1 + Math.floor(Math.random() * 20) >= FATE_STAYS_HAND_DC) {
+      fateRoll = 1 + Math.floor(Math.random() * 20);
+      if (fateRoll + conMod >= FATE_STAYS_HAND_DC) {
         playerHp = 1;
         fateSaved = true;
       }
@@ -390,7 +392,7 @@ export function simulateMonsterFight(c: any, username: string, monster: any, opt
     });
     if (fateSaved) {
       battle.note(`✨ fate stays its hand — ${username === YOU ? "you are" : username + " is"} left at 1 HP`);
-      battle.explain(`(Fate's d20 roll met DC ${FATE_STAYS_HAND_DC}: once per fight, a blow that would drop the hero leaves them at 1 HP instead.)`);
+      battle.explain(`(Fate's roll, d20 ${fateRoll} ${signed(conMod)} CON = ${fateRoll + conMod}, met DC ${FATE_STAYS_HAND_DC}: once per fight, a blow that would drop the hero leaves them at 1 HP instead.)`);
     }
   }
 

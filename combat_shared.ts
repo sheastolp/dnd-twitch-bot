@@ -6,6 +6,7 @@
 import { duelNarration } from "./narration.ts";
 import { BattleLog, fighterLine, simulateAttack } from "./battle.ts";
 import { getCharacter, sqlite } from "./db.ts";
+import { initiativeMod, rollInitiative } from "./utils.ts";
 import { sendChatMessage } from "./twitch.ts";
 
 export const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
@@ -112,15 +113,24 @@ export function resolvePlayerDuel(
   const battle = new BattleLog();
   battle.describe(fighterLine(aName, aChar, aChar.hpMax, 10));
   battle.describe(fighterLine(bName, bChar, bChar.hpMax, 10));
-  battle.describe(`${aName} swings first each round; ${bName} answers if still standing.`);
+  // Initiative (d20 + DEX) decides who swings first each round; ties go to
+  // the higher DEX modifier, then to the challenger.
+  const aInit = rollInitiative(aChar), bInit = rollInitiative(bChar);
+  const aFirst = aInit.total !== bInit.total
+    ? aInit.total > bInit.total
+    : initiativeMod(aChar) >= initiativeMod(bChar);
+  const [first, second] = aFirst ? [aName, bName] : [bName, aName];
+  const chars: Record<string, any> = { [aName]: aChar, [bName]: bChar };
+  battle.describe(
+    `Initiative (d20 + DEX): ${aName} ${aInit.total}, ${bName} ${bInit.total} — ${first} swings first each round; ${second} answers if still standing.`,
+  );
   let rounds = 0;
   while (hp[aName] > 0 && hp[bName] > 0 && rounds < maxRounds) {
     rounds++;
     battle.nextRound();
-    // aName always swings first; bName answers if still standing.
-    battle.strike(simulateAttack(aName, bName, aChar, bChar, hp));
-    if (hp[bName] > 0) {
-      battle.strike(simulateAttack(bName, aName, bChar, aChar, hp));
+    battle.strike(simulateAttack(first, second, chars[first], chars[second], hp));
+    if (hp[second] > 0) {
+      battle.strike(simulateAttack(second, first, chars[second], chars[first], hp));
     }
   }
   const winner = hp[aName] > 0 ? aName : bName;

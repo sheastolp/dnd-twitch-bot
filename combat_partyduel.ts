@@ -5,9 +5,9 @@
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { combatStats, firstAlive } from "./utils.ts";
+import { combatStats, firstAlive, heroAc, initiativeMod } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
-import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
+import { BattleLog, fighterLine, heroAcWhy, MONSTER_AC_WHY, rollDice, simulateAttack } from "./battle.ts";
 import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -138,7 +138,7 @@ export async function handlePartyDuelCommand(
       }
       const stats = combatStats(attacker);
       const roll = 1 + Math.floor(Math.random() * 20);
-      const total = roll + stats.mod + attacker.proficiency;
+      const total = roll + stats.toHit;
       const critical = roll === 20;
       const hit = critical ||
         (roll !== 1 && total >= Number(partyHunt.monster_ac));
@@ -151,7 +151,7 @@ export async function handlePartyDuelCommand(
         `${attackerName} attacks ${partyHunt.monster_name}: d20 ${roll}${
           critical ? " CRITICAL" : ""
         } + ${
-          stats.mod + attacker.proficiency
+          stats.toHit
         } = ${total} vs AC ${partyHunt.monster_ac} → ${
           hit
             ? `hit for ${damage} (${partyHunt.monster_name} ${partyHunt.monster_hp}/${partyHunt.monster_hp_max} HP)`
@@ -205,10 +205,7 @@ export async function handlePartyDuelCommand(
       const targetName = living[Math.floor(Math.random() * living.length)] ??
         attackerName;
       const targetChar = await getCharacter(targetName, broadcasterId);
-      const tStats = targetChar
-        ? combatStats(targetChar)
-        : { mod: 0, attack: 10 };
-      const playerAc = 10 + tStats.mod + (targetChar?.proficiency ?? 2);
+      const playerAc = targetChar ? heroAc(targetChar, 10).ac : 12;
       const mRoll = 1 + Math.floor(Math.random() * 20);
       const mTotal = mRoll + Number(partyHunt.monster_attack);
       const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
@@ -405,9 +402,9 @@ export async function handlePartyDuelCommand(
         for (const n of livingMembers) {
           if (hp[n] <= 0 || monsterHp <= 0) continue;
           const stats = combatStats(chars[n]);
-          const ability = fightingAbility(chars[n]).name;
+          const ability = stats.ability;
           const roll = 1 + Math.floor(Math.random() * 20);
-          const total = roll + stats.mod + chars[n].proficiency;
+          const total = roll + stats.toHit;
           const critical = roll === 20;
           const hit = critical || (roll !== 1 && total >= monster.ac);
           const rolls = rollDice(critical ? 2 : 1, 8);
@@ -439,8 +436,7 @@ export async function handlePartyDuelCommand(
         const living = livingMembers.filter((n) => hp[n] > 0);
         if (!living.length) break;
         const victim = living[Math.floor(Math.random() * living.length)];
-        const vStats = combatStats(chars[victim]);
-        const playerAc = 10 + vStats.mod + chars[victim].proficiency;
+        const playerAc = heroAc(chars[victim], 10).ac;
         const mRoll = 1 + Math.floor(Math.random() * 20);
         const mTotal = mRoll + monster.attack;
         const mHit = mRoll !== 1 && (mRoll === 20 || mTotal >= playerAc);
@@ -660,10 +656,21 @@ export async function handlePartyDuelCommand(
     }
 
     // Auto-resolve party duel. One round = each side's front-line fighter
-    // (first member still standing) swings once, challenger first.
+    // (first member still standing) swings once. Each side rolls initiative
+    // once, d20 + its quickest member's DEX modifier; the higher total swings
+    // first every round (ties: the challenger).
     const battle = new BattleLog();
     for (const n of attackers) battle.describe(`[${challenge.challenger_party}] ${fighterLine(n, aChars[n], aHp[n], 10)}`);
     for (const n of defenders) battle.describe(`[${challenge.defender_party}] ${fighterLine(n, dChars[n], dHp[n], 10)}`);
+    const sideInit = (members: string[], chars: Record<string, any>) =>
+      1 + Math.floor(Math.random() * 20) + Math.max(...members.map((n) => initiativeMod(chars[n])));
+    const aInit = sideInit(attackers, aChars), dInit = sideInit(defenders, dChars);
+    const order = aInit >= dInit ? ["challenger", "defender"] as const : ["defender", "challenger"] as const;
+    battle.describe(
+      `Initiative (d20 + quickest DEX): ${challenge.challenger_party} ${aInit}, ${challenge.defender_party} ${dInit} — ${
+        order[0] === "challenger" ? challenge.challenger_party : challenge.defender_party
+      } swings first each round.`,
+    );
     let rounds = 0;
     const maxRounds = 40; // 80 swings, same cap as before
     while (
@@ -673,7 +680,7 @@ export async function handlePartyDuelCommand(
     ) {
       rounds++;
       battle.nextRound();
-      for (const side of ["challenger", "defender"] as const) {
+      for (const side of order) {
         const atkMembers = side === "challenger" ? attackers : defenders;
         const atkHp = side === "challenger" ? aHp : dHp;
         const atkChars = side === "challenger" ? aChars : dChars;
@@ -820,11 +827,11 @@ export async function handlePartyDuelCommand(
       return true;
     }
     const stats = combatStats(attacker);
-    const targetStats = combatStats(target);
+    const targetAc = combatStats(target).ac;
     const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + stats.mod + attacker.proficiency;
+    const total = roll + stats.toHit;
     const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= targetStats.attack);
+    const hit = critical || (roll !== 1 && total >= targetAc);
     const dice = critical
       ? 1 + Math.floor(Math.random() * 8) + (1 + Math.floor(Math.random() * 8))
       : 1 + Math.floor(Math.random() * 8);
@@ -833,8 +840,8 @@ export async function handlePartyDuelCommand(
     const result = `${attackerName} attacks ${targetName}: d20 ${roll}${
       critical ? " CRITICAL" : ""
     } + ${
-      stats.mod + attacker.proficiency
-    } = ${total} vs AC ${targetStats.attack} → ${
+      stats.toHit
+    } = ${total} vs AC ${targetAc} → ${
       hit
         ? `hit for ${damage} (${targetName} ${enemyHp[targetName]}/${target.hpMax} HP)`
         : "miss"

@@ -5,7 +5,7 @@
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { combatStats } from "./utils.ts";
+import { combatStats, heroAc } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { getCharacter, getMonsterDuel, sqlite } from "./db.ts";
@@ -301,7 +301,7 @@ export async function handleMonsterDuelCommand(
     const pStats = combatStats(player);
     const playerHp = Number(active.player_hp ?? player.hpMax);
     const roll = 1 + Math.floor(Math.random() * 20);
-    const toHitBonus = pStats.mod + player.proficiency + 1;
+    const toHitBonus = pStats.toHit + 1;
     const total = roll + toHitBonus;
     const critical = roll === 20;
     const hit = critical || (roll !== 1 && total >= Number(active.monster_ac));
@@ -353,7 +353,7 @@ export async function handleMonsterDuelCommand(
     }
     const monsterRoll = 1 + Math.floor(Math.random() * 20);
     const monsterTotal = monsterRoll + Number(active.monster_attack);
-    const playerAc = 11 + pStats.mod + player.proficiency;
+    const playerAc = heroAc(player, 11).ac;
     const monsterHit = monsterRoll !== 1 &&
       (monsterRoll === 20 || monsterTotal >= playerAc);
     const monsterDice = 1 +

@@ -58,7 +58,7 @@ import { withArticle } from "./combat_shared.ts";
 import { applyGear, effectText, ownsGear } from "./gear.ts";
 import { formatCoins } from "./coins.ts";
 import { adjustBalance, canEarnGold, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
-import { combatStats, formatRaceName, pick } from "./utils.ts";
+import { formatRaceName, heroAc, pick } from "./utils.ts";
 import type { Character } from "./types.ts";
 import { isLowHp, loadHero } from "./hoard_combat.ts";
 import {
@@ -185,7 +185,7 @@ function lore(o: ResolvedOffer): string {
 
 function sheetLine(c: Character, p: HoardPlayer, name: string, coin: number | null): string {
   const potions = Object.values(p.potions).reduce((a, b) => a + b, 0);
-  const ac = 11 + combatStats(c).mod + c.proficiency;
+  const ac = heroAc(c, 11).ac;
   return `${name} — Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} | ${c.hpCurrent}/${c.hpMax} HP | AC ${ac} | XP ${c.xp ?? 0}` +
     (coin !== null ? ` | 🪙 ${formatCoins(coin)}` : "") + ` | ${plural(potions, "potion")} | ${plural((c.items ?? []).length, "item")} on the sheet`;
 }

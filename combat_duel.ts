@@ -180,11 +180,11 @@ export async function handleDuelCommand(
       return true;
     }
     const stats = combatStats(attacker);
-    const targetStats = combatStats(target);
+    const targetAc = combatStats(target).ac;
     const roll = 1 + Math.floor(Math.random() * 20);
-    const total = roll + stats.mod + attacker.proficiency;
+    const total = roll + stats.toHit;
     const critical = roll === 20;
-    const hit = critical || (roll !== 1 && total >= targetStats.attack);
+    const hit = critical || (roll !== 1 && total >= targetAc);
     const dice = critical
       ? 1 + Math.floor(Math.random() * stats.die) +
         (1 + Math.floor(Math.random() * stats.die))
@@ -200,8 +200,8 @@ export async function handleDuelCommand(
     const result = `${username} attacks ${targetName}: d20 ${roll}${
       critical ? " CRITICAL" : ""
     } + ${
-      stats.mod + attacker.proficiency
-    } = ${total} vs AC ${targetStats.attack} → ${
+      stats.toHit
+    } = ${total} vs AC ${targetAc} → ${
       hit
         ? `hit for ${damage} (${targetName} ${targetHpNow}/${target.hpMax} HP)`
         : "miss"

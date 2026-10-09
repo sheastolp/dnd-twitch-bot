@@ -31,7 +31,7 @@ import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCom
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { applyAdaptation, getAdaptation, getChannelRoster, recordMonsterOutcome, stripMeta, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
-import { BattleLog, fighterLine, fightingAbility, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
+import { BattleLog, fighterLine, heroAcWhy, MONSTER_AC_WHY, rollDice } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import { creditBounty } from "./hoard.ts";
@@ -39,7 +39,7 @@ import { monsterLootCopper, splitLoot } from "./loot.ts";
 import { adjustBalance, canEarnGold } from "./points_db.ts";
 import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
-import { combatStats } from "./utils.ts";
+import { combatStats, heroAc } from "./utils.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { forgetOptionCache, optNum } from "./channel_options.ts";
@@ -292,9 +292,9 @@ export function simulateRaidFight(
     for (const h of heroes) {
       if (hp[h.name] <= 0 || bossHp <= 0) continue;
       const s = combatStats(h.c);
-      const ability = fightingAbility(h.c).name;
+      const ability = s.ability;
       const roll = d(20);
-      const total = roll + s.mod + h.c.proficiency + 1; // same +1 to-hit as solo monster fights
+      const total = roll + s.toHit + 1; // same +1 to-hit as solo monster fights
       const crit = roll === 20;
       const hit = crit || (roll !== 1 && total >= boss.ac);
       const rolls = rollDice(crit ? 2 : 1, 10);
@@ -318,8 +318,7 @@ export function simulateRaidFight(
       const standing = heroes.filter((h) => hp[h.name] > 0);
       if (!standing.length) break;
       const v = standing[Math.floor(Math.random() * standing.length)];
-      const vs = combatStats(v.c);
-      const ac = 11 + vs.mod + v.c.proficiency;
+      const ac = heroAc(v.c, 11).ac;
       const roll = d(20);
       const total = roll + boss.attack;
       const hit = roll !== 1 && (roll === 20 || total >= ac);
