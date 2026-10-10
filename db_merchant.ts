@@ -81,6 +81,21 @@ export async function markListingHaggled(
   return "claimed";
 }
 
+/** Gives back one haggle attempt `username` spent on the listing posted at
+ * `postedAt` — used when the peddler's reply failed to generate, so an AI
+ * hiccup doesn't eat a viewer's attempt. No-op if the listing has moved on. */
+export async function unmarkListingHaggled(broadcasterId: string, username: string, postedAt: number): Promise<void> {
+  const listing = await getMerchantListing(broadcasterId);
+  if (!listing || listing.postedAt !== postedAt) return;
+  const i = listing.haggledBy.lastIndexOf(username);
+  if (i < 0) return;
+  const haggledBy = [...listing.haggledBy.slice(0, i), ...listing.haggledBy.slice(i + 1)];
+  await sqlite.execute(
+    "UPDATE merchant_listings SET haggled_by = ? WHERE broadcaster_id = ? AND posted_at = ?",
+    [JSON.stringify(haggledBy), broadcasterId, postedAt],
+  );
+}
+
 /** Recently-active chatters in a channel (from activity_logs), most-recent
  * first — the pool !oracle picks a name from. */
 export async function getRecentChatters(broadcasterId: string, limit = 50) {
