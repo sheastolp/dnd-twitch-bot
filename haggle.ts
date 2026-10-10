@@ -136,6 +136,59 @@ export function settlePrice(
   return Math.min(listed, Math.max(lowestPrice(listed, offer), raw));
 }
 
+/** Removes a reasoning model's <think>…</think> block (Ollama's qwen3,
+ * deepseek-r1 and friends put it in the content), including one cut off
+ * before it closed, so only the spoken reply is left. */
+export function stripThinking(raw: string): string {
+  return raw.replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "").trim();
+}
+
+function pick<T>(list: T[]): T {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+/** The peddler's verdict when the AI can't answer (down, unreachable, or an
+ * empty reply). Follows the same rules the prompt gives the model — accept
+ * about two-thirds of the sticker or more, counter lower offers, refuse
+ * lowballs under a third — so !haggle still works without the AI. */
+export function fallbackVerdict(listed: number, offer: number | null): { deal: boolean; price: number | null; text: string } {
+  const sticker = formatCoins(listed);
+  if (offer !== null && offer >= listed) {
+    const text = pick([
+      `Full price? Finally, someone with taste. ${sticker}, sold!`,
+      `${sticker} it is — I won't argue with a customer who pays what it's worth.`,
+    ]);
+    return { deal: true, price: listed, text };
+  }
+  if (offer !== null && offer >= Math.ceil((listed * 2) / 3)) {
+    const price = formatCoins(offer);
+    const text = pick([
+      `Ugh, ${price}? You drive a hard bargain, but my stomach's growling louder than my pride. Deal.`,
+      `${price}... my poor mother would weep. Fine, fine, it's yours for ${price}.`,
+      `Daylight robbery, but I need the coin. ${price} and not a copper less.`,
+    ]);
+    return { deal: true, price: offer, text };
+  }
+  if (offer !== null && offer < listed / 3) {
+    const text = pick([
+      `${formatCoins(offer)}?! For that I'd sooner sell you the sack it came in. No deal.`,
+      `Ha! ${formatCoins(offer)}? Come back when you've found the rest of your purse. No deal.`,
+    ]);
+    return { deal: false, price: null, text };
+  }
+  // A middling offer (or none at all): meet them partway.
+  const counter = offer !== null
+    ? Math.min(listed, Math.ceil((offer + listed) / 2))
+    : Math.max(1, Math.min(listed, Math.ceil(listed * 0.85)));
+  const price = formatCoins(counter);
+  const text = pick([
+    `Too low, friend — but I like your face. ${price}, final offer.`,
+    `Hmph. I'll come down to ${price}, and only because business is slow.`,
+    `You'll have me begging in the gutter! ${price}, and that's me being generous.`,
+  ]);
+  return { deal: true, price: counter, text };
+}
+
 export interface HaggleError {
   ok: false;
   error: "no_listing" | "already_haggled" | "empty_message" | "generation_failed";
@@ -181,26 +234,40 @@ export async function generateHaggleReply(
       ],
     });
 
-    const verdict = parseVerdict(completion.choices[0]?.message?.content ?? "");
+    const verdict = parseVerdict(stripThinking(completion.choices[0]?.message?.content ?? ""));
     const reply = compactText(verdict.text, MAX_REPLY_LEN);
-    if (!reply) {
-      await unmarkListingHaggled(broadcasterId, username, listing.postedAt);
-      await recordMonitorEvent(
-        "haggle_generation_error",
-        `${broadcasterId}/${listing.merchantName}: empty reply. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
-      );
-      return { ok: false, error: "generation_failed" };
+    if (reply) {
+      const agreedCopper = verdict.deal && listedCopper !== null ? settlePrice(verdict, listedCopper, offerCopper) : null;
+      return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper };
     }
-
-    const agreedCopper = verdict.deal && listedCopper !== null ? settlePrice(verdict, listedCopper, offerCopper) : null;
-    return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper };
+    await recordMonitorEvent(
+      "haggle_generation_error",
+      `${broadcasterId}/${listing.merchantName}: empty reply. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
+    );
   } catch (e) {
     console.error("generateHaggleReply failed", e);
-    // The peddler never answered, so don't charge the viewer an attempt.
+    await recordMonitorEvent("haggle_generation_error", `${broadcasterId}: ${String(e)}`).catch(() => {});
+  }
+
+  // The AI couldn't answer. With a readable price the peddler still decides
+  // by the same rules the prompt gives the model; otherwise give the viewer
+  // their attempt back.
+  if (listedCopper === null) {
     await unmarkListingHaggled(broadcasterId, username, listing.postedAt).catch(() => {});
-    await recordMonitorEvent("haggle_generation_error", `${broadcasterId}: ${String(e)}`);
     return { ok: false, error: "generation_failed" };
   }
+  const verdict = fallbackVerdict(listedCopper, offerCopper);
+  const agreedCopper = verdict.deal ? settlePrice(verdict, listedCopper, offerCopper) : null;
+  return {
+    ok: true,
+    reply: compactText(verdict.text, MAX_REPLY_LEN),
+    merchantName: listing.merchantName,
+    itemDesc: listing.itemDesc,
+    deal: verdict.deal,
+    listedCopper,
+    offerCopper,
+    agreedCopper,
+  };
 }
 
 /** Handles !stall — shows the item currently on the peddler's stall and how
