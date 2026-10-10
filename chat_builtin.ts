@@ -17,6 +17,7 @@ import { rollDice, rollSaveContest } from "./dice.ts";
 import { getBossSaves } from "./boss_saves.ts";
 import { rollFate, rollHug, renderShmash } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
+import { mentionsBot, maybeReplyToMention } from "./babushka.ts";
 import { classes } from "./data.ts";
 import { chatHelpText } from "./help.ts";
 import { startGuideText } from "./start.ts";
@@ -560,6 +561,11 @@ export async function handleBuiltinChatCommand(ctx: {
   } else if (chatMessage.startsWith("!")) {
     // Nothing built-in matched — try a chat-authored custom command.
     await handleCustomCommandInvocation(chatMessage, display, broadcasterId);
+  } else if (mentionsBot(chatMessage) && await isCommandGroupEnabled(broadcasterId, "mentionreply")) {
+    // Plain chat that @-tags GuildScribe: an AI reply in the voice of a sour
+    // Russian babushka (babushka.ts). Claims the message, so it never also
+    // draws a goodnight/trigger/chronicle/NPC reply.
+    await maybeReplyToMention(chatMessage, chatter, display, broadcasterId, isModerator);
   } else if (isGoodnightMessage(chatMessage)) {
     // Plain-chat "goodnight" detection (not a "!" command). Cooldown per
     // channel so a wave of goodnights from many viewers only draws one reply.

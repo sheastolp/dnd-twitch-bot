@@ -150,6 +150,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
+  // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka
+  // (babushka.ts checks this switch itself; there's no command word).
+  mentionreply: { section: "Other", label: "Babushka replies when chat @-tags the bot (AI)", commands: [] },
 };
 
 // ── Switches that depend on other switches ──────────────────────────────
