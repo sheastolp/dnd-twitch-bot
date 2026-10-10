@@ -23,11 +23,11 @@ const PEDDLER_WORDS = /\b(peddl[ae]rs?|merchants?|stalls?|shop(?:keep(?:er)?)?s?
 const ASSAULT_WORDS = new RegExp(
   "\\b(" + [
     "attack(?:s|ed|ing)?", "assault(?:s|ed|ing)?", "ambush(?:es|ed|ing)?",
-    "rob(?:s|bed|bing|bery)?", "mug(?:s|ged|ging)?", "steal(?:s|ing)?", "stole", "swipe[sd]?",
+    "rob(?:s|bed|bing)?", "mug(?:s|ged|ging)?", "steal(?:s|ing)?", "stole", "swipe[sd]?",
     "shoplift(?:s|ed|ing)?", "pickpocket(?:s|ed|ing)?", "pilfer(?:s|ed|ing)?", "plunder(?:s|ed|ing)?",
-    "snatch(?:es|ed|ing)?", "grab(?:s|bed|bing)? (?:it|the|his|her|their|and run)", "five[- ]finger discount",
-    "stab(?:s|bed|bing)?", "slash(?:es|ed|ing)?", "punch(?:es|ed|ing)?", "smack(?:s|ed)?", "slap(?:s|ped)?",
-    "shoot(?:s|ing)?", "kill(?:s|ed|ing)?", "murder(?:s|ed|ing)?", "slay(?:s|ing)?", "behead(?:s|ed)?",
+    "snatch(?:es|ed|ing)?", "grab(?:s|bed|bing)? (?:it and run|and run|the (?:till|purse|coins?|cash ?box|goods)|(?:his|her|their|your) (?:purse|coins?|till|wares?|goods))", "five[- ]finger discount",
+    "stab(?:s|bed|bing)?", "slash(?:es|ed|ing)? (?:at|you|him|her|them|the (?:peddl[ae]r|merchant|stall|awning))", "punch(?:es|ed|ing)?", "smack(?:s|ed)?", "slap(?:s|ped)?",
+    "shoot(?:s|ing)? (?:you|him|her|them|at|an? (?:arrow|bolt|crossbow))", "kill(?:s|ed|ing)?", "murder(?:s|ed|ing)?", "slay(?:s|ing)?", "behead(?:s|ed)?",
     "fireball(?:s|ed)?", "eldritch blast", "magic missile", "sneak attack", "smite[sd]?", "cast (?:fireball|hold person|sleep)",
     "strangle[sd]?", "choke[sd]?", "tackle[sd]?", "knock(?:s|ed)? (?:out|him|her|them)", "beat(?:s|ing)? (?:up|him|her|them)",
     "threaten(?:s|ed|ing)?", "intimidat(?:e|es|ed|ing|ion)", "hold (?:him|her|them|you) up", "stick ?up", "hands up",
@@ -52,7 +52,10 @@ export function isAssaultOnPeddler(text: string): boolean {
     .replace(/\b(?:is|that'?s|it'?s|this is|what|pure|daylight|highway|absolute|outright)\s+(?:an?\s+)?(?:robbery|theft|a steal|murder|criminal|highway robbery|daylight robbery)\b/g, " ")
     .replace(/\byou(?:'re| are) (?:robbing|killing|murdering|stealing from) me\b/g, " ")
     .replace(/\b(?:a|what a) steal\b/g, " ")
-    .replace(/\bkill(?:ing)? (?:it|me)\b/g, " ");
+    .replace(/\bkill(?:ing)? (?:it|me)\b/g, " ")
+    // "I'd kill for that", "steal of a deal", "let me steal it for 5 cp".
+    .replace(/\b(?:i'?d|i would|would) kill for\b/g, " ")
+    .replace(/\bsteal (?:of a deal|(?:it |this |that )?(?:for|at)\b)/g, " ");
   return ASSAULT_WORDS.test(cleaned);
 }
 
