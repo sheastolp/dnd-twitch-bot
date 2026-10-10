@@ -99,6 +99,8 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3.ts** | `!bg3roll`, `!bg3companion`, `!bg3origin`, `!bg3loot`, `!bg3camp` — standalone Baldur's Gate 3 flavor generators (no DB); `!bg3` — random race/class + player-chosen BG3 point-buy scores, saved via db.ts |
 | **bg3data.ts** | Static Baldur's Gate 3 knowledgebase — companions, origins, classes, races, locations, factions, deities, villains, legendary items |
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
+| **division2.ts** | The Division 2 companion: `!div2`, `!div2build`, `!div2loot`, `!div2mission`, `!div2lookup` — flavor generators and knowledgebase search (no DB, no external API) |
+| **division2data.ts** | Static The Division 2 knowledgebase (specializations, skills, gear sets, brands, exotics, factions, characters, locations, modes) and the generator pools |
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **combat_shared.ts** / **combat_duel.ts** / **combat_monster.ts** / **combat_party.ts** / **combat_partyduel.ts** | Shared timeouts/forfeits/PvP resolver, PvP duels, solo monster duels, `!party`, party duels + party hunts — re-exported from `combat.ts`, which keeps the initiative tracker |
 | **bestiary.ts** / **bestiary_page.ts** | The living bestiary: per-channel roster (core + learned monsters), monster adaptation from fight outcomes, `!bestiary`, and the `/bestiary?channel=<id>` page |
@@ -258,6 +260,10 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!bg3origin` | Casts you as one of the six canonical BG3 Origin Characters (or the Dark Urge) for this run, with their hook |
 | `!bg3loot` | Random magic item drop with a BG3-style rarity tier (Common → Legendary) |
 | `!bg3camp` | Random camp-night vignette featuring one of the BG3 companions |
+| `!div2build` | Random The Division 2 agent build: specialization + signature weapon, primary/secondary weapon classes, gear set or brand mix, core attribute focus, an exotic, and two skill variants |
+| `!div2loot` | Random Division 2 loot drop by rarity (Superior → High-End → Named → Gear Set → Exotic) |
+| `!div2mission` | Picks tonight's Division 2 activity, difficulty, and a self-imposed challenge |
+| `!div2` | Lists the Division 2 commands |
 
 ### Guild archives (lookups)
 | Command | Example |
@@ -268,11 +274,13 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!monster <name>` | `!monster goblin`, `!monster adult red dragon` |
 | `!rule` / `!rules <topic>` | `!rules magic`, `!rule advantage` |
 | `!bg3lookup <name>` | `!bg3lookup astarion`, `!bg3lookup moonrise towers`, `!bg3lookup faction zhentarim` |
+| `!div2lookup <name>` | `!div2lookup striker`, `!div2lookup eagle bearer`, `!div2lookup skill turret` |
 
 - Bare commands (`!rules` alone) → usage + examples  
 - Rules: up to **3** chat messages, **link first** in the response, always a D&D Beyond **search link** (hardcoded Free Rules chapter URLs were dropped — they'd started returning 403s)  
 - Other lookups include reference links where applicable, also shown first in the response  
 - `!bg3lookup` is a separate, hand-curated **Baldur's Gate 3 knowledgebase** (companions, origins, classes, races, locations, factions, deities, villains, legendary items) — not the D&D 5e SRD data the other lookups use. Optionally narrow the search with a leading category keyword, e.g. `!bg3lookup companion karlach` or `!bg3lookup location grymforge`. Bare `!bg3lookup` lists the recognized categories. Each hit links to a `bg3.wiki` search for that name.  
+- `!div2lookup` is a hand-curated **The Division 2 knowledgebase** (specializations, skills, gear sets, brand sets, exotics, factions, characters, locations, game modes). Same category narrowing (`!div2lookup exotic chameleon`); each hit links to a Division wiki search. Summaries say what a thing is for rather than exact talent numbers, which change between seasons.  
 
 ### Guild company (parties)
 | Command | Description |

@@ -22,6 +22,7 @@ import { chatHelpText } from "./help.ts";
 import { startGuideText } from "./start.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
+import { div2Index, rollDiv2Build, rollDiv2Loot, rollDiv2Mission, div2LookupReply } from "./division2.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { delveHelpText, getDelveOptions } from "./idle.ts";
 
@@ -403,6 +404,16 @@ export async function handleBuiltinChatCommand(ctx: {
     await sendChatMessage(rollBG3Loot(display), broadcasterId);
   } else if (chatMessage === "!bg3camp") {
     await sendChatMessage(rollBG3Camp(display), broadcasterId);
+  } else if (/^!div2$/i.test(chatMessage)) {
+    await sendChatMessage(div2Index(display), broadcasterId);
+  } else if (/^!div2build$/i.test(chatMessage)) {
+    await sendChatMessages(rollDiv2Build(display), broadcasterId);
+  } else if (/^!div2loot$/i.test(chatMessage)) {
+    await sendChatMessage(rollDiv2Loot(display), broadcasterId);
+  } else if (/^!div2mission$/i.test(chatMessage)) {
+    await sendChatMessage(rollDiv2Mission(display), broadcasterId);
+  } else if (/^!div2lookup(?:\s+.*)?$/i.test(chatMessage)) {
+    await sendChatMessages(div2LookupReply(display, chatMessage.replace(/^!div2lookup\s*/i, "").trim()), broadcasterId);
   } else if (/^!hug(?:\s+@?\S+)?$/i.test(chatMessage)) {
     const hugMatch = chatMessage.match(/^!hug(?:\s+@?(\S+))?$/i)!;
     const hugTarget = hugMatch[1] ? hugMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;

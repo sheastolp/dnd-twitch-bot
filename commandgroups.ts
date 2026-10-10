@@ -80,6 +80,10 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   bg3companion: { section: "Baldur's Gate 3", label: "Companion & origin (!bg3companion, !bg3origin)", commands: ["bg3companion", "bg3origin"], parent: "bg3flavor" },
   bg3loot: { section: "Baldur's Gate 3", label: "Loot & camp (!bg3loot, !bg3camp)", commands: ["bg3loot", "bg3camp"], parent: "bg3flavor" },
   bg3lookup: { section: "Baldur's Gate 3", label: "Knowledgebase (!bg3lookup)", commands: ["bg3lookup"], parent: "bg3flavor" },
+  // The Division 2 (division2.ts) — on by default like the BG3 flavor rolls.
+  div2build: { section: "The Division 2", label: "Random agent build (!div2build)", commands: ["div2build"] },
+  div2loot: { section: "The Division 2", label: "Loot drop & tonight's op (!div2loot, !div2mission)", commands: ["div2loot", "div2mission"] },
+  div2lookup: { section: "The Division 2", label: "Knowledgebase (!div2lookup, !div2)", commands: ["div2lookup", "div2"] },
   // Guild archives
   rules: { section: "Guild archives", label: "Spells, classes & rules (!rules, !spell, !class, !feat, !monster)", commands: ["rules", "rule", "spell", "class", "feat", "monster"], parent: "archives" },
   items: { section: "Guild archives", label: "Equipment and abilities (!item, !ability)", commands: ["item", "ability"], parent: "archives" },
