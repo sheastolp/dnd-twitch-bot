@@ -83,6 +83,15 @@ export async function countAutohuntSessions(broadcasterId: string): Promise<numb
   return Number(res.rows[0]?.n ?? 0);
 }
 
+/** Every hunter currently out in a channel, earliest started first. */
+export async function listAutohuntSessions(broadcasterId: string): Promise<AutohuntSession[]> {
+  const res = await sqlite.execute(
+    "SELECT * FROM autohunt_sessions WHERE broadcaster_id = ? ORDER BY started_at ASC",
+    [broadcasterId],
+  );
+  return res.rows.map(rowToSession);
+}
+
 export async function createAutohuntSession(s: AutohuntSession) {
   await sqlite.execute(
     `INSERT OR REPLACE INTO autohunt_sessions

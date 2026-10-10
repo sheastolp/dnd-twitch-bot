@@ -39,6 +39,7 @@ import {
   createAutohuntSession,
   deleteAutohuntSession,
   getAutohuntSession,
+  listAutohuntSessions,
 } from "./autohunt_db.ts";
 import { optNum } from "./channel_options.ts";
 
@@ -101,8 +102,9 @@ const tally = (s: { wins: number; losses: number }) => `${s.wins}W/${s.losses}L`
 export interface AutohuntReport {
   text: string;
   summary?: string;
-  /** A few words for a combined report of several hunters (postAutohuntReports). */
-  brief: string;
+  /** The hunter's whole-trip tally, for a combined report of several
+   * hunters (postAutohuntReports). `done`: this settle ended the trip. */
+  hunter: { name: string; wins: number; losses: number; done: boolean };
 }
 
 /** Posts a settle's report in chat (see AutohuntReport). */
@@ -110,14 +112,20 @@ export function postAutohuntReport(report: AutohuntReport, broadcasterId: string
   return sendChatMessages(report.text, broadcasterId, { summary: report.summary });
 }
 
-/** Posts several hunters' reports for one channel as ONE chat message: each
- * hunter's brief line, with every full report on the linked page. */
-export function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
+/** Posts several hunters' reports for one channel as ONE chat message: every
+ * hunter currently out (settled this time or not) with their trip's W/L, plus
+ * any whose trip just ended, pointing to !autohunt status for the details.
+ * Names are plain (no @) so a channel-wide roll call pings no one. */
+export async function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
   if (reports.length === 1) return postAutohuntReport(reports[0], broadcasterId);
-  // Leading words (not an @) so the full page is the channel's, not one hunter's.
-  return sendChatMessages(`Autohunt reports: ${reports.map((r) => r.text).join(" ‖ ")}`, broadcasterId, {
-    summary: `🏹 autohunt reports — ${reports.map((r) => r.brief).join(" | ")}`,
-  });
+  const hunters = (await listAutohuntSessions(broadcasterId))
+    .map((s) => ({ name: s.display_name, wins: s.wins, losses: s.losses, done: false }));
+  for (const r of reports) if (r.hunter.done) hunters.push(r.hunter);
+  const roll = hunters.map((h) => `${h.name} ${tally(h)}${h.done ? " (done)" : ""}`).join(" | ");
+  return sendChatMessages(
+    `🏹 Autohunting (${hunters.length}): ${roll} — use !autohunt status for detailed info.`,
+    broadcasterId,
+  );
 }
 
 /** The trip's bout log, numbered: "1. ✔ beat … · 2. ✘ fell to …". */
@@ -223,7 +231,7 @@ export async function settleAutohunt(
   if (missing) {
     await deleteAutohuntSession(bid, username);
     const text = `${tag}${name} your hero is no longer on the roster, so the autohunt is called off.`;
-    return { text, brief: `${tag}${name} called off (hero not on the roster)` };
+    return { text, hunter: { name, wins: session.wins + wins, losses: session.losses + losses, done: true } };
   }
   // A summary sent for a viewer's own command gets their @ prepended by
   // summarizeLongReply; an unprompted one names the hunter itself.
@@ -254,7 +262,7 @@ export async function settleAutohunt(
     return {
       text: `${tag}${name} ${head}${battles}${tail}`,
       summary: `${lead}${head}${recent}${tail}`,
-      brief: `${tag}${name} done (${why}): ${total}${lv}`,
+      hunter: { name, wins: fresh.wins, losses: fresh.losses, done: true },
     };
   }
 
@@ -266,7 +274,7 @@ export async function settleAutohunt(
   return {
     text: `${tag}${name} ${head} | ${tail} Trip so far (${tally(fresh)}): ${all}.`,
     summary: `${lead}${head}: ${shown} | ${tail}`,
-    brief: `${tag}${name} ${wins + losses} bout${wins + losses === 1 ? "" : "s"} (${wins}W/${losses}L${rests ? `, ${rests} rest${rests === 1 ? "" : "s"}` : ""}) ${gains}${levelNote}, ${left} left`,
+    hunter: { name, wins: fresh.wins, losses: fresh.losses, done: false },
   };
 }
 
