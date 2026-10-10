@@ -101,11 +101,23 @@ const tally = (s: { wins: number; losses: number }) => `${s.wins}W/${s.losses}L`
 export interface AutohuntReport {
   text: string;
   summary?: string;
+  /** A few words for a combined report of several hunters (postAutohuntReports). */
+  brief: string;
 }
 
 /** Posts a settle's report in chat (see AutohuntReport). */
 export function postAutohuntReport(report: AutohuntReport, broadcasterId: string) {
   return sendChatMessages(report.text, broadcasterId, { summary: report.summary });
+}
+
+/** Posts several hunters' reports for one channel as ONE chat message: each
+ * hunter's brief line, with every full report on the linked page. */
+export function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
+  if (reports.length === 1) return postAutohuntReport(reports[0], broadcasterId);
+  // Leading words (not an @) so the full page is the channel's, not one hunter's.
+  return sendChatMessages(`Autohunt reports: ${reports.map((r) => r.text).join(" ‖ ")}`, broadcasterId, {
+    summary: `🏹 autohunt reports — ${reports.map((r) => r.brief).join(" | ")}`,
+  });
 }
 
 /** The trip's bout log, numbered: "1. ✔ beat … · 2. ✘ fell to …". */
@@ -210,7 +222,8 @@ export async function settleAutohunt(
   const name = session.display_name;
   if (missing) {
     await deleteAutohuntSession(bid, username);
-    return { text: `${tag}${name} your hero is no longer on the roster, so the autohunt is called off.` };
+    const text = `${tag}${name} your hero is no longer on the roster, so the autohunt is called off.`;
+    return { text, brief: `${tag}${name} called off (hero not on the roster)` };
   }
   // A summary sent for a viewer's own command gets their @ prepended by
   // summarizeLongReply; an unprompted one names the hunter itself.
@@ -241,6 +254,7 @@ export async function settleAutohunt(
     return {
       text: `${tag}${name} ${head}${battles}${tail}`,
       summary: `${lead}${head}${recent}${tail}`,
+      brief: `${tag}${name} done (${why}): ${total}${lv}`,
     };
   }
 
@@ -252,6 +266,7 @@ export async function settleAutohunt(
   return {
     text: `${tag}${name} ${head} | ${tail} Trip so far (${tally(fresh)}): ${all}.`,
     summary: `${lead}${head}: ${shown} | ${tail}`,
+    brief: `${tag}${name} ${wins + losses} bout${wins + losses === 1 ? "" : "s"} (${wins}W/${losses}L${rests ? `, ${rests} rest${rests === 1 ? "" : "s"}` : ""}) ${gains}${levelNote}, ${left} left`,
   };
 }
 

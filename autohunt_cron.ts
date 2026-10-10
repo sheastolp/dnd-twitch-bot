@@ -1,8 +1,9 @@
 // GuildScribe — autohunt settlement.
 // Val Town CRON TRIGGER (interval val). Set the schedule in the Val Town UI;
 // every 15 minutes is Val Town's minimum and is plenty: each run settles every
-// bout that has come due since the last one and posts ONE report per hunter, so
-// a slower tick just means slightly bigger reports (see autohunt.ts).
+// bout that has come due since the last one and posts ONE chat message per
+// channel covering all its hunters, so a slower tick just means slightly
+// bigger reports (see autohunt.ts).
 //
 // Only channels that are live get settled; an offline channel's sessions wait
 // (their end time still counts down, so the hunt can finish the moment the
@@ -12,7 +13,7 @@
 import { ensureTables, recordMonitorEvent } from "./db.ts";
 import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
 import { ensureBestiaryTables } from "./bestiary.ts";
-import { postAutohuntReport, settleAutohunt } from "./autohunt.ts";
+import { type AutohuntReport, postAutohuntReports, settleAutohunt } from "./autohunt.ts";
 import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid.ts";
 
 export default async function () {
@@ -23,6 +24,8 @@ export default async function () {
   const due = await getDueAutohuntSessions(now);
   let reports = 0;
   let skippedOffline = 0;
+  // Settle everyone first, then post each channel's reports together.
+  const byChannel = new Map<string, AutohuntReport[]>();
 
   for (const { is_live, ...session } of due) {
     if (!is_live) {
@@ -32,11 +35,20 @@ export default async function () {
     try {
       const report = await settleAutohunt(session, { now });
       if (report) {
-        await postAutohuntReport(report, session.broadcaster_id);
+        const list = byChannel.get(session.broadcaster_id) ?? [];
+        list.push(report);
+        byChannel.set(session.broadcaster_id, list);
         reports++;
       }
     } catch (e) {
       await recordMonitorEvent("autohunt_settle_error", `${session.broadcaster_id}#${session.username}: ${String(e)}`);
+    }
+  }
+  for (const [broadcasterId, list] of byChannel) {
+    try {
+      await postAutohuntReports(list, broadcasterId);
+    } catch (e) {
+      await recordMonitorEvent("autohunt_post_error", `${broadcasterId}: ${String(e)}`);
     }
   }
 
