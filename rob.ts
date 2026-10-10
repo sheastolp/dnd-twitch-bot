@@ -24,6 +24,10 @@
 //   - Characters are not hurt and gain no XP — only coin changes hands.
 //   - A target wearing a channel-point robbery shield (redemptions.ts) can't
 //     be robbed until it expires; the robber's cooldown isn't spent.
+//   - Targeting GuildScribe itself (TWITCH_BOT_LOGIN, default guildscribebot)
+//     never starts a fight: the bot deflects, mocks the would-be robber and
+//     moves a 1-9% cut of THEIR purse (at least 1 cp) into the swear jar.
+//     No character needed, no cooldown spent — every attempt costs.
 
 import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
@@ -38,9 +42,12 @@ import {
   robberWaitMs,
   stampRobbery,
   transferPoints,
+  trySpend,
   victimProtectedMs,
 } from "./points_db.ts";
 import { optNum } from "./channel_options.ts";
+import { adjustJar } from "./swearjar.ts";
+import { pick } from "./utils.ts";
 
 // The robbery cooldown and the victim's shield are per-channel options (channel_options.ts:
 // rob.cooldown, rob.protect), defaulting to ROB_COOLDOWN_SECONDS / ROB_PROTECT_SECONDS.
@@ -60,6 +67,37 @@ export function rollRobPercent(rng: () => number = Math.random): number {
 export function robAmount(loserBalance: number, percent: number): number {
   if (loserBalance <= 0) return 0;
   return Math.min(loserBalance, Math.max(1, Math.floor((loserBalance * percent) / 100)));
+}
+
+/** GuildScribe's own Twitch login, so `!rob @GuildScribeBot` can be caught. */
+export function botLogin(): string {
+  return (Deno.env.get("TWITCH_BOT_LOGIN") ?? "guildscribebot").trim().replace(/^@/, "").toLowerCase();
+}
+
+const BOT_DEFLECTIONS: ((name: string, coin: string) => string)[] = [
+  (n, c) => `🪶 @${n} reaches for the Scribe's purse and grabs an inkwell instead. The Scribe sighs, notes "attempted theft of a narrator" in the chronicle, and drops ${c} of ${n}'s coin in the swear jar for the trouble.`,
+  (n, c) => `📜 @${n} tries to rob the one who writes the story. The Scribe simply writes "${n} trips over their own feet" — and so it was. ${c} spills from their purse into the swear jar.`,
+  (n, c) => `🛡️ @${n} lunges at GuildScribe and is parried by a quill. A quill. ${c} of their coin goes in the swear jar as a fine for sheer embarrassment.`,
+  (n, c) => `🎲 @${n} rolls to rob the Scribe… natural 1. The whole tavern saw that. ${c} is confiscated and rattles into the swear jar.`,
+  (n, c) => `👻 @${n} picks the Scribe's pocket and finds only a note: "Nice try." Their own purse is ${c} lighter — the swear jar thanks them for their donation.`,
+];
+
+const BOT_DEFLECTIONS_BROKE = [
+  (n: string) => `🪶 @${n} tries to rob the Scribe and gets parried by a quill. The Scribe would fine you, but your purse is as empty as your plan.`,
+  (n: string) => `🎲 @${n} rolls to rob GuildScribe… natural 1. The swear jar wanted a cut, but you're too broke to even fine.`,
+];
+
+/** `!rob @GuildScribeBot`: mock the robber and fine a 1-9% cut of their
+ * purse into the swear jar. */
+async function deflectBotRobbery(robber: string, display: string, broadcasterId: string): Promise<void> {
+  const purse = (await getBalance(broadcasterId, robber))?.balance ?? 0;
+  const amount = robAmount(purse, rollRobPercent());
+  if (amount <= 0 || !(await trySpend(broadcasterId, robber, amount))) {
+    await sendChatMessage(pick(BOT_DEFLECTIONS_BROKE)(display), broadcasterId);
+    return;
+  }
+  const total = await adjustJar(broadcasterId, amount);
+  await sendChatMessage(`${pick(BOT_DEFLECTIONS)(display, formatCoins(amount))} (Jar: ${formatCoins(total)})`, broadcasterId);
 }
 
 function waitText(ms: number): string {
@@ -88,6 +126,10 @@ export async function handleRobCommand(
   const target = arg.replace(/^@/, "").toLowerCase();
   if (!arg || !/^@?\S+$/.test(arg) || !USERNAME_RE.test(target)) {
     await sendChatMessage(`@${display} usage: !rob @player — your characters duel, and the loser pays the winner a 1-9% cut of their coin.`, broadcasterId);
+    return true;
+  }
+  if (target === botLogin()) {
+    await deflectBotRobbery(robber, display, broadcasterId);
     return true;
   }
   if (target === robber) {
