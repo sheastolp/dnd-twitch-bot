@@ -35,7 +35,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
       `Chat while the stream is live: every minute you chat earns copper. Monster kills drop coin too.`,
       `<code>!gold</code> shows your purse and rank; <code>!gold top</code> shows the richest adventurers.`,
       `Spend it: haggle with the peddler (<code>!haggle</code>), buy giveaway tickets (<code>!giveaway enter 3</code>), or gift a friend (<code>!gold give @friend 5sp</code>).`,
-      `Feeling bold? <code>!rob @user</code> fights them for 1–9% of the loser's coin, so a failed robbery costs you.`,
+      `Feeling bold? <code>!rob @user</code> fights them for 1–9% of the loser's coin, so a failed robbery costs you — and the more you rob (especially the same person), or the more they have been robbed lately, the likelier they spot you coming.`,
     ],
     tips: [
       `Coins follow 5e rates: 10 cp = 1 sp, 10 sp = 1 gp. Amounts can be typed as <code>50</code>, <code>5sp</code>, <code>1gp</code> or <code>1gp 2sp</code>.`,

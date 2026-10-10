@@ -58,6 +58,8 @@ export const OPTIONS: OptionDef[] = [
     def: env("ROB_COOLDOWN_SECONDS", 300, 10, 86_400), min: 10, max: 86_400, suggest: ["1m", "5m", "15m", "1h"] },
   { key: "rob.protect", bundle: "gold", label: "Safe from robbery after being robbed", kind: "duration", unit: "s",
     def: env("ROB_PROTECT_SECONDS", 600, 0, 86_400), min: 0, max: 86_400, suggest: ["off", "5m", "10m", "30m"] },
+  { key: "rob.heat", bundle: "gold", label: "Robbery heat lasts", help: "Recent attempts make the next robbery likelier to be spotted; off = no heat.", kind: "duration", unit: "m",
+    def: env("ROB_HEAT_SECONDS", 7200, 0, 86_400), min: 0, max: 86_400, suggest: ["off", "1h", "2h", "6h"] },
   // Fighting & hunts
   { key: "hunt.cooldown", bundle: "fighting", label: "Rest between monster hunts", help: "Same as !huntcooldown in chat.", kind: "duration", unit: "s",
     def: env("HUNT_COOLDOWN_SECONDS", 120, 0, 3600), min: 0, max: 3600, suggest: ["off", "1m", "2m", "5m", "10m"], table: "hunt_settings" },

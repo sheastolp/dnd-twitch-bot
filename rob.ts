@@ -21,6 +21,13 @@
 //   - A robber waits ROB_COOLDOWN_SECONDS between robberies (default 300) and
 //     a target is left alone for ROB_PROTECT_SECONDS after being targeted
 //     (default 600), win or lose, so nobody gets dogpiled.
+//   - Heat: every attempt is remembered for rob.heat (default 2h). Before the
+//     duel the target gets a chance to spot the robber coming — robHeat()
+//     below: +15% per earlier attempt by this robber on this target, +5% per
+//     other robbery this robber tried, +5% per time anyone else went after
+//     this target, capped at 75%. Spotted means caught: no fight, the robber
+//     pays the target the usual 1-9% fine. So the more you rob (above all the
+//     same person) and the more a target has been robbed, the worse your odds.
 //   - Characters are not hurt and gain no XP — only coin changes hands.
 //   - A target wearing a channel-point robbery shield (redemptions.ts) can't
 //     be robbed until it expires; the robber's cooldown isn't spent.
@@ -39,7 +46,9 @@ import { robShieldRemainingMs } from "./redemptions.ts";
 import {
   getBalance,
   isPointsEnabled,
+  recordRobAttempt,
   robberWaitMs,
+  robHeatCounts,
   stampRobbery,
   transferPoints,
   trySpend,
@@ -54,6 +63,35 @@ import { pick } from "./utils.ts";
 
 export const MIN_ROB_PERCENT = 1;
 export const MAX_ROB_PERCENT = 9;
+
+/** Heat (spot chance, %) added per earlier attempt in the window. */
+export const HEAT_PER_REPEAT = 15;
+export const HEAT_PER_ROBBERY = 5;
+export const HEAT_PER_TARGETED = 5;
+export const MAX_HEAT = 75;
+
+/** The % chance the target spots the robber before any fight, from recent
+ * attempts (robHeatCounts in points_db.ts). */
+export function robHeat(c: { pair: number; robber: number; victim: number }): number {
+  return Math.min(MAX_HEAT, c.pair * HEAT_PER_REPEAT + c.robber * HEAT_PER_ROBBERY + c.victim * HEAT_PER_TARGETED);
+}
+
+/** Why the heat is what it is, for the "spotted" line. */
+function heatReasons(c: { pair: number; robber: number; victim: number }, robberName: string, targetName: string): string {
+  const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
+  const out: string[] = [];
+  if (c.pair) out.push(`${robberName} already tried ${targetName} ${times(c.pair)}`);
+  if (c.robber) out.push(`${robberName} has hit ${times(c.robber)} elsewhere`);
+  if (c.victim) out.push(`${targetName} has been targeted ${times(c.victim)} by others`);
+  return out.join(", ");
+}
+
+const SPOTTED: ((robber: string, target: string) => string)[] = [
+  (r, t) => `👀 ${t} has been expecting this — they turn around before @${r} gets close and grab them by the collar!`,
+  (r, t) => `🔔 The whole street knows @${r}'s face by now. ${t} spots them a mile off and calls the watch!`,
+  (r, t) => `🪤 ${t} left a decoy purse out as bait, and @${r} walked right into it.`,
+  (r, t) => `🕯️ @${r} creeps up on ${t}… who was sitting up waiting, cudgel in hand.`,
+];
 
 const USERNAME_RE = /^[a-z0-9_]{1,25}$/;
 
@@ -98,6 +136,37 @@ async function deflectBotRobbery(robber: string, display: string, broadcasterId:
   }
   const total = await adjustJar(broadcasterId, amount);
   await sendChatMessage(`${pick(BOT_DEFLECTIONS)(display, formatCoins(amount))} (Jar: ${formatCoins(total)})`, broadcasterId);
+}
+
+/** The target saw the robber coming (heat): no duel, the robber pays the
+ * usual 1-9% fine straight to the target. */
+async function robberSpotted(
+  broadcasterId: string,
+  robber: string,
+  display: string,
+  target: string,
+  targetName: string,
+  heat: number,
+  reasons: string,
+): Promise<void> {
+  const purse = (await getBalance(broadcasterId, robber))?.balance ?? 0;
+  const percent = rollRobPercent();
+  const amount = robAmount(purse, percent);
+  const paid = amount > 0 && (await transferPoints(broadcasterId, robber, target, targetName, amount)) === "ok";
+  const fine = paid
+    ? `${targetName} takes ${percent}% of their purse as a fine: ${formatCoins(amount)}.`
+    : `Their purse is too empty to fine.`;
+  await recordBattle(broadcasterId, {
+    kind: "rob",
+    side: targetName,
+    foe: display,
+    outcome: "win",
+    note: paid ? `+${formatCoins(amount)} (spotted)` : "spotted",
+  });
+  await sendChatMessage(
+    `${pick(SPOTTED)(display, targetName)} ${fine} 🔥 Heat ${heat}%: ${reasons}.`,
+    broadcasterId,
+  );
 }
 
 function waitText(ms: number): string {
@@ -182,8 +251,19 @@ export async function handleRobCommand(
     return true;
   }
 
+  // Heat from earlier attempts, counted before this one is logged.
+  const heatMs = (await optNum(broadcasterId, "rob.heat")) * 1000;
+  const counts = await robHeatCounts(broadcasterId, robber, target, heatMs);
+  const heat = robHeat(counts);
+
   // Start the clocks before the fight so a burst of messages can't stack.
   await stampRobbery(broadcasterId, robber, target);
+  if (heatMs > 0) await recordRobAttempt(broadcasterId, robber, target);
+
+  if (heat > 0 && Math.random() * 100 < heat) {
+    await robberSpotted(broadcasterId, robber, display, target, targetPurse.displayName, heat, heatReasons(counts, display, targetPurse.displayName));
+    return true;
+  }
 
   // The engine rolls initiative (d20 + DEX) for the first swing, and a dead
   // heat (same total, same DEX) goes to whoever is passed first. Level-1

@@ -67,6 +67,19 @@ export async function ensurePointsTables() {
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
+  // Every !rob attempt (rob.ts), so repeat robbers and much-robbed targets
+  // build up "heat" that makes the next attempt likelier to be spotted.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS rob_attempts (
+      broadcaster_id TEXT NOT NULL,
+      robber TEXT NOT NULL,
+      victim TEXT NOT NULL,
+      at INTEGER NOT NULL
+    )`,
+  );
+  await sqlite.execute(
+    "CREATE INDEX IF NOT EXISTS rob_attempts_by_channel ON rob_attempts (broadcaster_id, at)",
+  );
   await migrateToCopper();
 }
 
@@ -420,6 +433,41 @@ export async function stampRobbery(broadcasterId: string, robber: string, victim
   );
 }
 
+/** How many !rob attempts in the last `windowMs` involve this pair: `pair` =
+ * this robber against this victim, `robber` = this robber against anyone
+ * else, `victim` = anyone else against this victim. Call before
+ * stampRobbery so the attempt in hand isn't counted. */
+export async function robHeatCounts(
+  broadcasterId: string,
+  robber: string,
+  victim: string,
+  windowMs: number,
+): Promise<{ pair: number; robber: number; victim: number }> {
+  if (windowMs <= 0) return { pair: 0, robber: 0, victim: 0 };
+  const r = robber.toLowerCase(), v = victim.toLowerCase();
+  const res = await sqlite.execute(
+    `SELECT
+       SUM(CASE WHEN robber = ? AND victim = ? THEN 1 ELSE 0 END) AS pair,
+       SUM(CASE WHEN robber = ? AND victim <> ? THEN 1 ELSE 0 END) AS rob,
+       SUM(CASE WHEN victim = ? AND robber <> ? THEN 1 ELSE 0 END) AS vic
+     FROM rob_attempts WHERE broadcaster_id = ? AND at > ?`,
+    [r, v, r, v, v, r, broadcasterId, Date.now() - windowMs],
+  );
+  const row = res.rows[0] ?? {};
+  return { pair: Number(row.pair ?? 0), robber: Number(row.rob ?? 0), victim: Number(row.vic ?? 0) };
+}
+
+/** Logs a !rob attempt for robHeatCounts and drops attempts older than a day
+ * (the longest heat window allowed). */
+export async function recordRobAttempt(broadcasterId: string, robber: string, victim: string) {
+  const now = Date.now();
+  await sqlite.execute(
+    "INSERT INTO rob_attempts (broadcaster_id, robber, victim, at) VALUES (?,?,?,?)",
+    [broadcasterId, robber.toLowerCase(), victim.toLowerCase(), now],
+  );
+  await sqlite.execute("DELETE FROM rob_attempts WHERE broadcaster_id = ? AND at < ?", [broadcasterId, now - 86_400_000]);
+}
+
 // ── Offboarding ──
 
 /** `!dndbot leave` (no purge): drop the on/off override (back to the
@@ -430,7 +478,7 @@ export async function disconnectPointsData(broadcasterId: string) {
 
 /** `!dndbot leave purge`: delete everything points-related for the channel. */
 export async function purgePointsData(broadcasterId: string) {
-  for (const table of ["points_settings", "points_balances", "giveaways", "giveaway_entries", "rob_cooldowns"]) {
+  for (const table of ["points_settings", "points_balances", "giveaways", "giveaway_entries", "rob_cooldowns", "rob_attempts"]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
 }
