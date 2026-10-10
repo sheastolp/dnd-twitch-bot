@@ -33,7 +33,7 @@ function pickDistinct<T>(list: readonly T[], n: number): T[] {
 // ---------------------------------------------------------------------------
 
 export function div2Index(display: string): string {
-  return `@${display} 🟠 Division 2 companion: !div2build (random agent build) | !div2loot (open a drop) | !div2mission (pick tonight's activity + a challenge) | !div2lookup <name> (gear sets, brands, exotics, skills, specs, factions, places, modes — e.g. !div2lookup striker)`;
+  return `@${display} 🟠 Division 2 companion: !div2build (random agent build) | !div2loot (open a drop) | !div2mission (pick tonight's activity + a challenge) | !div2quests (campaign + custom quest progress) | !div2lookup <name> (gear sets, brands, exotics, skills, specs, factions, places, modes — e.g. !div2lookup striker)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,8 @@ export function rollDiv2Mission(display: string): string {
 // !div2lookup — knowledgebase search
 // ---------------------------------------------------------------------------
 
-function comparable(value: string): string {
+/** Lowercase, punctuation-free form used to match chat input against names. */
+export function comparable(value: string): string {
   return value.toLowerCase().replace(/['’]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
 }
 

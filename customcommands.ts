@@ -226,7 +226,7 @@ async function getRandomFfzEmote(broadcasterId: string): Promise<string | null> 
 // submitted through the "add" forms, not just chat's !dndbot add.
 export const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
-  "div2", "div2build", "div2loot", "div2mission", "div2lookup",
+  "div2", "div2build", "div2loot", "div2mission", "div2lookup", "div2quests", "div2quest",
   "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "start", "link", "guide",

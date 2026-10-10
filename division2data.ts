@@ -239,3 +239,46 @@ export const DIV2_SKILL_VARIANTS: Record<string, string[]> = {
 export const DIV2_EXOTIC_POOL = DIV2_KNOWLEDGEBASE.filter((e) => e.category === "exotic").map((e) => e.name);
 export const DIV2_GEARSET_POOL = DIV2_KNOWLEDGEBASE.filter((e) => e.category === "gearset").map((e) => e.name);
 export const DIV2_BRAND_POOL = DIV2_KNOWLEDGEBASE.filter((e) => e.category === "brand").map((e) => e.name);
+
+// ── Campaign checklist (div2quests.ts) ────────────────────────────────────
+// The preloaded quest list mods tick off with !div2quest done <name>. `key`
+// is what's stored per channel, so never rename a key once it ships — change
+// `name` instead. Order is play order (roughly), which is what "next up" uses.
+
+export interface Div2CampaignQuest {
+  key: string;
+  name: string;
+  /** Short heading the quest is grouped under on the page and in chat. */
+  arc: string;
+  aliases?: string[];
+}
+
+export const DIV2_CAMPAIGN: Div2CampaignQuest[] = [
+  { key: "jefferson_trade_center", name: "Jefferson Trade Center", arc: "Washington, D.C.", aliases: ["jtc"] },
+  { key: "grand_washington_hotel", name: "Grand Washington Hotel", arc: "Washington, D.C.", aliases: ["gwh"] },
+  { key: "viewpoint_museum", name: "Viewpoint Museum", arc: "Washington, D.C." },
+  { key: "bank_headquarters", name: "Bank Headquarters", arc: "Washington, D.C.", aliases: ["bank hq"] },
+  { key: "potomac_event_center", name: "Potomac Event Center", arc: "Washington, D.C.", aliases: ["potomac"] },
+  { key: "american_history_museum", name: "American History Museum", arc: "Washington, D.C." },
+  { key: "lincoln_memorial", name: "Lincoln Memorial", arc: "Washington, D.C." },
+  { key: "air_and_space_museum", name: "Air & Space Museum", arc: "Washington, D.C.", aliases: ["air and space"] },
+  { key: "jefferson_plaza", name: "Jefferson Plaza", arc: "Washington, D.C." },
+  { key: "federal_emergency_bunker", name: "Federal Emergency Bunker", arc: "Washington, D.C.", aliases: ["feb"] },
+  { key: "space_administration_hq", name: "Space Administration HQ", arc: "Washington, D.C.", aliases: ["space admin"] },
+  { key: "district_union_arena", name: "District Union Arena (stronghold)", arc: "Strongholds", aliases: ["district union arena", "dua"] },
+  { key: "roosevelt_island", name: "Roosevelt Island (stronghold)", arc: "Strongholds", aliases: ["roosevelt island"] },
+  { key: "capitol_building", name: "Capitol Building (stronghold)", arc: "Strongholds", aliases: ["capitol building", "capitol"] },
+  { key: "tidal_basin", name: "Tidal Basin (Black Tusk stronghold)", arc: "Strongholds", aliases: ["tidal basin"] },
+  { key: "manning_national_zoo", name: "Manning National Zoo", arc: "D.C. episodes", aliases: ["zoo"] },
+  { key: "camp_white_oak", name: "Camp White Oak", arc: "D.C. episodes", aliases: ["white oak"] },
+  { key: "pentagon", name: "The Pentagon", arc: "D.C. episodes", aliases: ["pentagon"] },
+  { key: "darpa_research_labs", name: "DARPA Research Labs", arc: "D.C. episodes", aliases: ["darpa"] },
+  { key: "coney_island_amusement_park", name: "Coney Island Amusement Park", arc: "D.C. episodes", aliases: ["amusement park"] },
+  { key: "coney_island_ballpark", name: "Coney Island Ballpark", arc: "D.C. episodes", aliases: ["ballpark"] },
+  { key: "wony_parnell", name: "Take down Theo Parnell", arc: "Warlords of New York", aliases: ["parnell"] },
+  { key: "wony_kestrel", name: "Take down Javier Kestrel", arc: "Warlords of New York", aliases: ["kestrel"] },
+  { key: "wony_conley", name: "Take down Vivian Conley", arc: "Warlords of New York", aliases: ["conley"] },
+  { key: "wony_dragov", name: "Take down James Dragov", arc: "Warlords of New York", aliases: ["dragov"] },
+  { key: "wony_keener", name: "Take down Aaron Keener", arc: "Warlords of New York", aliases: ["keener"] },
+  { key: "brooklyn", name: "Battle for Brooklyn campaign", arc: "Brooklyn", aliases: ["brooklyn", "battle for brooklyn"] },
+];

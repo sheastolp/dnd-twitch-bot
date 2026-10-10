@@ -14,6 +14,7 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { renderGearPage } from "./gear_page.ts";
+import { getDiv2QuestState, renderDiv2QuestsPage } from "./div2quests.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
 import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
@@ -339,6 +340,19 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const [roster, adapt] = await Promise.all([getChannelRoster(channelId), getAdaptations(channelId)]);
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
     return new Response(renderBestiaryPage(channelName, roster, adapt, RAID_MIN_CR, PUBLIC_BASE_URL), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
+  // Public Division 2 quest tracker (div2quests.ts) — the page !div2quests
+  // links to. Same trust model as /bestiary.
+  if (req.method === "GET" && path === "/div2quests") {
+    const channelId = url.searchParams.get("channel");
+    if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster = await getBroadcaster(channelId);
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Quests unavailable for this channel.", { status: 404 });
+    const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
+    return new Response(renderDiv2QuestsPage(channelName, await getDiv2QuestState(channelId), PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

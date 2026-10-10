@@ -100,6 +100,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **bg3data.ts** | Static Baldur's Gate 3 knowledgebase — companions, origins, classes, races, locations, factions, deities, villains, legendary items |
 | **bg3lookup.ts** | `!bg3lookup` — search + formatting over the `bg3data.ts` knowledgebase (no DB, no external API — it's hand-curated, unlike `lookups.ts`) |
 | **division2.ts** | The Division 2 companion: `!div2`, `!div2build`, `!div2loot`, `!div2mission`, `!div2lookup` — flavor generators and knowledgebase search (no DB, no external API) |
+| **div2quests.ts** | The Division 2 quest tracker: `!div2quests` / `!div2quest` and the public `/div2quests?channel=<id>` page; tables `div2_campaign_done` (campaign completions by quest key) and `div2_custom_quests` |
 | **division2data.ts** | Static The Division 2 knowledgebase (specializations, skills, gear sets, brands, exotics, factions, characters, locations, modes) and the generator pools |
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **combat_shared.ts** / **combat_duel.ts** / **combat_monster.ts** / **combat_party.ts** / **combat_partyduel.ts** | Shared timeouts/forfeits/PvP resolver, PvP duels, solo monster duels, `!party`, party duels + party hunts — re-exported from `combat.ts`, which keeps the initiative tracker |
@@ -264,6 +265,8 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!div2loot` | Random Division 2 loot drop by rarity (Superior → High-End → Named → Gear Set → Exotic) |
 | `!div2mission` | Picks tonight's Division 2 activity, difficulty, and a self-imposed challenge |
 | `!div2` | Lists the Division 2 commands |
+| `!div2quests` / `!div2quests campaign` | Division 2 quest progress: the preloaded campaign checklist (D.C. missions, strongholds, episodes, Warlords of New York, Brooklyn) plus the channel's custom quests, with a link to the public `/div2quests?channel=<id>` page |
+| `!div2quest add <quest>` / `done <n\|name>` / `undo <n\|name>` / `remove <n>` / `clear` / `reset` | *(mod)* Add custom quests, tick quests off (or reopen them) by number or name, delete one, delete finished custom quests, or reset the campaign checklist |
 
 ### Guild archives (lookups)
 | Command | Example |

@@ -84,6 +84,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   div2build: { section: "The Division 2", label: "Random agent build (!div2build)", commands: ["div2build"] },
   div2loot: { section: "The Division 2", label: "Loot drop & tonight's op (!div2loot, !div2mission)", commands: ["div2loot", "div2mission"] },
   div2lookup: { section: "The Division 2", label: "Knowledgebase (!div2lookup, !div2)", commands: ["div2lookup", "div2"] },
+  div2quests: { section: "The Division 2", label: "Quest tracker (!div2quests, !div2quest)", commands: ["div2quests", "div2quest"] },
   // Guild archives
   rules: { section: "Guild archives", label: "Spells, classes & rules (!rules, !spell, !class, !feat, !monster)", commands: ["rules", "rule", "spell", "class", "feat", "monster"], parent: "archives" },
   items: { section: "Guild archives", label: "Equipment and abilities (!item, !ability)", commands: ["item", "ability"], parent: "archives" },
