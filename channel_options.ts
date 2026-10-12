@@ -68,6 +68,8 @@ export const OPTIONS: OptionDef[] = [
   // Raid boss
   { key: "raid.cooldown", bundle: "raid", label: "Time between raids", help: "Same as !rally cooldown in chat.", kind: "duration", unit: "m",
     def: env("RAID_COOLDOWN_SECONDS", 600, 0, 7200), min: 0, max: 7200, suggest: ["off", "5m", "10m", "20m", "30m"], table: "raid_settings" },
+  { key: "raid.reminder", bundle: "raid", label: "Raid reminder in chat every", help: "Posts the boss's status and a nudge to !rally while live; off = never.", kind: "duration", unit: "m",
+    def: env("RAID_REMINDER_SECONDS", 1800, 0, 14_400), min: 0, max: 14_400, suggest: ["off", "15m", "30m", "1h"] },
   { key: "raid.muster", bundle: "raid", label: "Time to join before the raid charges", kind: "duration", unit: "s",
     def: env("RAID_MUSTER_SECONDS", 60, 15, 600), min: 15, max: 600, suggest: ["30s", "1m", "2m"] },
   { key: "raid.party", bundle: "raid", label: "Heroes per raid", kind: "number", int: true,

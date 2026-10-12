@@ -24,6 +24,12 @@
 // change it with !rally cooldown). It is per channel, separate from the hunting
 // cooldown, and does not stop anyone joining a muster that is already open.
 //
+// Reminder: while the channel is live, the autohunt cron posts the raid's
+// status and a nudge to !rally every raid.reminder (default 30 minutes; a
+// channel option, off = never), counted from the quest's posting or the last
+// reminder. Skipped while a muster is already open (the horn is its own
+// reminder) and claimed atomically, so it posts once per interval.
+//
 // When the boss falls, every hero who struck it during the stream earns its
 // full XP and a share of a hoard RAID_LOOT_MULTIPLIER times a normal drop.
 // Heroes always start a raid at full HP, so a wipe costs nothing but time.
@@ -90,6 +96,7 @@ export type RaidQuest = {
   muster_members: string; // JSON Member[]
   contributors: string; // JSON { login: damage }
   quest_num: number; // which of this stream's raid quests (1-based)
+  last_reminder_at: number; // 0 = no reminder yet for this quest
 };
 
 export async function ensureRaidTables() {
@@ -107,6 +114,11 @@ export async function ensureRaidTables() {
   );
   try {
     await sqlite.execute(`ALTER TABLE raid_quests ADD COLUMN quest_num INTEGER NOT NULL DEFAULT 1`);
+  } catch (_) {
+    /* column already exists */
+  }
+  try {
+    await sqlite.execute(`ALTER TABLE raid_quests ADD COLUMN last_reminder_at INTEGER NOT NULL DEFAULT 0`);
   } catch (_) {
     /* column already exists */
   }
@@ -149,6 +161,7 @@ export async function getRaidQuest(broadcasterId: string): Promise<RaidQuest | n
     last_raid_at: num("last_raid_at"),
     muster_ends_at: num("muster_ends_at"),
     quest_num: Math.max(1, num("quest_num")),
+    last_reminder_at: num("last_reminder_at"),
   } as RaidQuest;
 }
 
@@ -254,6 +267,59 @@ export async function maybeLaunchRaidSafe(broadcasterId: string) {
   } catch (e) {
     await recordMonitorEvent("raid_launch_error", `${broadcasterId}: ${String(e)}`);
   }
+}
+
+/**
+ * Posts "use !rally" with the raid's current status in every live channel
+ * whose reminder is due (cron, see autohunt_cron.ts). Returns how many posted.
+ */
+export async function postRaidReminders(now = Date.now()): Promise<number> {
+  const res = await sqlite.execute(
+    `SELECT q.broadcaster_id FROM raid_quests q JOIN broadcasters b ON b.broadcaster_id = q.broadcaster_id
+     WHERE q.status = 'active' AND q.muster_ends_at = 0 AND b.is_live = 1 AND b.connected = 1`,
+  );
+  let posted = 0;
+  for (const r of res.rows as any[]) {
+    const broadcasterId = String(r.broadcaster_id);
+    try {
+      const every = (await optNum(broadcasterId, "raid.reminder")) * 1000;
+      if (every <= 0) continue;
+      const q = await getRaidQuest(broadcasterId);
+      if (!q || q.status !== "active" || q.muster_ends_at) continue;
+      if (Math.max(q.last_reminder_at, q.posted_at) + every > now) continue;
+      if (await isChannelBlocked(broadcasterId)) continue;
+      if (!(await isChannelEnabled(broadcasterId)) || !(await isCommandGroupEnabled(broadcasterId, "raid"))) continue;
+      const claim = await sqlite.execute(
+        "UPDATE raid_quests SET last_reminder_at = ? WHERE broadcaster_id = ? AND status = 'active' AND last_reminder_at = ? AND posted_at = ?",
+        [now, broadcasterId, q.last_reminder_at, q.posted_at],
+      );
+      if (!(await changed(claim, async () => (await getRaidQuest(broadcasterId))?.last_reminder_at === now))) continue;
+      await sendChatMessage(await raidReminderText(q, now), broadcasterId);
+      posted++;
+    } catch (e) {
+      await recordMonitorEvent("raid_reminder_error", `${broadcasterId}: ${String(e)}`);
+    }
+  }
+  return posted;
+}
+
+/** The reminder line: the boss, its HP, the top raiders and when the next raid can go. */
+async function raidReminderText(q: RaidQuest, now: number): Promise<string> {
+  const wait = await raidWaitMs(q, now);
+  const ofStream = RAID_QUESTS_PER_STREAM > 1 ? ` ${q.quest_num}/${RAID_QUESTS_PER_STREAM}` : "";
+  const top = Object.entries(parseJson<Record<string, number>>(q.contributors, {}))
+    .filter(([, d]) => Number(d) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
+    .map(([u, d]) => `${u} ${d}`)
+    .join(", ");
+  const record = q.raids
+    ? ` after ${q.raids} raid${q.raids === 1 ? "" : "s"}${top ? ` (top damage: ${top})` : ""}`
+    : " — no one has dared face it yet";
+  const call = wait > 0
+    ? `The raiders are recovering — the next raid can muster in ${waitText(wait)}, then type !rally to join!`
+    : "Type !rally to sound the war horn and join the raid party!";
+  return `📯 Raid quest${ofStream}: ${withArticle(q.monster_name)} (CR ${q.monster_cr}) still threatens the realm — HP ${Math.max(0, q.monster_hp)}/${q.monster_hp_max}${record}. ${call}`;
 }
 
 /** Channels with a muster whose time is up (for the cron fallback in autohunt_cron.ts). */

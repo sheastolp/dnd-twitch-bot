@@ -14,7 +14,7 @@ import { ensureTables, recordMonitorEvent } from "./db.ts";
 import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
 import { ensureBestiaryTables } from "./bestiary.ts";
 import { type AutohuntReport, postAutohuntReports, settleAutohunt } from "./autohunt.ts";
-import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid } from "./raid.ts";
+import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid, postRaidReminders } from "./raid.ts";
 
 export default async function () {
   await ensureTables();
@@ -62,6 +62,8 @@ export default async function () {
       await recordMonitorEvent("raid_launch_error", `${broadcasterId}: ${String(e)}`);
     }
   }
+  // The every-30-minutes "!rally" nudge with the raid's status (raid.ts).
+  const reminders = await postRaidReminders(now);
 
-  console.log(`GuildScribe autohunt cron: ${reports} report(s) from ${due.length} due session(s) (${skippedOffline} skipped offline)`);
+  console.log(`GuildScribe autohunt cron: ${reports} report(s) from ${due.length} due session(s) (${skippedOffline} skipped offline), ${reminders} raid reminder(s)`);
 }
