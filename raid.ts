@@ -1,6 +1,8 @@
-// GuildScribe — the stream's raid quest. Once per stream, when the channel goes
-// live (stream.online in main.ts), a single raid quest is posted: a high-level
-// boss (CR RAID_MIN_CR and up) that no lone hero should take on. Viewers band
+// GuildScribe — the stream's raid quests. When the channel goes live
+// (stream.online in main.ts), a raid quest is posted: a high-level boss
+// (CR RAID_MIN_CR and up) that no lone hero should take on. Up to
+// RAID_QUESTS_PER_STREAM bosses go up each stream: when one falls, the next is
+// posted at once (behind the usual raid cooldown). Viewers band
 // together with !rally into a temporary party that fights it; the boss's HP
 // carries over between raids, so the whole chat wears it down over the stream.
 //
@@ -52,6 +54,8 @@ const envNumber = (name: string, fallback: number, min: number, max: number) => 
 export const MAX_RAID_COOLDOWN_SECONDS = 2 * 3600;
 export const DEFAULT_RAID_COOLDOWN_SECONDS = Math.floor(envNumber("RAID_COOLDOWN_SECONDS", 600, 0, MAX_RAID_COOLDOWN_SECONDS));
 export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
+/** Raid bosses posted per stream: slaying one posts the next, up to this many. */
+export const RAID_QUESTS_PER_STREAM = Math.floor(envNumber("RAID_QUESTS_PER_STREAM", 2, 1, 10));
 // The muster time, party size, boss HP and hoard multipliers are per-channel
 // options (channel_options.ts: raid.muster, raid.party, raid.hp, raid.loot),
 // defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (6),
@@ -85,6 +89,7 @@ export type RaidQuest = {
   muster_leader: string;
   muster_members: string; // JSON Member[]
   contributors: string; // JSON { login: damage }
+  quest_num: number; // which of this stream's raid quests (1-based)
 };
 
 export async function ensureRaidTables() {
@@ -100,6 +105,11 @@ export async function ensureRaidTables() {
       contributors TEXT NOT NULL DEFAULT '{}'
     )`,
   );
+  try {
+    await sqlite.execute(`ALTER TABLE raid_quests ADD COLUMN quest_num INTEGER NOT NULL DEFAULT 1`);
+  } catch (_) {
+    /* column already exists */
+  }
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS raid_settings (
       broadcaster_id TEXT PRIMARY KEY, cooldown_seconds INTEGER NOT NULL, updated_at INTEGER
@@ -138,6 +148,7 @@ export async function getRaidQuest(broadcasterId: string): Promise<RaidQuest | n
     raids: num("raids"),
     last_raid_at: num("last_raid_at"),
     muster_ends_at: num("muster_ends_at"),
+    quest_num: Math.max(1, num("quest_num")),
   } as RaidQuest;
 }
 
@@ -176,12 +187,19 @@ export function pickRaidBoss(rng: () => number = Math.random, roster: SoloMonste
 /**
  * Posts a fresh raid quest for this stream, replacing any earlier one.
  * `streamStartedAt` dedupes Twitch redelivering the same stream.online: the
- * same stream never gets a second quest. Returns the announcement, or null
- * when this stream already has its quest.
+ * same stream never gets its first quest twice. Returns the announcement, or
+ * null when this stream already has its quest. `next` posts a follow-up quest
+ * (the stream's quest number `questNum`) after a boss falls: it skips the
+ * dedupe and keeps the raid cooldown running from `lastRaidAt`.
  */
-export async function createRaidQuest(broadcasterId: string, streamStartedAt: string): Promise<string | null> {
+export async function createRaidQuest(
+  broadcasterId: string,
+  streamStartedAt: string,
+  next?: { questNum: number; lastRaidAt: number },
+): Promise<string | null> {
   const existing = await getRaidQuest(broadcasterId);
-  if (streamStartedAt && existing?.stream_started_at === streamStartedAt) return null;
+  if (!next && streamStartedAt && existing?.stream_started_at === streamStartedAt) return null;
+  const questNum = next?.questNum ?? 1;
   // Adapted like every other hunt: a boss species the channel keeps slaying
   // comes back having learned from it (bestiary.ts).
   const opts = await raidOpts(broadcasterId);
@@ -190,12 +208,14 @@ export async function createRaidQuest(broadcasterId: string, streamStartedAt: st
   await sqlite.execute(
     `INSERT OR REPLACE INTO raid_quests (broadcaster_id, stream_started_at, monster_name, monster_cr, monster_ac,
       monster_hp, monster_hp_max, monster_attack, monster_die, monster_bonus, status, posted_at, raids,
-      last_raid_at, muster_ends_at, muster_leader, muster_members, contributors)
-     VALUES (?,?,?,?,?,?,?,?,?,?,'active',?,0,0,0,'','[]','{}')`,
-    [broadcasterId, streamStartedAt, boss.name, boss.cr, boss.ac, boss.hp, boss.hp, boss.attack, boss.die, boss.bonus, Date.now()],
+      last_raid_at, muster_ends_at, muster_leader, muster_members, contributors, quest_num)
+     VALUES (?,?,?,?,?,?,?,?,?,?,'active',?,0,?,0,'','[]','{}',?)`,
+    [broadcasterId, streamStartedAt, boss.name, boss.cr, boss.ac, boss.hp, boss.hp, boss.attack, boss.die, boss.bonus, Date.now(),
+      next?.lastRaidAt ?? 0, questNum],
   );
   const cd = await getRaidCooldownSeconds(broadcasterId);
-  return `📯 RAID QUEST posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
+  const ofStream = RAID_QUESTS_PER_STREAM > 1 ? ` (${questNum} of ${RAID_QUESTS_PER_STREAM} this stream)` : "";
+  return `📯 RAID QUEST${ofStream} posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
     `far too much for one hero. Type !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
     `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
     `Slay it this stream for its full XP and a ${opts.lootMult > 0 ? "great hoard" : "place in the chronicle"}!`;
@@ -399,13 +419,19 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     if (won) await recordBattle(broadcasterId, { kind: "raid", side: raidSide, foe: boss.name, outcome: "win" });
     let bountyNote = "";
     if (won) for (const u of Object.keys(contributors)) bountyNote ||= await creditBounty(broadcasterId, u, boss.name);
+    const moreToCome = won && q.quest_num < RAID_QUESTS_PER_STREAM;
     const msg = `${header}🏆 ${boss.name} IS SLAIN${fight.slayer ? ` — the killing blow by ${fight.slayer}` : ""}! Damage this raid: ${hits}. ${rewards.note}` +
-      ` The raid quest is complete for this stream.${bountyNote}${learnNote}${woundsText}${benchNote}`;
+      (moreToCome ? " But another threat stirs…" : " The raid quest is complete for this stream.") +
+      `${bountyNote}${learnNote}${woundsText}${benchNote}`;
     await sendChatMessages(msg, broadcasterId, {
       names: [...new Set([...names, ...Object.keys(contributors)])],
       detail: fullLog(msg),
       summary: fightSummary({ fighter: raiders, enemy: boss.name, outcome: `🏆 ${boss.name} is slain!`, hp: raidHp(0), loot: rewards.hoard }),
     });
+    if (moreToCome) {
+      const announcement = await createRaidQuest(broadcasterId, q.stream_started_at, { questNum: q.quest_num + 1, lastRaidAt: now });
+      if (announcement) await sendChatMessages(announcement, broadcasterId);
+    }
     return true;
   }
 
@@ -479,7 +505,7 @@ export async function getRaidRosterStatus(broadcasterId: string): Promise<RaidRo
   const q = await getRaidQuest(broadcasterId);
   if (!q || (q.status !== "active" && q.status !== "slain")) return null;
   const slain = q.status === "slain";
-  let state = "Slain — a new raid quest goes up next stream.";
+  let state = "Slain — this stream's raid quests are done; new ones go up next stream.";
   if (!slain) {
     const members = parseJson<Member[]>(q.muster_members, []);
     const wait = await raidWaitMs(q);
@@ -564,7 +590,7 @@ export async function handleRaidCommand(
     return true;
   }
   if (q.status === "slain") {
-    await say(`@${display} 🏆 this stream's raid quest is complete — ${q.monster_name} has been slain. A new one goes up next stream.`);
+    await say(`@${display} 🏆 this stream's raid quests are complete — ${q.monster_name} has been slain. New ones go up next stream.`);
     return true;
   }
   const members = parseJson<Member[]>(q.muster_members, []);
@@ -577,7 +603,7 @@ export async function handleRaidCommand(
       ? `Next raid can muster in ${waitText(wait)}.`
       : "Type !rally to sound the war horn.";
     await say(
-      `@${display} 📯 Raid quest: ${q.monster_name} (CR ${q.monster_cr}, AC ${q.monster_ac}) HP ${q.monster_hp}/${q.monster_hp_max} after ${q.raids} raid${q.raids === 1 ? "" : "s"}. ${muster}`,
+      `@${display} 📯 Raid quest${RAID_QUESTS_PER_STREAM > 1 ? ` ${q.quest_num}/${RAID_QUESTS_PER_STREAM}` : ""}: ${q.monster_name} (CR ${q.monster_cr}, AC ${q.monster_ac}) HP ${q.monster_hp}/${q.monster_hp_max} after ${q.raids} raid${q.raids === 1 ? "" : "s"}. ${muster}`,
     );
     return true;
   }
