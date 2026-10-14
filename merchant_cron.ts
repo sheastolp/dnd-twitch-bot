@@ -6,8 +6,8 @@
 // so a frequent tick here just checks who's due rather than posting on
 // every run.
 
-import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun, setMerchantListing } from "./db.ts";
-import { sendChatMessage } from "./twitch.ts";
+import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun, setBroadcasterLiveStatus, setMerchantListing } from "./db.ts";
+import { fetchIsChannelLiveNow, sendChatMessage } from "./twitch.ts";
 import { rollMerchantOffer, randomMerchantIntervalMs } from "./merchant.ts";
 
 export default async function () {
@@ -18,8 +18,20 @@ export default async function () {
   let postsFailed = 0;
   let postsSkippedOffline = 0;
 
-  for (const { broadcasterId, isLive } of due) {
+  for (const { broadcasterId, isLive: isLiveDb } of due) {
     try {
+      // broadcasters.is_live only moves when a stream.online/offline
+      // notification arrives; if Twitch never delivered one (callback moved,
+      // secret changed, subscription lapsed) it stays 0 for good and the
+      // peddler would never post again. Before skipping, ask Twitch directly
+      // — one call per due channel, at most every 25-60 min — and heal the
+      // column so the timed-message and autohunt crons pick it up too.
+      let isLive = isLiveDb;
+      if (!isLive && await fetchIsChannelLiveNow(broadcasterId)) {
+        isLive = true;
+        await setBroadcasterLiveStatus(broadcasterId, true);
+        await recordMonitorEvent("merchant_live_healed", `${broadcasterId}: is_live was 0 but Twitch says live`);
+      }
       // Skip posting (but still reschedule below) while the channel is
       // offline — no point hawking wares to an empty chat. isLive comes
       // straight from the query (broadcasters.is_live), kept current by the
