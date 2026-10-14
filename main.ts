@@ -34,7 +34,7 @@ import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
-import { ensureChannelBotTables, isChannelBot, purgeChannelBotData } from "./channel_bots.ts";
+import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
 import { handleHoardCommand } from "./hoard.ts";
@@ -334,6 +334,17 @@ async function handleNotification(body: any): Promise<Response | void> {
   const baseUrl = PUBLIC_ORIGIN;
 
   if (await isChannelBot(broadcasterId, chatter, chatterId, env("TWITCH_BOT_ID"))) {
+    // Accounts that are only *suspected* bots (flagged by !botcheck, or a
+    // name ending in "bot") still face auto-ban: the viewer-bot accounts
+    // that drop spam are exactly what !botcheck flags, and skipping them here
+    // is how one bot of a pair got banned while the other walked free.
+    if (!(await isTrustedChannelBot(broadcasterId, chatter, chatterId, env("TWITCH_BOT_ID")))) {
+      const conn = await getBroadcaster(broadcasterId);
+      if (
+        conn && Number(conn.connected) === 1 && !(await isChannelBlocked(broadcasterId)) &&
+        await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(conn.is_live) === 1, baseUrl)
+      ) return new Response("OK");
+    }
     // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
     // never get processed as commands, quoted by the chronicle, or replied
     // to by random NPC chatter, but they still count as chat activity

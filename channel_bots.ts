@@ -20,7 +20,7 @@
 
 import { sqlite } from "./sqlite.ts";
 import { escapeHtml } from "./utils.ts";
-import { isBotAccount, KNOWN_BOT_ACCOUNTS, MY_BOT_ACCOUNTS } from "./bot_accounts.ts";
+import { isBotAccount, KNOWN_BOT_ACCOUNTS, listedBotAccounts, MY_BOT_ACCOUNTS } from "./bot_accounts.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 /** The bot viewer check adds flagged chatters at or above this score (max 7). */
@@ -86,6 +86,23 @@ export async function isChannelBot(broadcasterId: string, login: string, userId:
   } catch (e) {
     console.error("channel bot list lookup failed", e);
     return false;
+  }
+}
+
+/** Bots the channel actually runs: GuildScribe itself, the named lists
+ * (bot_accounts.ts) and names a mod typed in. Auto-ban leaves these alone.
+ * The rest of isChannelBot — the "ends in bot" rule and accounts the bot
+ * viewer check added — are guesses, and the spam accounts auto-ban hunts are
+ * exactly what the check flags, so those still go through auto-ban. */
+export async function isTrustedChannelBot(broadcasterId: string, login: string, userId: string, botUserId: string): Promise<boolean> {
+  const l = login.toLowerCase();
+  if ((userId && userId === botUserId) || listedBotAccounts().includes(l)) return true;
+  if (!broadcasterId || !l) return false;
+  try {
+    return (await loadSets(broadcasterId)).manual.has(l);
+  } catch (e) {
+    console.error("channel bot list lookup failed", e);
+    return true;
   }
 }
 
