@@ -7,7 +7,7 @@
 // randomization lives here so both the toggle command (first post) and the
 // cron (every post after) reschedule the same way.
 
-import { isMerchantEnabled, setMerchantEnabled } from "./db.ts";
+import { isMerchantEnabled, rescheduleMerchant, setMerchantEnabled, setMerchantListing } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS } from "./gear.ts";
@@ -186,14 +186,14 @@ export function generateMerchantAd(): string {
   return rollMerchantOffer().ad;
 }
 
-/** Handles !market on | off | status. Returns true if the message matched. */
+/** Handles !market on | off | status | now. Returns true if the message matched. */
 export async function handleMerchantCommand(
   chatMessage: string,
   display: string,
   broadcasterId: string,
   isModerator: boolean,
 ): Promise<boolean> {
-  const match = chatMessage.trim().match(/^!market\s+(on|off|status)$/i);
+  const match = chatMessage.trim().match(/^!market\s+(on|off|status|now)$/i);
   if (!match) return false;
   const action = match[1].toLowerCase();
 
@@ -202,7 +202,7 @@ export async function handleMerchantCommand(
     await sendChatMessage(
       `@${display} The open-stall merchant is currently ${
         enabled ? "hawking wares in this channel" : "packed up and gone from this channel"
-      }. Toggle with !market on or !market off (mod only).`,
+      }. Toggle with !market on or !market off, or call up a new stall with !market now (mod only).`,
       broadcasterId,
     );
     return true;
@@ -210,9 +210,25 @@ export async function handleMerchantCommand(
 
   if (!isModerator) {
     await sendChatMessage(
-      `@${display} only the broadcaster or a moderator can toggle the market stall.`,
+      `@${display} only the broadcaster or a moderator can toggle the market stall or call up a new one.`,
       broadcasterId,
     );
+    return true;
+  }
+
+  // !market now: the peddler sets up a fresh stall right away, replacing the
+  // current listing (and its haggle attempts), and the next cron post is
+  // rescheduled from now.
+  if (action === "now") {
+    if (!(await isMerchantEnabled(broadcasterId))) {
+      await sendChatMessage(`@${display} the market is off in this channel — turn it on first with !market on.`, broadcasterId);
+      return true;
+    }
+    const offer = rollMerchantOffer();
+    if (await sendChatMessage(offer.ad, broadcasterId)) {
+      await setMerchantListing(broadcasterId, offer.merchantName, offer.itemDesc, offer.priceText);
+      await rescheduleMerchant(broadcasterId, Date.now() + await randomMerchantIntervalMs(broadcasterId));
+    }
     return true;
   }
 

@@ -67,7 +67,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
     audience: "Mods+",
     summary: "Turn on the traveling peddler, whose wares viewers can haggle for with real coin.",
     steps: [
-      `Turn it on with <code>!market on</code> (it's off by default). <code>!market status</code> checks it.`,
+      `Turn it on with <code>!market on</code> (it's off by default). <code>!market status</code> checks it, and <code>!market now</code> (mod) calls up a fresh stall right away.`,
       `Every so often while you're live, a peddler posts a sales pitch for one item and its price.`,
       `Viewers check the current ware with <code>!stall</code> and bargain with <code>!haggle &lt;pitch&gt;</code>, e.g. <code>!haggle five copper and a song?</code>. Each viewer gets three tries per item.`,
       `If the peddler agrees, the buyer pays that price in coin and the item's small bonus goes onto their character sheet. <code>!gear</code> lists a sheet's gear.`,
