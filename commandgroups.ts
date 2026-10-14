@@ -136,7 +136,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // Onboarding and support
   botcheck: { section: "Onboarding and support", label: "Bot viewer check (!botcheck)", commands: ["botcheck"] },
   ads: { section: "Onboarding and support", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
-  adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
+  adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notices when they start and end)", commands: [] },
   // Not a chat feature: whether this channel appears on tavernworks.dev's
   // public channel list (GET /api/channels in web_routes.ts). On by default;
   // also switched from chat with !dndbot showcase on/off (main.ts).
