@@ -37,15 +37,34 @@ const NUMBER_WORDS: Record<string, number> = {
   hundred: 100,
 };
 
+// Spelled-out numbers up to the hundreds: "five", "twenty-five", "twenty
+// five", "a hundred", "two hundred and fifty".
+const UNITS = "one|two|three|four|five|six|seven|eight|nine";
+const TEENS = "ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen";
+const TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety";
+const SUB_HUNDRED = `(?:(?:${TENS})(?:[\\s-]+(?:${UNITS}))?|${TEENS}|${UNITS})`;
+const WORD_NUMBER = `(?:(?:${UNITS}|a)\\s+hundred(?:\\s+(?:and\\s+)?${SUB_HUNDRED})?|hundred|${SUB_HUNDRED}|an|a)`;
+
 // "<number> <unit>" where the number is digits or a number word, and the unit
 // may be followed by "piece(s)"/"coin(s)" ("five copper pieces").
 const AMOUNT_RE = new RegExp(
-  `\\b(\\d{1,10}|${Object.keys(NUMBER_WORDS).join("|")})\\s*(gold|gp|g|silver|sp|s|copper|coppers|cp|c)\\b(?:\\s+(?:pieces?|coins?))?`,
+  `\\b(\\d{1,10}|${WORD_NUMBER})\\s*(gold|gp|g|silver|sp|s|copper|coppers|cp|c)\\b(?:\\s+(?:pieces?|coins?))?`,
   "gi",
 );
 
+/** "twenty-five" -> 25, "two hundred and fifty" -> 250, "a" -> 1. */
+function wordNumber(token: string): number {
+  let n = 0;
+  for (const w of token.toLowerCase().split(/[\s-]+/)) {
+    if (w === "and") continue;
+    if (w === "hundred") n = (n || 1) * 100;
+    else n += NUMBER_WORDS[w] ?? 0;
+  }
+  return n;
+}
+
 function amountOf(numberToken: string, unitToken: string): number {
-  const n = /^\d+$/.test(numberToken) ? Number(numberToken) : (NUMBER_WORDS[numberToken.toLowerCase()] ?? 0);
+  const n = /^\d+$/.test(numberToken) ? Number(numberToken) : wordNumber(numberToken);
   return n * (UNIT_VALUE[unitToken.toLowerCase()] ?? 0);
 }
 
