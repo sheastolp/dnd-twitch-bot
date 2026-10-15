@@ -63,6 +63,8 @@ import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
+import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
+import { applyImportForm, renderImportPage } from "./se_import.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -899,4 +901,56 @@ export async function handleAutoBanForm(form: FormData, baseUrl: string, cookieH
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.ok ? result.message : result.error);
   return redirectTo(`${baseUrl}/dashboard/autoban?${params.toString()}`);
+}
+
+// ── Quotes page (quotes.ts), behind the same key + login ──
+
+export async function handleQuotesPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderQuotesDashboardPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleQuotesForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyQuotesForm(auth.channelId, form, "dashboard");
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/quotes?${params.toString()}`);
+}
+
+// ── StreamElements import page (se_import.ts), behind the same key + login ──
+
+export async function handleImportPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderImportPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    stage: url.searchParams.get("stage") ?? undefined,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleImportForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyImportForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result.stage) params.set("stage", result.stage);
+  else params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/import?${params.toString()}`);
 }

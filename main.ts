@@ -58,6 +58,8 @@ import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
+import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
+import { ensureSeImportTables, purgeSeImportData } from "./se_import.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -123,6 +125,8 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensurePokeballTables,
   ensureBattleLogTables,
   ensureSavingThrowTables,
+  ensureQuoteTables,
+  ensureSeImportTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -393,9 +397,9 @@ async function handleNotification(body: any): Promise<Response | void> {
   // current by the stream.online/offline notifications below, so this
   // check costs nothing extra (no Twitch API call in this hot path) for a
   // channel that's already caught up.
-  // Exception: !roster / !bestiary / !gear list only post a read-only link to their web
+  // Exception: !roster / !bestiary / !gear list / !quotes only post a read-only link to their web
   // page, so they answer anyone even while offline (viewers browse between streams).
-  const offlineExempt = /^!(?:roster|bestiary|gear\s+(?:list|all|page))$/i.test(chatMessage);
+  const offlineExempt = /^!(?:roster|bestiary|quotes|gear\s+(?:list|all|page))$/i.test(chatMessage);
   if (!isModerator && !offlineExempt && Number(connection.is_live) !== 1) {
     // Channel connected before this feature existed — one-time backfill,
     // then re-check; every later message for this channel skips straight
@@ -443,6 +447,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     await purgeRaidData(broadcasterId, purge);
     await purgeViewerNames(broadcasterId);
     await purgeReplyPages(broadcasterId);
+    await purgeSeImportData(broadcasterId);
     await purgeNowPlayingData(broadcasterId); // Spotify tokens go with the bot, purge or not
     if (purge) {
       await purgeChannelData(broadcasterId);
@@ -462,6 +467,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeHoardData(broadcasterId);
       await purgePokeballData(broadcasterId);
       await purgeSavingThrowData(broadcasterId);
+      await purgeQuoteData(broadcasterId);
     } else {
       await disconnectBroadcasterData(broadcasterId, false);
       await disconnectPointsData(broadcasterId);
@@ -634,6 +640,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   ) return new Response("OK");
   if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+  if (await handleQuoteCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
 
   await handleBuiltinChatCommand({ chatMessage, chatter, display, broadcasterId, isModerator, baseUrl });
 }

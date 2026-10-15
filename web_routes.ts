@@ -14,8 +14,9 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { renderGearPage } from "./gear_page.ts";
+import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
@@ -327,6 +328,15 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // one channel — the page the !roster chat command links to. Same trust model
   // as /maps (the channel must be connected). Must stay above the catch-all GET
   // block further down.
+  // Public quote book (quotes.ts) — the page !quotes links to. Same trust model as /roster.
+  if (req.method === "GET" && path === "/quotes") {
+    const channelId = url.searchParams.get("channel");
+    if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster = await getBroadcaster(channelId);
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Quotes unavailable for this channel.", { status: 404 });
+    const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
+    return new Response(await renderPublicQuotesPage(channelId, channelName), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
   if (req.method === "GET" && path === "/roster") {
     const channelId = url.searchParams.get("channel");
     if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
@@ -417,6 +427,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   if (req.method === "GET" && path === "/dashboard/autoban") {
     // Auto-ban word list + ignore list (autoban_page.ts) — same gate.
     return await handleAutoBanPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/quotes") {
+    // The quote book (quotes.ts) — same gate.
+    return await handleQuotesPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/import") {
+    // StreamElements import (se_import.ts) — same gate.
+    return await handleImportPage(url, req.headers.get("Cookie"));
   }
   if (req.method === "GET" && path === "/dashboard/go") {
     // Guide cards' "Dashboard switch" links (see handleDashboardGo).
@@ -674,6 +692,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/autoban") {
     return await handleAutoBanForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/quotes") {
+    return await handleQuotesForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/import") {
+    return await handleImportForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/features") {
     return await handleDashboardFeaturesForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

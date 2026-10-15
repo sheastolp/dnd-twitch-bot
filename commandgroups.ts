@@ -128,6 +128,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   triggers: { section: "Custom commands & triggers", label: "Chat triggers (!trigger, passive keyword triggers)", commands: ["trigger"], parent: "custom" },
   vars: { section: "Custom commands & triggers", label: "Variables (!var)", commands: ["var"], parent: "custom" },
   timedmsgs: { section: "Custom commands & triggers", label: "Timed messages (!timedmsg)", commands: ["timedmsg"], parent: "custom" },
+  // Quotes (quotes.ts) check this switch themselves, so a channel's own !quote
+  // custom command still works when it's off (same as Sound Bytes below).
+  quotes: { section: "Custom commands & triggers", label: "Quotes (!quote, !quotes, !quote add)", commands: [] },
   // Battle maps
   maps: { section: "Battle maps", label: "Create & view maps (!map create/list/view/delete)", commands: ["map"] },
   maptemplates: { section: "Battle maps", label: "Map templates (!map templates)", commands: [], parent: "maps" },
