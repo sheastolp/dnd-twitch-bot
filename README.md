@@ -386,7 +386,7 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!gold` | Your purse and rank |
 | `!gold @user` | Someone else's purse and rank |
 | `!gold top [N]` / `!goldboard [N]` | Richest adventurers (default 5, max 10) |
-| `!gold today [@user]` | Gold gained or lost today by each adventurer (or one), biggest gains first, with the net. "Today" is the host laptop's calendar day; counts every way coin moves (chat, loot, rob, haggle, giveaways, mod adjustments) |
+| `!gold today [@user]` / `!gold today all` | Gold you (or @user) gained or lost today; `all` lists every adventurer, biggest gains first, with the net. "Today" is the host laptop's calendar day; counts every way coin moves (chat, loot, rob, haggle, giveaways, mod adjustments) |
 | `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
 | `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
 | `!jar` | **Swear jar:** shows the total, plus when the jar was last given away (who won and how much). Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
