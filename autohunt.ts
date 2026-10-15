@@ -279,6 +279,26 @@ export async function settleAutohunt(
   };
 }
 
+/** Settles every bout already due for the channel's hunters (or just
+ * `username`'s) and posts the reports, as the cron would. For callers that
+ * read balances and must count loot from bouts fought since the last cron
+ * run (!gold today). Never throws: an unsettled bout just stays for the cron. */
+export async function settleDueAutohunts(broadcasterId: string, username?: string): Promise<void> {
+  try {
+    const now = Date.now();
+    const sessions = (await listAutohuntSessions(broadcasterId))
+      .filter((s) => !username || s.username === username.toLowerCase());
+    const reports: AutohuntReport[] = [];
+    for (const session of sessions) {
+      const report = await settleAutohunt(session, { now });
+      if (report) reports.push(report);
+    }
+    if (reports.length) await postAutohuntReports(reports, broadcasterId);
+  } catch (e) {
+    console.error("settleDueAutohunts failed", e);
+  }
+}
+
 /** Handles !autohunt, !autohunt status|stop, !autohuntstatus, !autohuntstop. */
 export async function handleAutohuntCommand(
   chatMessage: string,

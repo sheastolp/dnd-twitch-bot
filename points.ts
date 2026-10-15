@@ -55,6 +55,7 @@ import {
   trySpend,
 } from "./points_db.ts";
 import { optNum } from "./channel_options.ts";
+import { settleDueAutohunts } from "./autohunt.ts";
 
 /** Copper earned per qualifying chat message. */
 // Copper per message and the earning cooldown are per-channel options (channel_options.ts:
@@ -218,16 +219,21 @@ const DAILY_GOLD_MAX_CHARS = 450;
  * every adventurer's) purse gained or lost since the start of today (the
  * host's local day), from points_daily. */
 async function showDailyGold(rawTarget: string, chatter: string, display: string, broadcasterId: string): Promise<boolean> {
+  const all = rawTarget.toLowerCase() === "all";
+  const self = !rawTarget;
+  const target = all ? null : self ? chatter.toLowerCase() : cleanUsername(rawTarget);
+  if (!all && !target) {
+    await sendChatMessage(`@${display} that doesn't look like a valid username.`, broadcasterId);
+    return true;
+  }
+  // Autohunt loot is only paid when bouts are settled (cron, ~every 15 min),
+  // so pay out every bout already fought before reading — the total then
+  // runs right up to this command.
+  await settleDueAutohunts(broadcasterId, target ?? undefined);
   const { day, changes } = await getDailyGoldChanges(broadcasterId);
   const dayLabel = new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-  if (rawTarget.toLowerCase() !== "all") {
-    const self = !rawTarget;
-    const target = self ? chatter.toLowerCase() : cleanUsername(rawTarget);
-    if (!target) {
-      await sendChatMessage(`@${display} that doesn't look like a valid username.`, broadcasterId);
-      return true;
-    }
+  if (target) {
     const row = changes.find((c) => c.username === target);
     await sendChatMessage(
       row
