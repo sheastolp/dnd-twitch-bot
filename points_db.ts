@@ -80,20 +80,30 @@ export async function ensurePointsTables() {
       PRIMARY KEY (broadcaster_id, day, username)
     )`,
   );
+  // NOT EXISTS rather than INSERT OR IGNORE: SQLite lets the firing
+  // statement's conflict policy override a trigger's OR clause, so under the
+  // balance upserts (ON CONFLICT DO UPDATE → ABORT) a second change of the day
+  // failed with a UNIQUE error and took the whole command down with it.
+  // Dropped and recreated so databases with the old triggers get these.
+  const notYetToday =
+    `WHERE NOT EXISTS (SELECT 1 FROM points_daily
+       WHERE broadcaster_id = NEW.broadcaster_id AND username = NEW.username AND day = date('now', 'localtime'))`;
+  await sqlite.execute("DROP TRIGGER IF EXISTS trg_points_daily_insert");
   await sqlite.execute(
-    `CREATE TRIGGER IF NOT EXISTS trg_points_daily_insert AFTER INSERT ON points_balances
+    `CREATE TRIGGER trg_points_daily_insert AFTER INSERT ON points_balances
      WHEN NEW.balance <> 0
      BEGIN
-       INSERT OR IGNORE INTO points_daily (broadcaster_id, username, day, start_balance)
-       VALUES (NEW.broadcaster_id, NEW.username, date('now', 'localtime'), 0);
+       INSERT INTO points_daily (broadcaster_id, username, day, start_balance)
+       SELECT NEW.broadcaster_id, NEW.username, date('now', 'localtime'), 0 ${notYetToday};
      END`,
   );
+  await sqlite.execute("DROP TRIGGER IF EXISTS trg_points_daily_update");
   await sqlite.execute(
-    `CREATE TRIGGER IF NOT EXISTS trg_points_daily_update AFTER UPDATE OF balance ON points_balances
+    `CREATE TRIGGER trg_points_daily_update AFTER UPDATE OF balance ON points_balances
      WHEN NEW.balance <> OLD.balance
      BEGIN
-       INSERT OR IGNORE INTO points_daily (broadcaster_id, username, day, start_balance)
-       VALUES (NEW.broadcaster_id, NEW.username, date('now', 'localtime'), OLD.balance);
+       INSERT INTO points_daily (broadcaster_id, username, day, start_balance)
+       SELECT NEW.broadcaster_id, NEW.username, date('now', 'localtime'), OLD.balance ${notYetToday};
      END`,
   );
   await pruneDailyGold();
