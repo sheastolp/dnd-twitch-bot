@@ -2,7 +2,9 @@
 // (stream.online in main.ts), a raid quest is posted: a high-level boss
 // (CR RAID_MIN_CR and up) that no lone hero should take on. Up to
 // RAID_QUESTS_PER_STREAM bosses go up each stream: when one falls, the next is
-// posted at once (behind the usual raid cooldown). Viewers band
+// posted at once (behind the usual raid cooldown). Quest 2 can't be mustered
+// until RAID_SECOND_QUEST_DELAY_SECONDS (default 2h) after quest 1 falls, so
+// it lands in the second half of the stream. Viewers band
 // together with !rally into a temporary party that fights it; the boss's HP
 // carries over between raids, so the whole chat wears it down over the stream.
 //
@@ -62,6 +64,8 @@ export const DEFAULT_RAID_COOLDOWN_SECONDS = Math.floor(envNumber("RAID_COOLDOWN
 export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
 /** Raid bosses posted per stream: slaying one posts the next, up to this many. */
 export const RAID_QUESTS_PER_STREAM = Math.floor(envNumber("RAID_QUESTS_PER_STREAM", 2, 1, 10));
+/** How long after quest 1's boss falls before quest 2 can be mustered (default 2 hours). */
+export const RAID_SECOND_QUEST_DELAY_SECONDS = Math.floor(envNumber("RAID_SECOND_QUEST_DELAY_SECONDS", 2 * 3600, 0, 6 * 3600));
 // The muster time, party size, boss HP and hoard multipliers are per-channel
 // options (channel_options.ts: raid.muster, raid.party, raid.hp, raid.loot),
 // defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (6),
@@ -178,11 +182,14 @@ async function setRaidCooldownSeconds(broadcasterId: string, seconds: number) {
   forgetOptionCache(broadcasterId); // the dashboard shows it as an option (channel_options.ts)
 }
 
-/** Milliseconds until a new raid can be mustered (0 = ready). */
+/** Milliseconds until a new raid can be mustered (0 = ready). Quest 2 is
+ * also held back RAID_SECOND_QUEST_DELAY_SECONDS from its posting (the moment
+ * quest 1's boss fell), so it lands in the back half of the stream. */
 async function raidWaitMs(q: RaidQuest, now = Date.now()): Promise<number> {
-  if (!q.last_raid_at) return 0;
+  const hold = q.quest_num === 2 ? Math.max(0, q.posted_at + RAID_SECOND_QUEST_DELAY_SECONDS * 1000 - now) : 0;
+  if (!q.last_raid_at) return hold;
   const cd = (await getRaidCooldownSeconds(q.broadcaster_id)) * 1000;
-  return Math.max(0, q.last_raid_at + cd - now);
+  return Math.max(hold, q.last_raid_at + cd - now);
 }
 
 /** A random boss from the top of the bestiary (CR RAID_MIN_CR and up). The
@@ -228,8 +235,11 @@ export async function createRaidQuest(
   );
   const cd = await getRaidCooldownSeconds(broadcasterId);
   const ofStream = RAID_QUESTS_PER_STREAM > 1 ? ` (${questNum} of ${RAID_QUESTS_PER_STREAM} this stream)` : "";
+  const held = questNum === 2 && RAID_SECOND_QUEST_DELAY_SECONDS > 0
+    ? `It gathers its strength for ${waitText(RAID_SECOND_QUEST_DELAY_SECONDS * 1000)} — then type`
+    : "Type";
   return `📯 RAID QUEST${ofStream} posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
-    `far too much for one hero. Type !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
+    `far too much for one hero. ${held} !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
     `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
     `Slay it this stream for its full XP and a ${opts.lootMult > 0 ? "great hoard" : "place in the chronicle"}!`;
 }
