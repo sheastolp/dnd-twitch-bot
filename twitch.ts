@@ -81,8 +81,9 @@ function logReply(broadcasterId: string, summary: string, detail = summary) {
 }
 
 // opts.log: false when the caller logs the reply as a whole itself (parts of
-// a longer reply, or the summary of one already saved).
-export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean }) {
+// a longer reply, or the summary of one already saved). opts.keepNames: leave
+// real names alone (!nick list, which has to show who has which nickname).
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean }) {
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   const guard = [...names, ...initiatorNames()];
@@ -92,7 +93,7 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   const token = getAppToken();
   token.catch(() => {});
   const nicks = await getChannelNicknames(broadcasterId);
-  const message = limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
+  const message = limitNameAppearances(opts?.keepNames ? text.slice(0, 500) : applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);
@@ -162,7 +163,7 @@ export async function sendChatMessages(
   // per response. See mentions.ts.
   let displays = new Map<string, string>();
   const guard = [...(opts?.names ?? []), ...initiatorNames()];
-  // !nick nicknames apply to every reply (cached per channel, mentions.ts).
+  // Nicknames (!nick or automatic) apply to every reply (cached per channel, mentions.ts).
   const nicks = await getChannelNicknames(broadcasterId);
   if (opts?.names?.length) {
     // Battle logs: bare names -> one whole word of the display name ("Stoned").

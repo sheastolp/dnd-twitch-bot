@@ -28,7 +28,7 @@ import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureBestiaryTables, getChannelRoster, handleBestiaryCommand, purgeBestiaryData } from "./bestiary.ts";
 import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, onRaidStreamStatus, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
-import { ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
+import { ensureNickname, ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
@@ -518,6 +518,11 @@ async function handleNotification(body: any): Promise<Response | void> {
   }
 
   if (!channelOn) return new Response("OK");
+
+  // Every viewer gets a fantasy nickname the first time they chat (unless one
+  // is already set) — chat replies use it in place of their name (mentions.ts).
+  // Awaited so even their first reply uses it; cached, so usually no query.
+  try { await ensureNickname(broadcasterId, chatter); } catch (e) { console.error("ensureNickname failed", e); }
 
   // Bookkeeping the reply doesn't depend on runs alongside it (defer —
   // awaited before the response is returned) instead of in front of it.

@@ -77,7 +77,8 @@ export function mentionNames(text: string, extra: string[] = []): string[] {
 // "stonedsheamus" on every swing still lights up. Inside battle logs a bare
 // fighter name (anything but the reply's own @tag) is replaced by a shorter
 // label, chosen in this order:
-//   1. A NICKNAME a mod set with !nick (nick.ts, stored in viewer_nicknames),
+//   1. The viewer's NICKNAME (viewer_nicknames: set by a mod with !nick, or
+//      given automatically on their first chat message — ensureNickname),
 //      then the NAME_ALIASES env var, then BUILTIN_NAME_ALIASES.
 //   2. ONE COMPLETE WORD of the display name, split on capitals, underscores,
 //      digits and hyphens — "StonedSheamus" -> "Stoned", "xX_DragonSlayer_Xx"
@@ -151,7 +152,7 @@ export async function purgeViewerNames(broadcasterId: string) {
   nickCache.delete(broadcasterId);
 }
 
-/** lowercase login -> mod-set nickname (!nick), for whichever of `names` have one. */
+/** lowercase login -> nickname (!nick or automatic), for whichever of `names` have one. */
 export async function lookupNicknames(broadcasterId: string, names: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const uniq = [...new Set(names.map((n) => n.replace(/^@/, "").trim().toLowerCase()).filter(Boolean))];
@@ -183,16 +184,89 @@ export async function getChannelNicknames(broadcasterId: string): Promise<Map<st
 }
 
 /** Swaps every plain (un-@'d) appearance of a nicknamed chatter for their
- * nickname. "@name" tags keep the real name so they still ping; links are
- * left alone. Only names in `names` or @-tagged in the text are touched. */
+ * nickname — every viewer has one (ensureNickname), so chat only ever shows
+ * nicknames. "@name" tags keep the real name so they still ping; links are
+ * left alone. A short all-letter login ("fire", "goblin") could be an
+ * ordinary word, so it is only swapped when it is in `names` or @-tagged in
+ * the text. */
 export function applyNicknames(text: string, names: string[], nicks: Map<string, string>): string {
   if (!nicks.size) return text;
   const tagged = [...text.matchAll(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,25})(?![A-Za-z0-9_])/g)].map((m) => m[1]);
-  const keys = [...new Set([...tagged, ...names].map((n) => n.replace(/^@/, "").trim().toLowerCase()))].filter((k) => nicks.has(k));
-  if (!keys.length) return text;
-  const alternation = keys.map(escapeRe).sort((a, b) => b.length - a.length).join("|");
-  const re = new RegExp(`(https?:\\/\\/\\S+)|(?<![@A-Za-z0-9_/=])(${alternation})(?![A-Za-z0-9_])`, "gi");
-  return text.replace(re, (m, url: string | undefined, name: string) => (url ? m : nicks.get(name.toLowerCase()) ?? m));
+  const context = new Set([...tagged, ...names].map((n) => n.replace(/^@/, "").trim().toLowerCase()));
+  return text.replace(/(https?:\/\/\S+)|(?<![@A-Za-z0-9_/=])([A-Za-z0-9_]{3,25})(?![A-Za-z0-9_])/g, (m, url: string | undefined, name: string) => {
+    if (url) return m;
+    const key = name.toLowerCase();
+    const nick = nicks.get(key);
+    if (!nick || (!context.has(key) && /^[a-z]{1,6}$/.test(key))) return m;
+    return nick;
+  });
+}
+
+// ── Automatic nicknames ─────────────────────────────────────────────────────
+// Every viewer gets a fantasy nickname ("Ironquill", "Emberbrew") the first
+// time they chat, unless one is already set (a mod's !nick wins and is never
+// replaced). Unique within the channel; 2-12 letters like a !nick.
+
+const NICK_PREFIXES = [
+  "Iron", "Bright", "Storm", "Ash", "Oak", "Raven", "Ember", "Frost", "Thorn", "Gold", "Silver", "Shadow",
+  "Stone", "Wild", "Moon", "Sun", "Grim", "Swift", "Mist", "Copper", "Thunder", "Dusk", "Dawn", "Wolf",
+  "Hawk", "Bram", "Fern", "Flint", "Holly", "Quick", "Rune", "Sage", "Star", "Tumble", "Briar", "Cinder",
+  "Gale", "Moss", "Pebble", "Bramble", "Hazel", "Wren", "Bold", "Sly", "Merry", "Rook", "Elder", "Fox",
+];
+const NICK_SUFFIXES = [
+  "quill", "blade", "beard", "foot", "heart", "song", "shield", "brew", "hammer", "whisper", "wick", "horn",
+  "fang", "root", "mantle", "cloak", "vale", "stride", "born", "tusk", "spark", "bow", "wind", "helm",
+  "glade", "crest", "mead", "kettle", "thistle", "ward", "buckle", "scale", "flame", "knot", "ford", "mane",
+  "tail", "claw", "dancer", "brook", "lantern", "barrel", "rider", "wing", "staff", "cask", "hollow", "pike",
+];
+
+/** A fantasy nickname no one in `taken` (lowercase) already has. */
+export function generateNickname(taken: Set<string>): string {
+  const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+  for (let i = 0; i < 300; i++) {
+    const nick = pick(NICK_PREFIXES) + pick(NICK_SUFFIXES);
+    if (nick.length <= 12 && !taken.has(nick.toLowerCase())) return nick;
+  }
+  // Every short pairing is taken (thousands of viewers): add a number.
+  for (;;) {
+    const base = pick(NICK_PREFIXES) + pick(NICK_SUFFIXES);
+    const num = String(Math.floor(Math.random() * 1000));
+    const nick = base.slice(0, 12 - num.length) + num;
+    if (!taken.has(nick.toLowerCase())) return nick;
+  }
+}
+
+const nickInFlight = new Map<string, Promise<string>>();
+
+/** The viewer's nickname, giving them a fresh fantasy one if none is set
+ * yet. Cheap once known: answered from the cached channel list. */
+export function ensureNickname(broadcasterId: string, username: string): Promise<string> {
+  const login = username.replace(/^@/, "").trim().toLowerCase();
+  const key = `${broadcasterId}:${login}`;
+  const pending = nickInFlight.get(key);
+  if (pending) return pending;
+  const job = (async () => {
+    const nicks = await getChannelNicknames(broadcasterId);
+    const known = nicks.get(login);
+    if (known) return known;
+    const taken = new Set([...nicks.values()].map((n) => n.toLowerCase()));
+    for (const l of nicks.keys()) taken.add(l);
+    const nick = generateNickname(taken);
+    const res = await sqlite.execute("INSERT OR IGNORE INTO viewer_nicknames (broadcaster_id, username, nickname) VALUES (?,?,?)", [
+      broadcasterId,
+      login,
+      nick,
+    ]);
+    if (res.rowsAffected) {
+      nicks.set(login, nick);
+      return nick;
+    }
+    // Another isolate set one first (or the cache was stale): use theirs.
+    nickCache.delete(broadcasterId);
+    return (await lookupNicknames(broadcasterId, [login])).get(login) ?? nick;
+  })().finally(() => nickInFlight.delete(key));
+  nickInFlight.set(key, job);
+  return job;
 }
 
 export async function setNickname(broadcasterId: string, username: string, nickname: string) {
