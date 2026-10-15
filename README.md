@@ -16,7 +16,7 @@ Chat: `!guide` or `!link` posts that same URL.
 |--------|------------------------|
 | **Parchment** | Characters with level, XP, HP, race/class, save/load |
 | **Company** | Parties with invite, roster (members listed), disband |
-| **Archives** | Spells, items, classes, feats, races, **rules** (+ public links), plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
+| **Archives** | Spells, items, classes, feats, races, **rules** (+ public links) from the SRD (dnd5eapi.co), with **5e.tools (2014)** filling in every official book's monsters, spells, items, feats and races the SRD lacks — `!monster` hits from there teach the bestiary too, plus a standalone **Baldur's Gate 3 knowledgebase** (`!bg3lookup`) for companions, origins, classes, races, locations, factions, deities, villains, and legendary items |
 | **Fate's dice** | `!d20`, `!roll`, roll for another adventurer, `!rollcall` natural 1/20 leaderboard, `!oracle` names a random chatter, `!bg3roll`/`!bg3companion`/`!bg3origin`/`!bg3loot`/`!bg3camp` for Baldur's Gate 3 flavor |
 | **Arena & wilds** | Auto/classic PvP, solo monsters, party duels, **party hunts**, and `!rob @user` robbery duels that move coin |
 | **Maps** | Grid battle maps with paintable terrain (grass, water, wall, lava, and more), ready-made layout templates (tavern, dungeon, forest clearing, graveyard, cave, arena), a live visual web view, and character tokens that adventurers place and move themselves |
@@ -118,6 +118,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
+| **fivetools.ts** | 5e.tools (2014) archive for lookups and the bestiary: downloads the site's data from its GitHub mirror (`FIVETOOLS_DATA_URL` overrides; 2014.5e.tools itself is behind a Cloudflare bot check), converts it to the dnd5eapi shape, caches it in memory for a day, links to 2014.5e.tools pages. Warmed at server start |
 | **twitch.ts** | Tokens, multi-part chat send |
 | **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page, web dashboard page |
 | **dashboard_page.ts** / **page_shell.ts** / **guide_arena.ts** / **guide_custom.ts** | Web dashboard page, the shared HTML shell, and the second/third parts of the Guild Codex page (`guide.ts` stitches them together) |

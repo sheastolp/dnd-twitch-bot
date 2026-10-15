@@ -3,6 +3,7 @@
 //
 // 1. The bestiary learns NEW monsters. A successful `!monster <name>` lookup of
 //    a creature that isn't huntable yet pulls its stat block from the 5e API
+//    (or, for non-SRD monsters, from 5e.tools — see fivetools.ts)
 //    into this channel's roster (`monster_learned`), so the next
 //    `!dndduel <name>` / party hunt / autohunt / raid can meet it. Mods can
 //    `!bestiary forget <name>` a learned monster (it stays blocked from being
@@ -25,7 +26,7 @@
 //
 //   !bestiary                    count + link to the web page
 //   !bestiary <name>             one monster's stats, record and adaptation
-//   !bestiary learn <name>       teach a monster from the 5e API (mods un-block)
+//   !bestiary learn <name>       teach a monster from the 5e API / 5e.tools (mods un-block)
 //   !bestiary forget <name>      mod: remove + block a learned monster
 //   !bestiary reset <name|all>   mod: clear adaptation back to tier 0
 

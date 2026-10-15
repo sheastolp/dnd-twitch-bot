@@ -13,6 +13,7 @@ import runTimedMessages from "./timedmessages_cron.ts";
 import runAutohunt from "./autohunt_cron.ts";
 import runWatchtime from "./watchtime_cron.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
+import { warmFivetools } from "./fivetools.ts";
 
 const PORT = Number(Deno.env.get("PORT") || 8801);
 const HOST = Deno.env.get("HOST") || "127.0.0.1";
@@ -40,6 +41,10 @@ every("merchant_cron", cronMinutes("MERCHANT_CRON_MINUTES", 5), () => runMerchan
 every("timedmessages_cron", cronMinutes("TIMEDMESSAGES_CRON_MINUTES", 5), () => runTimedMessages());
 every("autohunt_cron", cronMinutes("AUTOHUNT_CRON_MINUTES", 5), () => runAutohunt());
 every("watchtime_cron", cronMinutes("WATCHTIME_CRON_MINUTES", 5), () => runWatchtime());
+
+// Download the 5e.tools archive (fivetools.ts) in the background so the first
+// !monster / !spell lookup that needs it doesn't wait on GitHub.
+warmFivetools();
 
 Deno.serve({ port: PORT, hostname: HOST }, (req) => {
   // The tunnel hands requests over as plain http://127.0.0.1; give the handler

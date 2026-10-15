@@ -1,13 +1,18 @@
-// D&D 5e API lookups and formatting
+// D&D 5e API lookups and formatting. dnd5eapi.co (the SRD) first; 5e.tools
+// (every official 2014 book, see fivetools.ts) for monsters, spells, items,
+// feats and races the SRD doesn't have.
 
 import { lookupResources } from "./data.ts";
 import { compactText } from "./utils.ts";
+import { fivetoolsSupports, lookupFivetools } from "./fivetools.ts";
 
 /**
  * Public reference links for chat.
  * Avoid 5thsrd.org — it often shows "Access Denied" (403) to normal browsers.
  */
 export function lookupLink(kind: string, data: any): string {
+  // 5e.tools results carry their own 2014.5e.tools page.
+  if (data?._link) return String(data._link);
   const index = String(data?.index ?? data?.name ?? "")
     .toLowerCase()
     .trim()
@@ -42,7 +47,17 @@ function withLink(kind: string, data: any, text: string): string {
 /** Per-request cap on the 5e API, so a slow API can't hang a chat reply. */
 const LOOKUP_TIMEOUT_MS = 6000;
 
-async function fetchFromResource(resource: string, lookupQuery: string): Promise<any | null> {
+async function fetchDetail(url: string): Promise<any | null> {
+  const detail = await fetch(`https://www.dnd5eapi.co${url}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+  return detail.ok ? await detail.json() : null;
+}
+
+/** An exact-name hit from the API, or a way to fetch its closest partial match. */
+async function searchResource(
+  resource: string,
+  lookupQuery: string,
+): Promise<{ exact: any | null; fuzzy: () => Promise<any | null> }> {
+  const none = async () => null;
   const normalized = lookupQuery
     .toLowerCase()
     .trim()
@@ -50,21 +65,44 @@ async function fetchFromResource(resource: string, lookupQuery: string): Promise
     .replace(/\s+/g, " ");
   const slug = normalized.replace(/ /g, "-");
   const base = `https://www.dnd5eapi.co/api/2014/${resource}`;
-  for (const candidate of [slug, normalized.replace(/ /g, "-")]) {
-    const direct = await fetch(`${base}/${encodeURIComponent(candidate)}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
-    if (direct.ok) return await direct.json();
-  }
+  const direct = await fetch(`${base}/${encodeURIComponent(slug)}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+  if (direct.ok) return { exact: await direct.json(), fuzzy: none };
   const res = await fetch(base, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
-  if (!res.ok) return null;
+  if (!res.ok) return { exact: null, fuzzy: none };
   const list = (await res.json()).results ?? [];
   const comparable = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const wanted = comparable(lookupQuery);
-  const found =
-    list.find((x: any) => comparable(x.name) === wanted) ??
-    list.find((x: any) => comparable(x.name).includes(wanted) || wanted.includes(comparable(x.name)));
-  if (!found) return null;
-  const detail = await fetch(`https://www.dnd5eapi.co${found.url}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
-  return detail.ok ? await detail.json() : null;
+  const exact = list.find((x: any) => comparable(x.name) === wanted);
+  if (exact) return { exact: await fetchDetail(exact.url), fuzzy: none };
+  const partial = list.find((x: any) => comparable(x.name).includes(wanted) || wanted.includes(comparable(x.name)));
+  return { exact: null, fuzzy: partial ? () => fetchDetail(partial.url) : none };
+}
+
+async function fetchFromResource(resource: string, lookupQuery: string): Promise<any | null> {
+  const hit = await searchResource(resource, lookupQuery);
+  return hit.exact ?? (await hit.fuzzy());
+}
+
+/**
+ * SRD and 5e.tools together. Exact names win over partial ones from either
+ * archive, so "goblin boss" finds 5e.tools' Goblin Boss rather than the SRD's
+ * Goblin. Throws only when dnd5eapi is down AND 5e.tools has nothing.
+ */
+async function fetchWithFivetools(kind: string, resource: string, lookupQuery: string): Promise<any | null> {
+  let apiError: unknown = null;
+  const [srd, tools] = await Promise.all([
+    searchResource(resource, lookupQuery).catch((e) => {
+      apiError = e;
+      return null;
+    }),
+    lookupFivetools(kind, lookupQuery),
+  ]);
+  if (srd?.exact) return srd.exact;
+  if (tools?.exact) return tools.exact;
+  const srdFuzzy = srd ? await srd.fuzzy().catch(() => null) : null;
+  const found = srdFuzzy ?? tools?.fuzzy ?? null;
+  if (!found && apiError) throw apiError;
+  return found;
 }
 
 export async function lookup5e(kind: string, query: string): Promise<any | null> {
@@ -132,6 +170,7 @@ export async function lookup5e(kind: string, query: string): Promise<any | null>
     return null;
   }
 
+  if (fivetoolsSupports(kind)) return fetchWithFivetools(kind, resource, lookupQuery);
   return fetchFromResource(resource, lookupQuery);
 }
 
@@ -177,6 +216,19 @@ export function formatMonsterBrief(data: any): string {
 export function formatLookup(kind: string, data: any, bonus: number | null = null) {
   const name = data.name;
   const bonusText = bonus !== null ? `modifier +${bonus}; ` : "";
+  if (kind === "item" && data.rarity) {
+    // Magic item (5e.tools): rarity and rules text, plus weapon/armor stats if it has them.
+    const stats = [
+      data.damage ? `${data.damage.damage_dice ?? "?"} ${data.damage.damage_type?.name ?? "damage"}` : "",
+      data.armor_class?.base != null ? `AC ${data.armor_class.base}${data.armor_class.dex_bonus ? " + Dex" : ""}` : "",
+    ].filter(Boolean).join("; ");
+    const desc = compactText((data.desc ?? []).join(" "), 260);
+    return withLink(
+      kind,
+      data,
+      `${name}: ${bonusText}${data.rarity}${data.attunement ? ` (${data.attunement})` : ""}${stats ? `; ${stats}` : ""}${desc ? `; ${desc}` : ""}`,
+    );
+  }
   if (kind === "item") {
     const damage = data.damage
       ? `${data.damage.damage_dice ?? "?"} ${data.damage.damage_type?.name ?? "damage"}`
@@ -212,10 +264,10 @@ export function formatLookup(kind: string, data: any, bonus: number | null = nul
     );
   }
   if (kind === "feat") {
-    const prereq =
-      (data.prerequisites ?? [])
+    const prereq = data._prereqText ??
+      ((data.prerequisites ?? [])
         .map((x: any) => `${x.ability_score?.name ?? "ability"} ${x.minimum_score ?? "?"}`)
-        .join(", ") || "none listed";
+        .join(", ") || "none listed");
     return withLink(
       kind,
       data,

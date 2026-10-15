@@ -180,7 +180,7 @@ export async function handleBuiltinChatCommand(ctx: {
         return null;
       });
       if (apiDown) {
-        await sendChatMessage(`@${display} the archives (dnd5eapi.co) aren't answering right now — try !${kind} ${query} again in a moment.`, broadcasterId);
+        await sendChatMessage(`@${display} the archives (dnd5eapi.co and 5e.tools) aren't answering right now — try !${kind} ${query} again in a moment.`, broadcasterId);
       } else if (data && kind === "spell") {
         await sendSpellSections(formatSpellSections(data, bonus), display, broadcasterId);
       } else {
