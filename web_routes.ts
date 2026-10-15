@@ -28,6 +28,7 @@ import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
 import { handleHowtoRoute } from "./howto.ts";
+import { FAVICON_PATHS, handleFavicon } from "./favicon.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -60,6 +61,8 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // page). Only Twitch names and live status, the same thing anyone sees in
   // these channels' chat; a channel leaves the list with !dndbot showcase off
   // or the dashboard's "Listed on tavernworks.dev" switch.
+  // Tab icon: the bot's Twitch avatar (favicon.ts).
+  if (req.method === "GET" && FAVICON_PATHS.has(path)) return await handleFavicon();
   if (req.method === "GET" && path === "/api/channels") {
     try {
       return new Response(JSON.stringify({ channels: await listShowcaseChannels(Deno.env.get("TWITCH_BOT_ID") ?? "") }), {

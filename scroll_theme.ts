@@ -8,7 +8,7 @@
 // <head> plus SCROLL_CSS (and the page's own CSS) in a <style>.
 
 export const SCROLL_HEAD =
-  `<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">`;
+  `<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">`;
 
 export const scrollOpen = (cls = "") => `<main class="scroll${cls ? ` ${cls}` : ""}"><div class="sheet">`;
 export const scrollClose = `</div></main>`;
