@@ -67,7 +67,42 @@ export async function ensurePointsTables() {
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
+  // !gold today: each viewer's balance as it stood before their first change
+  // of the day (the laptop's local calendar day). Filled by triggers rather
+  // than by the functions below, so every path that moves coin — chat
+  // earnings, loot, rob, haggle, giveaways, mod adjustments — is counted.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS points_daily (
+      broadcaster_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      day TEXT NOT NULL,
+      start_balance INTEGER NOT NULL,
+      PRIMARY KEY (broadcaster_id, day, username)
+    )`,
+  );
+  await sqlite.execute(
+    `CREATE TRIGGER IF NOT EXISTS trg_points_daily_insert AFTER INSERT ON points_balances
+     WHEN NEW.balance <> 0
+     BEGIN
+       INSERT OR IGNORE INTO points_daily (broadcaster_id, username, day, start_balance)
+       VALUES (NEW.broadcaster_id, NEW.username, date('now', 'localtime'), 0);
+     END`,
+  );
+  await sqlite.execute(
+    `CREATE TRIGGER IF NOT EXISTS trg_points_daily_update AFTER UPDATE OF balance ON points_balances
+     WHEN NEW.balance <> OLD.balance
+     BEGIN
+       INSERT OR IGNORE INTO points_daily (broadcaster_id, username, day, start_balance)
+       VALUES (NEW.broadcaster_id, NEW.username, date('now', 'localtime'), OLD.balance);
+     END`,
+  );
+  await pruneDailyGold();
   await migrateToCopper();
+}
+
+/** Daily snapshots are only needed for today; keep a week for safety. */
+async function pruneDailyGold() {
+  await sqlite.execute("DELETE FROM points_daily WHERE day < date('now', 'localtime', '-7 days')");
 }
 
 /** One-time migration: the first version of this feature counted whole
@@ -246,6 +281,33 @@ export async function getTopBalances(broadcasterId: string, limit: number) {
     displayName: String(r.display_name),
     balance: Number(r.balance),
   }));
+}
+
+/** Everyone whose balance moved today (local calendar day), biggest gain
+ * first: `delta` is copper gained (negative = lost) since their first change
+ * of the day. Viewers whose coin came back to where it started are left out. */
+export async function getDailyGoldChanges(broadcasterId: string): Promise<{
+  day: string;
+  changes: Array<{ username: string; displayName: string; delta: number }>;
+}> {
+  await pruneDailyGold();
+  const res = await sqlite.execute(
+    `SELECT b.username, b.display_name, b.balance - d.start_balance AS delta, d.day
+     FROM points_daily d
+     JOIN points_balances b ON b.broadcaster_id = d.broadcaster_id AND b.username = d.username
+     WHERE d.broadcaster_id = ? AND d.day = date('now', 'localtime') AND b.balance <> d.start_balance
+     ORDER BY delta DESC, b.username ASC`,
+    [broadcasterId],
+  );
+  const dayRes = await sqlite.execute("SELECT date('now', 'localtime') AS day");
+  return {
+    day: String(dayRes.rows[0]?.day ?? ""),
+    changes: (res.rows as any[]).map((r) => ({
+      username: String(r.username),
+      displayName: String(r.display_name),
+      delta: Number(r.delta),
+    })),
+  };
 }
 
 // ── Giveaways ──
@@ -453,7 +515,7 @@ export async function disconnectPointsData(broadcasterId: string) {
 
 /** `!dndbot leave purge`: delete everything points-related for the channel. */
 export async function purgePointsData(broadcasterId: string) {
-  for (const table of ["points_settings", "points_balances", "giveaways", "giveaway_entries", "rob_cooldowns"]) {
+  for (const table of ["points_settings", "points_balances", "points_daily", "giveaways", "giveaway_entries", "rob_cooldowns"]) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
 }

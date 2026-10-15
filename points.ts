@@ -17,6 +17,7 @@
 //   !gold                          your balance and rank
 //   !gold @user                    someone else's balance
 //   !gold top [N]  /  !goldboard   richest adventurers (default 5, max 10)
+//   !gold today [@user]            gold gained or lost today, per adventurer
 //   !gold give @user <amount>      gift some of your coin (e.g. 5sp)
 //   !gold add|remove|set @user <amount>   (mod) adjust a balance
 //   !gold on|off|status            (mod for on/off) toggle the whole system
@@ -40,6 +41,7 @@ import {
   cancelGiveaway,
   drawGiveawayWinner,
   getBalance,
+  getDailyGoldChanges,
   getEntry,
   getGiveaway,
   getGiveawayTotals,
@@ -204,6 +206,63 @@ async function showLeaderboard(args: string, display: string, broadcasterId: str
   return true;
 }
 
+/** Signed coin amount: "+1 gp 2 sp", "-5 cp". */
+function signedCoin(copper: number): string {
+  return `${copper < 0 ? "-" : "+"}${coin(Math.abs(copper))}`;
+}
+
+const DAILY_GOLD_MAX_CHARS = 450;
+
+/** !gold today [@user] — what each adventurer's purse gained or lost since
+ * the start of today (the host's local day), from points_daily. */
+async function showDailyGold(rawTarget: string, display: string, broadcasterId: string): Promise<boolean> {
+  const { day, changes } = await getDailyGoldChanges(broadcasterId);
+  const dayLabel = new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  if (rawTarget) {
+    const target = cleanUsername(rawTarget);
+    if (!target) {
+      await sendChatMessage(`@${display} that doesn't look like a valid username.`, broadcasterId);
+      return true;
+    }
+    const row = changes.find((c) => c.username === target);
+    await sendChatMessage(
+      row
+        ? `${row.delta > 0 ? "📈" : "📉"} ${row.displayName}'s purse today (${dayLabel}): ${signedCoin(row.delta)}`
+        : `⚖️ ${target}'s purse hasn't moved today (${dayLabel}).`,
+      broadcasterId,
+    );
+    return true;
+  }
+
+  if (!changes.length) {
+    await sendChatMessage(`⚖️ No coin has changed hands today (${dayLabel}) — chat while the stream is live to earn copper!`, broadcasterId);
+    return true;
+  }
+
+  const net = changes.reduce((sum, c) => sum + c.delta, 0);
+  const head = `📊 Gold today (${dayLabel}): `;
+  const tail = ` | Net ${signedCoin(net)}`;
+  const rows = changes.map((c) => `${c.delta > 0 ? "📈" : "📉"} ${c.displayName} ${signedCoin(c.delta)}`);
+  // Biggest winners come first; when chat's message limit runs out, keep the
+  // biggest losers too and drop the quiet middle.
+  let shown = rows;
+  let hidden = 0;
+  const fits = (list: string[], more: number) =>
+    (head + list.join(" | ") + (more ? ` | …${more} more` : "") + tail).length <= DAILY_GOLD_MAX_CHARS;
+  while (shown.length > 1 && !fits(shown, hidden)) {
+    const mid = Math.floor(shown.length / 2);
+    shown = [...shown.slice(0, mid), ...shown.slice(mid + 1)];
+    hidden++;
+  }
+  if (hidden) {
+    const mid = Math.ceil(shown.length / 2);
+    shown = [...shown.slice(0, mid), `…${hidden} more`, ...shown.slice(mid)];
+  }
+  await sendChatMessage(head + shown.join(" | ") + tail, broadcasterId);
+  return true;
+}
+
 async function handleGold(
   args: string,
   chatter: string,
@@ -217,6 +276,10 @@ async function handleGold(
   // !gold top [N]
   const top = args.match(/^top(?:\s+(.*))?$/i);
   if (top) return await showLeaderboard((top[1] ?? "").trim(), display, broadcasterId);
+
+  // !gold today [@user]
+  const today = args.match(/^today(?:\s+(\S+))?$/i);
+  if (today) return await showDailyGold(today[1] ?? "", display, broadcasterId);
 
   // !gold @user
   if (/^@\S+$/.test(args)) {
