@@ -131,6 +131,9 @@ export async function handleRobCommand(
 
   const robber = chatter.toLowerCase();
   const arg = (match[1] ?? "").trim();
+  // !rob on/off is the mods' pause switch (main.ts, matched before this);
+  // never treat it as a target, even if that check is skipped.
+  if (/^(on|off)$/i.test(arg)) return true;
   const target = arg.replace(/^@/, "").toLowerCase();
   if (!arg || !/^@?\S+$/.test(arg) || !USERNAME_RE.test(target)) {
     await sendChatMessage(`@${display} usage: !rob @player — your characters duel, and the loser pays the winner a 1-9% cut of their coin.`, broadcasterId);
