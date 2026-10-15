@@ -681,3 +681,60 @@ async function handleForget(rawWord: string, display: string, broadcasterId: str
   await sendChatMessage(`🫙 @${display} The jar has forgotten "${word}" and won't learn it again here.`, broadcasterId);
   return true;
 }
+
+// ── Vocabulary for the dashboard (swearjar_page.ts) ──
+
+/** The built-in word list and the prefixes/suffixes it's matched with. */
+export const BUILTIN_SWEARS = { bases: SWEAR_BASES, prefixes: SWEAR_PREFIXES, suffixes: SWEAR_SUFFIXES };
+
+export interface SwearWordRow { word: string; status: WordStatus; hits: number; total: number; users: number; updatedAt: number }
+
+/** Every learned, candidate and blocked word for the channel, with its evidence. */
+export async function listSwearWords(broadcasterId: string): Promise<SwearWordRow[]> {
+  const res = await sqlite.execute(
+    `SELECT w.word, w.status, w.swear_msgs AS hits, w.total_msgs AS total, w.updated_at,
+            (SELECT COUNT(*) FROM swear_word_users u WHERE u.broadcaster_id = w.broadcaster_id AND u.word = w.word) AS users
+     FROM swear_words w WHERE w.broadcaster_id = ? ORDER BY w.updated_at DESC`,
+    [broadcasterId],
+  );
+  return (res.rows as any[]).map((r) => ({
+    word: String(r.word),
+    status: String(r.status) as WordStatus,
+    hits: Number(r.hits ?? 0),
+    total: Number(r.total ?? 0),
+    users: Number(r.users ?? 0),
+    updatedAt: Number(r.updated_at ?? 0),
+  }));
+}
+
+/** Normalizes a word the way chat is matched ("Sh1ttt" -> "shit"), or "" if it isn't a plain word. */
+export function normalizeSwearWord(raw: string): string {
+  const word = wordForms(normalizeToken(raw.trim().toLowerCase())).pop() ?? "";
+  return /^[a-z]{2,25}$/.test(word) ? word : "";
+}
+
+export function isBuiltinSwear(word: string): boolean {
+  return isSwear(word);
+}
+
+/** Marks a word learned (charges) or blocked (never charged or learned) for
+ * the channel, adding it if it's new. Blocking also drops its evidence. */
+export async function setSwearWordStatus(broadcasterId: string, word: string, status: "learned" | "blocked"): Promise<void> {
+  await sqlite.execute(
+    `INSERT INTO swear_words (broadcaster_id, word, swear_msgs, total_msgs, status, updated_at)
+     VALUES (?, ?, 0, 0, ?, ?)
+     ON CONFLICT(broadcaster_id, word) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
+    [broadcasterId, word, status, Date.now()],
+  );
+  if (status === "blocked") await sqlite.execute("DELETE FROM swear_word_users WHERE broadcaster_id = ? AND word = ?", [broadcasterId, word]);
+  invalidateWords(broadcasterId);
+}
+
+/** Removes a word entirely, so the jar may learn it again from scratch. */
+export async function removeSwearWord(broadcasterId: string, word: string): Promise<boolean> {
+  const res = await sqlite.execute("DELETE FROM swear_words WHERE broadcaster_id = ? AND word = ?", [broadcasterId, word]);
+  await sqlite.execute("DELETE FROM swear_word_users WHERE broadcaster_id = ? AND word = ?", [broadcasterId, word]);
+  invalidateWords(broadcasterId);
+  const affected = (res as any).rowsAffected;
+  return typeof affected === "number" ? affected > 0 : true;
+}

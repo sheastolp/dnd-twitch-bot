@@ -61,6 +61,7 @@ import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { isAutoModEnabled, setAutoModEnabled } from "./automod.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
 import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
+import { applySwearJarForm, renderSwearJarPage } from "./swearjar_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
@@ -848,6 +849,31 @@ export async function handlePokeballForm(form: FormData, baseUrl: string, cookie
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   if (result && !result.ok && result.edit) params.set("edit", result.edit);
   return redirectTo(`${baseUrl}/dashboard/pokeballs?${params.toString()}${result && !result.ok ? "#edit" : ""}`);
+}
+
+// ── Swear jar's word list (swearjar_page.ts), behind the same key + login ──
+
+export async function handleSwearJarPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderSwearJarPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleSwearJarForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applySwearJarForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/swearjar?${params.toString()}`);
 }
 
 // ── Now playing page (nowplaying.ts), behind the same key + login ──
