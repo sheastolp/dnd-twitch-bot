@@ -115,13 +115,14 @@ export function postAutohuntReport(report: AutohuntReport, broadcasterId: string
 /** Posts several hunters' reports for one channel as ONE chat message: every
  * hunter currently out (settled this time or not) with their trip's W/L, plus
  * any whose trip just ended, pointing to !autohunt status for the details.
- * Names are plain (no @) so a channel-wide roll call pings no one. */
+ * Every hunter is @-tagged, so the roll call shows their real name (not
+ * their nickname) and pings them. */
 export async function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
   if (reports.length === 1) return postAutohuntReport(reports[0], broadcasterId);
   const hunters = (await listAutohuntSessions(broadcasterId))
     .map((s) => ({ name: s.display_name, wins: s.wins, losses: s.losses, done: false }));
   for (const r of reports) if (r.hunter.done) hunters.push(r.hunter);
-  const roll = hunters.map((h) => `${h.name} ${tally(h)}${h.done ? " (done)" : ""}`).join(" | ");
+  const roll = hunters.map((h) => `@${h.name} ${tally(h)}${h.done ? " (done)" : ""}`).join(" | ");
   return sendChatMessages(
     `🏹 Autohunting (${hunters.length}): ${roll} — use !autohunt status for detailed info.`,
     broadcasterId,

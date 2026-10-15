@@ -28,7 +28,7 @@ import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureBestiaryTables, getChannelRoster, handleBestiaryCommand, purgeBestiaryData } from "./bestiary.ts";
 import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, onRaidStreamStatus, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
-import { ensureNickname, ensureViewerNameTables, purgeViewerNames, recordViewerName } from "./mentions.ts";
+import { ensureNickname, ensureViewerNameTables, getChannelNicknames, purgeViewerNames, recordViewerName, resolveNicknameTargets } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
@@ -325,7 +325,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     return new Response("OK");
   }
 
-  const chatMessage: string = body.event?.message?.text ?? "";
+  let chatMessage: string = body.event?.message?.text ?? "";
   const chatter: string = body.event?.chatter_user_login ?? "";
   const display: string = body.event?.chatter_user_name ?? chatter;
   const chatterId: string = body.event?.chatter_user_id ?? "";
@@ -547,6 +547,15 @@ async function handleNotification(body: any): Promise<Response | void> {
   // is already set) — chat replies use it in place of their name (mentions.ts).
   // Awaited so even their first reply uses it; cached, so usually no query.
   try { await ensureNickname(broadcasterId, chatter); } catch (e) { console.error("ensureNickname failed", e); }
+
+  // A viewer can be targeted by nickname as well as by name ("!duel @Ironquill"):
+  // nicknames in a command's arguments become the real login before any
+  // handler sees them. !nick's own new-nickname argument is left alone.
+  if (chatMessage.startsWith("!")) {
+    try {
+      chatMessage = resolveNicknameTargets(chatMessage, await getChannelNicknames(broadcasterId), !/^!nick\s/i.test(chatMessage));
+    } catch (e) { console.error("resolveNicknameTargets failed", e); }
+  }
 
   // Bookkeeping the reply doesn't depend on runs alongside it (defer —
   // awaited before the response is returned) instead of in front of it.

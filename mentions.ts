@@ -202,6 +202,29 @@ export function applyNicknames(text: string, names: string[], nicks: Map<string,
   });
 }
 
+/** Lets a command target a viewer by nickname as well as by name: in the
+ * arguments of a "!command", every "@Nick" (and, unless `bareToo` is false, a
+ * bare "Nick") that is someone's nickname becomes their login, keeping the
+ * "@". The command word itself is never touched, and a word that is also
+ * someone's real login is left as the login it already is. */
+export function resolveNicknameTargets(text: string, nicks: Map<string, string>, bareToo = true): string {
+  if (!nicks.size || !text.startsWith("!")) return text;
+  const byNick = new Map<string, string>();
+  for (const [login, nick] of nicks) if (!nicks.has(nick.toLowerCase())) byNick.set(nick.toLowerCase(), login);
+  if (!byNick.size) return text;
+  const cmdEnd = text.search(/\s/);
+  if (cmdEnd < 0) return text;
+  const args = text.slice(cmdEnd).replace(
+    /(https?:\/\/\S+)|(?<![A-Za-z0-9_@/=])(@?)([\p{L}\p{N}_-]{2,12})(?![\p{L}\p{N}_-])/gu,
+    (m, url: string | undefined, at: string, word: string) => {
+      if (url || (!at && !bareToo)) return m;
+      const login = byNick.get(word.toLowerCase());
+      return login ? at + login : m;
+    },
+  );
+  return text.slice(0, cmdEnd) + args;
+}
+
 // ── Automatic nicknames ─────────────────────────────────────────────────────
 // Every viewer gets a fantasy nickname ("Ironquill", "Emberbrew") the first
 // time they chat, unless one is already set (a mod's !nick wins and is never
