@@ -10,6 +10,7 @@ import { INSTANCE, sqlite } from "./sqlite.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
+import { listNicknames } from "./mentions.ts";
 import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
@@ -346,12 +347,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const broadcaster = await getBroadcaster(channelId);
     if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Roster unavailable for this channel.", { status: 404 });
     const ROSTER_LIMIT = 1000;
-    const [fetched, parties, goldOn, raidOn] = await Promise.all([
+    const [fetched, parties, goldOn, raidOn, nickRows] = await Promise.all([
       listChannelCharacters(channelId, ROSTER_LIMIT + 1),
       listChannelParties(channelId),
       isPointsEnabled(channelId),
       isCommandGroupEnabled(channelId, "raid"),
+      listNicknames(channelId),
     ]);
+    const nicknames = new Map(nickRows.map((n) => [n.username.toLowerCase(), n.nickname]));
     // Raid card only while the channel has the raid quest switched on.
     const raid = raidOn ? await getRaidRosterStatus(channelId) : null;
     // Gold column only while the channel has gold on (!gold on/off).
@@ -359,7 +362,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const truncated = fetched.length > ROSTER_LIMIT;
     const characters = truncated ? fetched.slice(0, ROSTER_LIMIT) : fetched;
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
-    return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated, gold, raid), {
+    return new Response(renderRosterPage(channelName, characters, parties, channelId, PUBLIC_BASE_URL, truncated, gold, raid, nicknames), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

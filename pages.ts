@@ -162,7 +162,14 @@ export function renderRosterPage(
   gold?: Map<string, number>,
   // The current raid quest; null/omitted hides the section.
   raid?: RaidRosterStatus | null,
+  // !nick nickname per lowercase username (nick.ts).
+  nicknames: Map<string, string> = new Map(),
 ) {
+  const nickOf = (username: string) => nicknames.get(username.toLowerCase()) ?? "";
+  const nickTag = (username: string) => {
+    const n = nickOf(username);
+    return n ? ` <span class="nick" title="Nickname">“${escapeHtml(n)}”</span>` : "";
+  };
   const goldCell = (username: string) => {
     if (!gold) return "";
     const copper = gold.get(username.toLowerCase()) ?? 0;
@@ -196,10 +203,10 @@ export function renderRosterPage(
               const copper = gold?.get(m.toLowerCase()) ?? 0;
               const purse = copper > 0 ? ` · 🪙 ${formatCoins(copper)}` : "";
               const detail = c ? `<span class="muted">${escapeHtml(summary(c) + purse)}</span>` : `<span class="muted">no character yet${escapeHtml(purse)}</span>`;
-              return `<li>${crown}<span class="who">${name}</span>${detail}</li>`;
+              return `<li>${crown}<span class="who">${name}${nickTag(m)}</span>${detail}</li>`;
             })
             .join("");
-          const search = [p.party_name, ...p.members].join(" ").toLowerCase();
+          const search = [p.party_name, ...p.members, ...p.members.map(nickOf)].join(" ").toLowerCase();
           return `<section class="card" data-search="${escapeHtml(search)}"><h3>${escapeHtml(p.party_name)}</h3><p class="muted">Led by ${escapeHtml(p.owner || "unknown")} · ${p.members.length} member${p.members.length === 1 ? "" : "s"}</p><ul class="members">${rows || `<li class="muted">No members.</li>`}</ul></section>`;
         })
         .join("")
@@ -209,13 +216,14 @@ export function renderRosterPage(
     ? characters
         .map((c) => {
           const memberOf = partiesByUser.get(c.username.toLowerCase()) ?? [];
-          const search = [c.username, c.race, c.subrace ?? "", c.cls, ...memberOf].join(" ").toLowerCase();
-          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(c.cls)}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td>${goldCell(c.username)}<td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
+          const nick = nickOf(c.username);
+          const search = [c.username, nick, c.race, c.subrace ?? "", c.cls, ...memberOf].join(" ").toLowerCase();
+          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td>${nick ? escapeHtml(nick) : `<span class="muted">—</span>`}</td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(c.cls)}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td>${goldCell(c.username)}<td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
         })
         .join("")
     : "";
   const charTable = characters.length
-    ? `<div class="table-wrap"><table><thead><tr><th>Adventurer</th><th class="num">Lvl</th><th>Race</th><th>Class</th><th class="num">HP</th>${gold ? `<th class="num">Gold</th>` : ""}<th>Party</th></tr></thead><tbody>${charRows}</tbody></table></div>`
+    ? `<div class="table-wrap"><table><thead><tr><th>Adventurer</th><th>Nickname</th><th class="num">Lvl</th><th>Race</th><th>Class</th><th class="num">HP</th>${gold ? `<th class="num">Gold</th>` : ""}<th>Party</th></tr></thead><tbody>${charRows}</tbody></table></div>`
     : `<p class="muted">No adventurers yet. In chat: <code>!createchar</code> or <code>!newchar</code></p>`;
 
   const raidSection = raid ? (() => {
@@ -232,7 +240,7 @@ export function renderRosterPage(
   const note = truncated ? `<p class="muted">Showing the first ${characters.length} adventurers by level.</p>` : "";
   const name = escapeHtml(channelName);
 
-  return scrollDoc(`${name} — Guild Roster`, `<span class="pill">Guild roster</span><h1>${name}</h1><p class="muted">${characters.length} adventurer${characters.length === 1 ? "" : "s"} · ${parties.length} part${parties.length === 1 ? "y" : "ies"}. Click a name to open their character sheet.</p><input id="q" class="search" type="search" placeholder="Search adventurers, races, classes, parties…" autocomplete="off" aria-label="Search the roster"><p id="nomatch" class="muted" hidden>No adventurers or parties match that search.</p>${raidSection}<h2>Parties</h2><div class="grid">${partyCards}</div><h2>Adventurers</h2>${note}${charTable}<p class="muted colophon">Join in from Twitch chat: <code>!createchar</code> · <code>!party create &lt;name&gt;</code> · <code>!party join &lt;name&gt;</code> · full list: <a href="${baseUrl}/guide">Guild Codex</a></p><script>(function(){var q=document.getElementById("q"),none=document.getElementById("nomatch"),items=document.querySelectorAll("[data-search]");if(!q)return;q.addEventListener("input",function(){var t=q.value.trim().toLowerCase(),shown=0;items.forEach(function(el){var hit=!t||el.getAttribute("data-search").indexOf(t)!==-1;el.hidden=!hit;if(hit)shown++});none.hidden=!t||shown>0})})();</script>`, { width: 1040, css: `${LEDGER_CSS}table{min-width:560px}.card h3{margin-bottom:2px}.crown{margin-right:-4px}` });
+  return scrollDoc(`${name} — Guild Roster`, `<span class="pill">Guild roster</span><h1>${name}</h1><p class="muted">${characters.length} adventurer${characters.length === 1 ? "" : "s"} · ${parties.length} part${parties.length === 1 ? "y" : "ies"}. Click a name to open their character sheet.</p><input id="q" class="search" type="search" placeholder="Search adventurers, nicknames, races, classes, parties…" autocomplete="off" aria-label="Search the roster"><p id="nomatch" class="muted" hidden>No adventurers or parties match that search.</p>${raidSection}<h2>Parties</h2><div class="grid">${partyCards}</div><h2>Adventurers</h2>${note}${charTable}<p class="muted colophon">Join in from Twitch chat: <code>!createchar</code> · <code>!party create &lt;name&gt;</code> · <code>!party join &lt;name&gt;</code> · full list: <a href="${baseUrl}/guide">Guild Codex</a></p><script>(function(){var q=document.getElementById("q"),none=document.getElementById("nomatch"),items=document.querySelectorAll("[data-search]");if(!q)return;q.addEventListener("input",function(){var t=q.value.trim().toLowerCase(),shown=0;items.forEach(function(el){var hit=!t||el.getAttribute("data-search").indexOf(t)!==-1;el.hidden=!hit;if(hit)shown++});none.hidden=!t||shown>0})})();</script>`, { width: 1040, css: `${LEDGER_CSS}table{min-width:560px}.card h3{margin-bottom:2px}.crown{margin-right:-4px}.nick{font-style:italic;font-weight:normal;opacity:.8}` });
 }
 
 // The web dashboard page lives in dashboard_page.ts (size ceiling).
