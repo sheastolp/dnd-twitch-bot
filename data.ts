@@ -549,6 +549,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 4,
     bonus: 2,
   },
+  {
+    name: "Maw Demon",
+    cr: "1",
+    crValue: 1,
+    ac: 13,
+    hp: 33,
+    attack: 4,
+    die: 8,
+    bonus: 2,
+  },
   // CR 2
   {
     name: "Ogre Brute",
@@ -790,6 +800,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 4,
     bonus: 2,
   },
+  {
+    name: "Rutterkin",
+    cr: "2",
+    crValue: 2,
+    ac: 12,
+    hp: 37,
+    attack: 5,
+    die: 6,
+    bonus: 3,
+  },
   // CR 3
   {
     name: "Owlbear",
@@ -991,6 +1011,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 6,
     bonus: 3,
   },
+  {
+    name: "Bulezau",
+    cr: "3",
+    crValue: 3,
+    ac: 14,
+    hp: 52,
+    attack: 5,
+    die: 12,
+    bonus: 3,
+  },
   // CR 4
   {
     name: "Ettin",
@@ -1101,6 +1131,26 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     attack: 6,
     die: 6,
     bonus: 4,
+  },
+  {
+    name: "Shadow Demon",
+    cr: "4",
+    crValue: 4,
+    ac: 13,
+    hp: 66,
+    attack: 5,
+    die: 6,
+    bonus: 3,
+  },
+  {
+    name: "Babau",
+    cr: "4",
+    crValue: 4,
+    ac: 16,
+    hp: 82,
+    attack: 5,
+    die: 6,
+    bonus: 3,
   },
   // CR 5
   {
@@ -1313,6 +1363,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 6,
     bonus: 4,
   },
+  {
+    name: "Barlgura",
+    cr: "5",
+    crValue: 5,
+    ac: 15,
+    hp: 68,
+    attack: 5,
+    die: 10,
+    bonus: 3,
+  },
   // CR 6
   {
     name: "Hill Giant",
@@ -1424,6 +1484,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 6,
     bonus: 5,
   },
+  {
+    name: "Chasme",
+    cr: "6",
+    crValue: 6,
+    ac: 15,
+    hp: 84,
+    attack: 5,
+    die: 6,
+    bonus: 3,
+  },
   // CR 7
   {
     name: "Chimera",
@@ -1504,6 +1574,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     attack: 7,
     die: 6,
     bonus: 4,
+  },
+  {
+    name: "Draegloth",
+    cr: "7",
+    crValue: 7,
+    ac: 15,
+    hp: 123,
+    attack: 8,
+    die: 10,
+    bonus: 5,
   },
   // CR 8
   {
@@ -1768,6 +1848,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 10,
     bonus: 6,
   },
+  {
+    name: "Yochlol",
+    cr: "10",
+    crValue: 10,
+    ac: 15,
+    hp: 136,
+    attack: 6,
+    die: 6,
+    bonus: 4,
+  },
   // CR 11
   {
     name: "Behir",
@@ -1941,6 +2031,16 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 6,
     bonus: 9,
   },
+  {
+    name: "Wastrilith",
+    cr: "13",
+    crValue: 13,
+    ac: 18,
+    hp: 157,
+    attack: 8,
+    die: 6,
+    bonus: 5,
+  },
   // CR 14
   {
     name: "Death Tyrant",
@@ -2105,6 +2205,27 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 8,
     bonus: 6,
   },
+  {
+    name: "Goristro",
+    cr: "17",
+    crValue: 17,
+    ac: 19,
+    hp: 310,
+    attack: 13,
+    die: 8,
+    bonus: 7,
+  },
+  // CR 19
+  {
+    name: "Balor",
+    cr: "19",
+    crValue: 19,
+    ac: 19,
+    hp: 262,
+    attack: 14,
+    die: 8,
+    bonus: 8,
+  },
 ];
 
 /**
@@ -2172,6 +2293,7 @@ const MONSTER_ALIASES: Record<string, string> = {
   green: "Young Green Dragon",
   white: "Young White Dragon",
   devil: "Horned Devil",
+  demon: "Vrock",
   hag: "Night Hag",
   fire: "Fire Giant",
 };
