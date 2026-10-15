@@ -58,6 +58,7 @@ import { isPointsEnabled, setPointsEnabled } from "./points_db.ts";
 import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
+import { isAutoModEnabled, setAutoModEnabled } from "./automod.ts";
 import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
 import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
@@ -233,7 +234,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, pointsEnabled, hoardEnabled, pokeballEnabled] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, autoModEnabled, pointsEnabled, hoardEnabled, pokeballEnabled] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -245,6 +246,7 @@ export async function renderDashboard(
     getCommandGroupToggles(channelId),
     isAutoBanEnabled(channelId),
     hasBanPermission(channelId),
+    isAutoModEnabled(channelId),
     isPointsEnabled(channelId),
     isHoardEnabled(channelId),
     isPokeballEnabled(channelId),
@@ -270,6 +272,7 @@ export async function renderDashboard(
     groupToggles,
     autoBanEnabled,
     autoBanPermitted,
+    autoModEnabled,
     pointsEnabled,
     hoardEnabled,
     pokeballEnabled,
@@ -627,6 +630,12 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
           : `Auto-ban turned ${enabled ? "on" : "off"}.`,
       }, "toggle-autoban"));
     }
+    case "automod_on":
+    case "automod_off": {
+      const enabled = intent === "automod_on";
+      await setAutoModEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Spam filters turned ${enabled ? "on" : "off"}.` }, "toggle-automod"));
+    }
     case "points_on":
     case "points_off": {
       const enabled = intent === "points_on";
@@ -702,12 +711,12 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
 async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
-  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball] = await Promise.all([
+  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball, automod] = await Promise.all([
     getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
     isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId), isHoardEnabled(channelId),
-    isPokeballEnabled(channelId),
+    isPokeballEnabled(channelId), isAutoModEnabled(channelId),
   ]);
-  return { ...groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball };
+  return { ...groups, bot, market, chronicle, autoban, automod, points, npc, npcchatter, hoard, pokeball };
 }
 
 /** Turns one dashboard switch on or off, dedicated or command group. */
@@ -717,6 +726,7 @@ async function setSwitch(channelId: string, sw: string, on: boolean): Promise<vo
     case "market": return void await setMerchantEnabled(channelId, on, on ? Date.now() + await randomMerchantIntervalMs(channelId) : null);
     case "chronicle": return void await setChronicleEnabled(channelId, on);
     case "autoban": return void await setAutoBanEnabled(channelId, on);
+    case "automod": return void await setAutoModEnabled(channelId, on);
     case "points": return void await setPointsEnabled(channelId, on);
     case "npc": return void await setNpcEnabled(channelId, on);
     case "npcchatter": return void await setNpcChatterEnabled(channelId, on);
@@ -900,7 +910,8 @@ export async function handleAutoBanForm(form: FormData, baseUrl: string, cookieH
   const result = await applyAutoBanForm(auth.channelId, form);
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.ok ? result.message : result.error);
-  return redirectTo(`${baseUrl}/dashboard/autoban?${params.toString()}`);
+  const anchor = String(form.get("intent") ?? "").startsWith("automod_") ? "#spam-filters" : "";
+  return redirectTo(`${baseUrl}/dashboard/autoban?${params.toString()}${anchor}`);
 }
 
 // ── Quotes page (quotes.ts), behind the same key + login ──

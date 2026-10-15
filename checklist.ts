@@ -22,6 +22,7 @@ import { getBroadcaster, isChannelEnabled, isCommandGroupEnabled, isMerchantEnab
 import { isChronicleEnabled, isNpcEnabled } from "./social_db.ts";
 import { isPointsEnabled } from "./points_db.ts";
 import { isAutoBanEnabled } from "./autoban.ts";
+import { isAutoModEnabled } from "./automod.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { splitChatMessage } from "./utils.ts";
@@ -77,13 +78,14 @@ export async function purgeChecklistData(broadcasterId: string) {
 /** "Guild hall open · gold on · market off · …" — every switch a streamer
  * might have left in the wrong position, read in one parallel batch. */
 async function featureSummary(broadcasterId: string): Promise<string> {
-  const [hall, gold, market, chronicle, npcs, autoban, jar, raid, timed, triggers] = await Promise.all([
+  const [hall, gold, market, chronicle, npcs, autoban, automod, jar, raid, timed, triggers] = await Promise.all([
     isChannelEnabled(broadcasterId),
     isPointsEnabled(broadcasterId),
     isMerchantEnabled(broadcasterId),
     isChronicleEnabled(broadcasterId),
     isNpcEnabled(broadcasterId),
     isAutoBanEnabled(broadcasterId),
+    isAutoModEnabled(broadcasterId),
     isCommandGroupEnabled(broadcasterId, "jar"),
     isCommandGroupEnabled(broadcasterId, "raid"),
     listTimedMessages(broadcasterId),
@@ -100,6 +102,7 @@ async function featureSummary(broadcasterId: string): Promise<string> {
     `chronicle ${onOff(chronicle)}`,
     `NPCs ${onOff(npcs)}`,
     `autoban ${onOff(autoban)}`,
+    `spam filters ${onOff(automod)}`,
     `swear jar ${onOff(jar)}`,
     `raid quest ${onOff(raid)}`,
     `${activeTimed} timed message${activeTimed === 1 ? "" : "s"}`,

@@ -260,7 +260,8 @@ export async function sendSpellSections(sections: string[], display: string, bro
 
 export type BanResult = { ok: true } | { ok: false; status: number; message: string };
 
-/** Permanently bans a user (no duration = permanent) via Helix Ban User.
+/** Bans a user via Helix Ban User — permanently, or as a timeout when
+ * `durationSeconds` is given (1 s – 2 weeks; see automod.ts).
  * Needs a *user* access token — not the app token used for chat sends —
  * belonging to `moderatorId`, a moderator (or the broadcaster) of the
  * channel, with the moderator:manage:banned_users scope. See autoban.ts. */
@@ -270,6 +271,7 @@ export async function banChatUser(
   moderatorId: string,
   targetUserId: string,
   reason: string,
+  durationSeconds?: number,
 ): Promise<BanResult> {
   try {
     const params = new URLSearchParams({ broadcaster_id: broadcasterId, moderator_id: moderatorId });
@@ -280,7 +282,30 @@ export async function banChatUser(
         "Client-Id": env("TWITCH_CLIENT_ID"),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ data: { user_id: targetUserId, reason: reason.slice(0, 500) } }),
+      body: JSON.stringify({
+        data: { user_id: targetUserId, reason: reason.slice(0, 500), ...(durationSeconds ? { duration: Math.round(durationSeconds) } : {}) },
+      }),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, status: res.status, message: (await res.text()).slice(0, 200) };
+  } catch (err) {
+    return { ok: false, status: 0, message: String(err).slice(0, 200) };
+  }
+}
+
+/** Removes one chat message via Helix Delete Chat Messages. Same token rules
+ * as banChatUser, but the scope is moderator:manage:chat_messages. */
+export async function deleteChatMessage(
+  userAccessToken: string,
+  broadcasterId: string,
+  moderatorId: string,
+  messageId: string,
+): Promise<BanResult> {
+  try {
+    const params = new URLSearchParams({ broadcaster_id: broadcasterId, moderator_id: moderatorId, message_id: messageId });
+    const res = await fetch(`https://api.twitch.tv/helix/moderation/chat?${params.toString()}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${userAccessToken}`, "Client-Id": env("TWITCH_CLIENT_ID") },
     });
     if (res.ok) return { ok: true };
     return { ok: false, status: res.status, message: (await res.text()).slice(0, 200) };

@@ -21,6 +21,7 @@ export function toggleState(d: DashboardData, key: string): boolean {
     case "market": return d.marketEnabled;
     case "chronicle": return d.chronicleEnabled;
     case "autoban": return d.autoBanEnabled;
+    case "automod": return d.autoModEnabled;
     case "points": return d.pointsEnabled;
     case "npc": return d.npcEnabled;
     case "npcchatter": return d.npcChatterEnabled;

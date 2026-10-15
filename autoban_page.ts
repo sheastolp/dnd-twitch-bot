@@ -19,8 +19,25 @@ import {
   MAX_PHRASES,
   setLearnMode,
   setUserIgnored,
+  sanitizeLogin,
   setWordStatus,
 } from "./autoban_words.ts";
+import {
+  type AutoModConfig,
+  clearStrikes,
+  type Exempt,
+  FILTERS,
+  formatLadder,
+  getAutoModSettings,
+  hasDeletePermission,
+  LIMITS,
+  listAutoModLog,
+  parseLadder,
+  sanitizeConfig,
+  sanitizeDomain,
+  saveAutoModConfig,
+  setAutoModEnabled,
+} from "./automod.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
@@ -68,8 +85,47 @@ export async function applyAutoBanForm(broadcasterId: string, form: FormData): P
     case "autoban_off":
       await setAutoBanEnabled(broadcasterId, intent === "autoban_on");
       return { ok: true, message: intent === "autoban_on" ? "Auto-ban is on." : "Auto-ban is off." };
+    case "automod_on":
+    case "automod_off":
+      await setAutoModEnabled(broadcasterId, intent === "automod_on");
+      return { ok: true, message: intent === "automod_on" ? "Spam filters are on." : "Spam filters are off." };
+    case "automod_save":
+      return await saveAutoModForm(broadcasterId, form);
+    case "automod_pardon": {
+      const who = sanitizeLogin(login);
+      if (!who) return { ok: false, error: "That isn't a valid Twitch username." };
+      return (await clearStrikes(broadcasterId, who))
+        ? { ok: true, message: `${who}'s spam-filter strikes are cleared.` }
+        : { ok: false, error: `${who} has no spam-filter strikes.` };
+    }
   }
   return null;
+}
+
+/** The "Spam filters" settings form → a saved config, or the first problem found. */
+async function saveAutoModForm(broadcasterId: string, form: FormData): Promise<EditResult> {
+  const ladder = parseLadder(String(form.get("ladder") ?? ""));
+  if (!ladder.ok) return { ok: false, error: ladder.error };
+  const allowRaw = String(form.get("allow") ?? "").split(/[\s,]+/).filter(Boolean);
+  const bad = allowRaw.filter((d) => !sanitizeDomain(d));
+  if (bad.length) return { ok: false, error: `Not a domain: ${bad.slice(0, 3).join(", ")}.` };
+  const num = (k: keyof typeof LIMITS) => Number(form.get(k) ?? NaN);
+  const filters = Object.fromEntries(FILTERS.map((f) => [f.key, form.get(`f_${f.key}`) === "on"])) as AutoModConfig["filters"];
+  const config = sanitizeConfig({
+    filters,
+    capsPct: num("capsPct"),
+    capsMin: num("capsMin"),
+    symbolPct: num("symbolPct"),
+    emoteMax: num("emoteMax"),
+    lengthMax: num("lengthMax"),
+    strikeMemoryMin: num("strikeMemoryMin"),
+    exempt: String(form.get("exempt") ?? "vip"),
+    ladder: ladder.ladder,
+    allowDomains: allowRaw,
+    announce: form.get("announce") === "on",
+  });
+  await saveAutoModConfig(broadcasterId, config);
+  return { ok: true, message: `Spam filter settings saved — strike ladder: ${formatLadder(config.ladder)}.` };
 }
 
 function fmtDate(ms: number | null) {
@@ -85,13 +141,16 @@ export async function renderAutoBanPage(d: { broadcasterId: string; broadcasterN
       if (!("problem" in auth)) await importTwitchBans(d.broadcasterId, auth.token).catch(() => {});
     }
   }
-  const [enabled, permitted, words, ignored, mode, history] = await Promise.all([
+  const [enabled, permitted, words, ignored, mode, history, automod, canDelete, modLog] = await Promise.all([
     isAutoBanEnabled(d.broadcasterId),
     hasBanPermission(d.broadcasterId),
     listWords(d.broadcasterId),
     listIgnoredUsers(d.broadcasterId),
     getLearnMode(d.broadcasterId),
     listBans(d.broadcasterId, 50),
+    getAutoModSettings(d.broadcasterId),
+    hasDeletePermission(d.broadcasterId),
+    listAutoModLog(d.broadcasterId, 50),
   ]);
   const hidden = `<input type="hidden" name="channel" value="${escapeHtml(d.broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(d.key)}">`;
   const btn = (intent: string, label: string, extra = "", cls = "ghost", confirm = "") =>
@@ -131,7 +190,7 @@ ${!enabled ? `<p class="note">Auto-ban is off, so nothing below is enforced and 
     ? `<ul class="list">${ignored.map((r) => `<li><span class="who">${escapeHtml(r.login)}</span><span class="muted small">since ${fmtDate(r.addedAt)}</span><span style="margin-left:auto">${btn("unignore", "Remove", `<input type="hidden" name="login" value="${escapeHtml(r.login)}">`)}</span></li>`).join("")}</ul>`
     : `<p class="muted">No one yet.</p>`;
 
-  const body = `<header class="dash-top"><div><span class="pill">Moderation · Auto-ban words</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
+  const body = `<header class="dash-top"><div><span class="pill">Moderation · Auto-ban &amp; spam filters</span> <a class="small" href="#spam-filters">Spam filters ↓</a><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 <p>Anyone who isn't a moderator, the broadcaster or on the ignore list and says one of the <strong>active</strong> phrases below is <strong>permanently banned</strong>. Matching sees through the usual spelling dodges: case, accents and fancy Unicode letters, look-alikes (<code>v1ewers</code>, <code>$ub$</code>, <code>Al viewers</code>, Cyrillic letters, <code>vv</code> for w), stretched letters (<code>viiiewers</code>), letters broken up (<code>v.i.e.w.e.r.s</code>, <code>aiviewers</code>) and spelled-out domains (<code>grow dot com</code>, <code>grow . com</code>). A phrase still has to be whole words, so “ai” never matches “aint”.</p>
 ${status}
@@ -156,14 +215,63 @@ ${history.refs.length
       history.refs.map((r) => `<tr><td><span class="who">${escapeHtml(r.login)}</span></td><td>${r.source === "twitch" ? `<span class="badge">Twitch ban</span>` : r.source === "history" ? `<span class="badge learned">history match</span>` : `<span class="badge learned">auto-ban</span>`}</td><td class="small">${r.message ? `“${escapeHtml(r.message)}”` : r.reason ? `<span class="muted">${escapeHtml(r.reason)}</span>` : `<span class="muted">—</span>`}</td><td class="num small">${fmtDate(r.bannedAt)}</td><td class="num actions">${btn("forget_ban", "Forget", `<input type="hidden" name="user_id" value="${escapeHtml(r.userId)}">`)}</td></tr>`).join("")
     }</tbody></table></div>${history.total > history.refs.length ? `<p class="muted small">Showing the latest ${history.refs.length} of ${history.total}.</p>` : ""}`
     : `<p class="note">No bans recorded yet.</p>`}
+${renderSpamFilters(automod.enabled, automod.config, permitted, canDelete, modLog, hidden, btn)}
 <h2>Ignored users</h2>
-<p class="muted">Auto-ban never bans these accounts and never learns from their messages — handy for a friend who jokes about "ai viewers" or a partner bot that posts links.</p>
+<p class="muted">Auto-ban never bans these accounts and never learns from their messages, and the spam filters leave them alone too — handy for a friend who jokes about "ai viewers" or a partner bot that posts links.</p>
 <form method="post" action="/dashboard/autoban" class="add">${hidden}<input type="hidden" name="intent" value="ignore"><input name="login" placeholder="twitch username" maxlength="26" required pattern="@?[A-Za-z0-9_]{1,25}" aria-label="Username to ignore"><button type="submit" class="ember">Ignore user</button></form>
 ${ignoredList}
-<p class="colophon muted">In chat: <code>!autoban on</code> · <code>!autoban off</code> · <code>!autoban status</code></p>`;
+<p class="colophon muted">In chat: <code>!autoban on</code> · <code>!autoban off</code> · <code>!autoban status</code> · <code>!automod on</code> · <code>!automod off</code> · <code>!automod status</code> · <code>!automod pardon @user</code> · <code>!permit @user [seconds]</code></p>`;
 
-  return scrollDoc(`${name} — Auto-ban words`, body, {
+  return scrollDoc(`${name} — Auto-ban & spam filters`, body, {
     width: 1000,
-    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,td form button{padding:5px 12px;font-size:.78rem}.actions{white-space:nowrap}.actions form{margin-left:6px}form.edit{display:flex;gap:6px;margin:0}form.edit input{flex:1;min-width:140px;padding:5px 8px}form.add{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}form.add input{flex:1 1 240px;padding:9px 12px}.controls{align-items:center}.controls select{max-width:100%}.ex{margin-top:4px;word-break:break-word}tr.off td{opacity:.6}.badge.offb{color:var(--bad);background:var(--bad-bg)}button.danger{color:var(--bad)}.badge,td.num.small{white-space:nowrap}td{vertical-align:middle}`,
+    css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}form.inline{display:inline;margin:0}form.inline button,td form button{padding:5px 12px;font-size:.78rem}.actions{white-space:nowrap}.actions form{margin-left:6px}form.edit{display:flex;gap:6px;margin:0}form.edit input{flex:1;min-width:140px;padding:5px 8px}form.add{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}form.add input{flex:1 1 240px;padding:9px 12px}.controls{align-items:center}.controls select{max-width:100%}.ex{margin-top:4px;word-break:break-word}tr.off td{opacity:.6}.badge.offb{color:var(--bad);background:var(--bad-bg)}button.danger{color:var(--bad)}.badge,td.num.small{white-space:nowrap}td{vertical-align:middle}fieldset.filters{border:1px solid var(--rule);border-radius:6px;padding:10px 14px;margin:10px 0}fieldset.filters legend{font-weight:600;padding:0 6px}.frow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:6px 0}.frow input[type=number]{width:5.5em;padding:4px 6px}.frow input[type=text]{flex:1 1 260px;padding:6px 8px}.frow label.f{min-width:190px;font-weight:600}`,
   });
+}
+
+// ── Spam filters (automod.ts) ──
+
+function renderSpamFilters(
+  enabled: boolean,
+  c: AutoModConfig,
+  permitted: boolean,
+  canDelete: boolean,
+  log: Awaited<ReturnType<typeof listAutoModLog>>,
+  hidden: string,
+  btn: (intent: string, label: string, extra?: string, cls?: string, confirm?: string) => string,
+): string {
+  const n = (k: keyof typeof LIMITS, v: number) => `<input type="number" name="${k}" value="${v}" min="${LIMITS[k][0]}" max="${LIMITS[k][1]}" required>`;
+  const box = (k: string, on: boolean) => `<input type="checkbox" name="f_${k}"${on ? " checked" : ""}>`;
+  const extra: Record<string, string> = {
+    links: `<span class="small">allowed domains (and their subdomains):</span><input type="text" name="allow" value="${escapeHtml(c.allowDomains.join(", "))}" placeholder="clips.twitch.tv, youtube.com">`,
+    caps: `<span class="small">at least ${n("capsPct", c.capsPct)}% capitals in a message with ${n("capsMin", c.capsMin)}+ letters</span>`,
+    symbols: `<span class="small">at least ${n("symbolPct", c.symbolPct)}% symbols/emoji (15+ characters)</span>`,
+    emotes: `<span class="small">more than ${n("emoteMax", c.emoteMax)} emotes</span>`,
+    repeats: `<span class="small">one word 10+ times, a character 25+ times, or the same message 3× within 2 minutes (commands don't count)</span>`,
+    length: `<span class="small">longer than ${n("lengthMax", c.lengthMax)} characters</span>`,
+  };
+  const filterRows = FILTERS.map((f) => `<div class="frow"><label class="f">${box(f.key, c.filters[f.key])} ${escapeHtml(f.label)}</label>${extra[f.key]}</div>`).join("");
+  const opt = (v: Exempt, label: string) => `<option value="${v}"${c.exempt === v ? " selected" : ""}>${label}</option>`;
+  const form = `<form method="post" action="/dashboard/autoban">${hidden}<input type="hidden" name="intent" value="automod_save">
+<fieldset class="filters"><legend>Filters</legend>${filterRows}</fieldset>
+<fieldset class="filters"><legend>Strikes</legend>
+<div class="frow"><label class="f" for="am-ladder">Strike ladder</label><input type="text" id="am-ladder" name="ladder" value="${escapeHtml(formatLadder(c.ladder))}" required><span class="muted small">steps for the 1st, 2nd, 3rd… offense: <code>warn</code> (delete the message), a timeout like <code>30s</code> <code>10m</code> <code>1h</code> <code>1d</code>, or <code>ban</code>. The last step repeats.</span></div>
+<div class="frow"><label class="f">Strikes reset after</label><span class="small">${n("strikeMemoryMin", c.strikeMemoryMin)} minutes without an offense</span></div>
+<div class="frow"><label class="f" for="am-exempt">Also exempt</label><select id="am-exempt" name="exempt">${opt("vip", "VIPs")}${opt("sub", "VIPs and subscribers")}${opt("none", "Nobody (only mods)")}</select></div>
+<div class="frow"><label class="f"><input type="checkbox" name="announce"${c.announce ? " checked" : ""}> Say so in chat</label><span class="muted small">a short in-character notice while live, at most one per chatter every 30 s</span></div>
+</fieldset>
+<button type="submit" class="ember">Save spam filters</button></form>`;
+  const logRows = log.map((e) =>
+    `<tr><td class="num small">${new Date(e.at).toISOString().slice(5, 16).replace("T", " ")}</td><td><span class="who">${escapeHtml(e.login)}</span></td><td><span class="badge">${escapeHtml(FILTERS.find((f) => f.key === e.filter)?.label ?? e.filter)}</span></td><td class="small">${escapeHtml(e.action)}</td><td class="small ex">“${escapeHtml(e.message)}”</td></tr>`
+  ).join("");
+  return `<h2 id="spam-filters">Spam filters</h2>
+<p>Everyday chat moderation for anyone who isn't a moderator, the broadcaster, an exempt VIP/subscriber or on the ignore list below. A message that breaks a filter is removed and the chatter gets a <strong>strike</strong>; each strike climbs the ladder. Mods can let one viewer post links with <code>!permit @user</code> (60 s, or <code>!permit @user 300</code>) and wipe someone's strikes with <code>!automod pardon @user</code>.</p>
+<div class="stats"><div class="stat"><b>${enabled ? "On" : "Off"}</b>spam filters</div><div class="stat"><b>${FILTERS.filter((f) => c.filters[f.key]).length}</b>of ${FILTERS.length} filters</div><div class="stat"><b>${escapeHtml(formatLadder(c.ladder))}</b>strike ladder</div></div>
+<div class="controls">${btn(enabled ? "automod_off" : "automod_on", enabled ? "Turn spam filters off" : "Turn spam filters on", "", enabled ? "ghost" : "ember")}</div>
+${!permitted ? `<p class="banner error">GuildScribe needs moderation permission for this channel — the broadcaster should <a href="/connect">reconnect</a> once and approve it.</p>` : !canDelete ? `<p class="note">GuildScribe can't delete single messages yet, so a <code>warn</code> step clears the message with a 1-second timeout instead. <a href="/connect">Reconnecting</a> once adds the permission to delete just the message.</p>` : ""}
+${form}
+<form method="post" action="/dashboard/autoban" class="add">${hidden}<input type="hidden" name="intent" value="automod_pardon"><input name="login" placeholder="twitch username" maxlength="26" required pattern="@?[A-Za-z0-9_]{1,25}" aria-label="Username to pardon"><button type="submit" class="ghost">Clear their strikes</button></form>
+<h3>Recent actions</h3>
+${log.length
+    ? `<div class="table-wrap"><table><thead><tr><th class="num">When (UTC)</th><th>Chatter</th><th>Filter</th><th>Action</th><th>Message</th></tr></thead><tbody>${logRows}</tbody></table></div>`
+    : `<p class="note">Nothing yet.</p>`}`;
 }

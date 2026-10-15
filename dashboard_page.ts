@@ -33,6 +33,7 @@ export interface DashboardData {
   groupToggles: Record<string, boolean>;
   autoBanEnabled: boolean;
   autoBanPermitted: boolean;
+  autoModEnabled: boolean;
   pointsEnabled: boolean;
   hoardEnabled: boolean;
   pokeballEnabled: boolean;
@@ -47,7 +48,7 @@ export function switchStates(d: DashboardData): Record<string, boolean> {
   return {
     ...d.groupToggles,
     bot: d.botEnabled, market: d.marketEnabled, chronicle: d.chronicleEnabled, autoban: d.autoBanEnabled,
-    points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
+    automod: d.autoModEnabled, points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
     pokeball: d.pokeballEnabled,
   };
 }
@@ -58,9 +59,9 @@ function dashHidden(broadcasterId: string, key: string): string {
 
 /** Switches with their own dedicated on/off (not COMMAND_GROUPS); each has a
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
-export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "points", "npc", "npcchatter", "hoard", "pokeball"];
+export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "hoard", "pokeball"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "quotes"]);
+const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "quotes"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
@@ -136,6 +137,7 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     featureToggleRow(d, "bot_on", "bot_off", "Entire bot", "Master switch — same as !dndbot on/off in chat", d.botEnabled),
     featureToggleRow(d, "market_on", "market_off", "Open-stall merchant", "Random flavor ads in chat — same as !market on/off", d.marketEnabled),
     autoBanToggleRow(d),
+    toggleTile(d, "automod", "Spam filters", "Removes links, caps, symbol walls, emote floods, copy-paste spam and very long messages from non-mods, then times out repeat offenders on a strike ladder — same as !automod on/off. Mods: !permit @user lets one viewer post a link. Tune it under 🔨 Auto-ban & spam filters", d.autoModEnabled, `<input type="hidden" name="intent" value="${d.autoModEnabled ? "automod_off" : "automod_on"}">`, d.autoBanPermitted ? "" : `⚠️ Moderation permission not granted yet — the broadcaster needs to <a href="/connect">reconnect</a> and approve it.`),
     featureToggleRow(d, "points_on", "points_off", "Gold, leaderboard & giveaways", "Viewers earn copper by chatting and from monster loot on hunts (10 cp = 1 sp, 10 sp = 1 gp); !gold, !gold top, !giveaway, !rob, and real coin prices for !haggle — same as !gold on/off", d.pointsEnabled),
     featureToggleRow(d, "pokeball_on", "pokeball_off", "Pokéball advisor", "Suggests a ball when PokemonCommunityGame announces a wild Pokémon — off by default; same as !ball on/off. Teach and edit the channel's balls under 🔴 Pokéballs", d.pokeballEnabled),
   ].join("");
@@ -366,7 +368,7 @@ export function renderDashboardPage(d: DashboardData): string {
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
   <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
-  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/pokeballs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔴 Pokéballs</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban words</a><a class="btn ghost" href="/dashboard/quotes?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">📜 Quotes</a><a class="btn ghost" href="/dashboard/import?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">⇪ Import from StreamElements</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
+  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/pokeballs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔴 Pokéballs</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban &amp; spam filters</a><a class="btn ghost" href="/dashboard/quotes?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">📜 Quotes</a><a class="btn ghost" href="/dashboard/import?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">⇪ Import from StreamElements</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
   ${d.connection !== undefined ? renderChannelStatusCard(d.connection, "/connect") : ""}
   ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {})}

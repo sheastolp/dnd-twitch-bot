@@ -166,6 +166,7 @@ export const DEDICATED_LABELS: Record<string, string> = {
   market: "Open-stall merchant",
   chronicle: "Chronicle",
   autoban: "Auto-ban",
+  automod: "Spam filters",
   points: "Gold, leaderboard & giveaways",
   npc: "AI NPCs",
   npcchatter: "AI NPC chatter",

@@ -11,12 +11,15 @@ import { escapeHtml } from "./utils.ts";
 
 /** Scopes /connect asks for, with the feature each one powers. /connect
  * builds its request from this list, so the status check can't drift. */
-export const CONNECT_SCOPES: Array<{ scope: string; feature: string }> = [
+export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: boolean }> = [
   { scope: "channel:bot", feature: "Chat replies" },
   { scope: "channel:read:subscriptions", feature: "Sub / resub / gift thank-yous" },
   { scope: "channel:read:ads", feature: "!adcheck and ad-break alerts" },
   { scope: "channel:read:redemptions", feature: "Channel-point boons" },
-  { scope: "moderator:manage:banned_users", feature: "Auto-ban" },
+  { scope: "moderator:manage:banned_users", feature: "Auto-ban and spam filters" },
+  // Optional: without it the spam filters clear a message with a 1-second
+  // timeout instead, so a channel missing it isn't flagged as "partial".
+  { scope: "moderator:manage:chat_messages", feature: "Spam filters: delete single messages", optional: true },
   { scope: "moderator:read:followers", feature: "Watch-time follower checks" },
   { scope: "moderator:read:chatters", feature: "Watch-time and bot viewer check" },
 ];
@@ -72,7 +75,7 @@ function computeStatus(
     ? "blocked"
     : !connected
     ? "disconnected"
-    : missingScopes.length || missingSubscriptions.length
+    : missingScopes.some((s) => !s.optional) || missingSubscriptions.length
     ? "partial"
     : "ok";
   return {

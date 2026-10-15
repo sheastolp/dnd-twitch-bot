@@ -33,6 +33,7 @@ import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
+import { ensureAutoModTables, handleAutoModCommand, maybeAutoMod, purgeAutoModData } from "./automod.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
@@ -102,6 +103,7 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
 const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAdTables,
   ensureAutoBanTables,
+  ensureAutoModTables,
   ensureBotDetectTables,
   ensureChannelBotTables,
   ensureNowPlayingTables,
@@ -336,6 +338,13 @@ async function handleNotification(body: any): Promise<Response | void> {
     chatterId === moderatorId ||
     hasModeratorBadge(body.event);
   const baseUrl = PUBLIC_ORIGIN;
+  // What the spam filters (automod.ts) need beyond the plain text.
+  const modEvent = {
+    message: chatMessage,
+    messageId: String(body.event?.message_id ?? ""),
+    fragments: body.event?.message?.fragments ?? [],
+    badges: body.event?.badges ?? [],
+  };
 
   if (await isChannelBot(broadcasterId, chatter, chatterId, env("TWITCH_BOT_ID"))) {
     // Accounts that are only *suspected* bots (flagged by !botcheck, or a
@@ -346,7 +355,8 @@ async function handleNotification(body: any): Promise<Response | void> {
       const conn = await getBroadcaster(broadcasterId);
       if (
         conn && Number(conn.connected) === 1 && !(await isChannelBlocked(broadcasterId)) &&
-        await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(conn.is_live) === 1, baseUrl)
+        (await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(conn.is_live) === 1, baseUrl) ||
+          await maybeAutoMod(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(conn.is_live) === 1))
       ) return new Response("OK");
     }
     // Bot messages (Nightbot, StreamElements, GuildScribe itself, etc.)
@@ -384,6 +394,13 @@ async function handleNotification(body: any): Promise<Response | void> {
   // default per channel (!autoban on). Mods/broadcaster are exempt.
   if (
     await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
+  ) return new Response("OK");
+
+  // Spam filters (automod.ts): links, caps, symbol walls, emote floods,
+  // repetition, very long messages — delete/warn, then timeouts on a strike
+  // ladder. Off by default (!automod on); mods, VIPs and ignored users exempt.
+  if (
+    await maybeAutoMod(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
   ) return new Response("OK");
 
   // Stay quiet in chat while the channel is offline — but let mod+ (the
@@ -453,6 +470,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeChannelData(broadcasterId);
       await purgeAdData(broadcasterId);
       await purgeAutoBanData(broadcasterId);
+      await purgeAutoModData(broadcasterId);
       await purgeBotDetectData(broadcasterId);
       await purgeChannelBotData(broadcasterId);
       await purgeChannelOptions(broadcasterId);
@@ -630,6 +648,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleHuntCooldownCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleRaidCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+  if (await handleAutoModCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (
