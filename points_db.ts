@@ -420,6 +420,29 @@ export async function stampRobbery(broadcasterId: string, robber: string, victim
   );
 }
 
+// A mod's temporary "!rob off" (main.ts) lives in rob_cooldowns too, on a
+// row no real login can have ("*" isn't allowed in Twitch names): its
+// robber_at is when the pause ends.
+const ROB_PAUSE_ROW = "*pause";
+
+/** Milliseconds left on the channel's robbing pause (0 = not paused). */
+export async function robPauseMs(broadcasterId: string): Promise<number> {
+  const res = await sqlite.execute(
+    "SELECT robber_at FROM rob_cooldowns WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, ROB_PAUSE_ROW],
+  );
+  return Math.max(0, Number(res.rows[0]?.robber_at ?? 0) - Date.now());
+}
+
+/** Pauses robbing until `until` (epoch ms); 0 lifts the pause. */
+export async function setRobPause(broadcasterId: string, until: number) {
+  await sqlite.execute(
+    `INSERT INTO rob_cooldowns (broadcaster_id, username, robber_at, victim_at) VALUES (?,?,?,0)
+     ON CONFLICT(broadcaster_id, username) DO UPDATE SET robber_at = excluded.robber_at`,
+    [broadcasterId, ROB_PAUSE_ROW, until],
+  );
+}
+
 // ── Offboarding ──
 
 /** `!dndbot leave` (no purge): drop the on/off override (back to the

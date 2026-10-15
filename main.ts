@@ -31,7 +31,7 @@ import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownD
 import { ensureNickname, ensureViewerNameTables, getChannelNicknames, purgeViewerNames, recordViewerName, resolveNicknameTargets } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
-import { disconnectPointsData, ensurePointsTables, migrateToCopper, purgePointsData } from "./points_db.ts";
+import { disconnectPointsData, ensurePointsTables, isPointsEnabled, migrateToCopper, purgePointsData, setRobPause } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
 import { ensureAutoModTables, handleAutoModCommand, maybeAutoMod, purgeAutoModData } from "./automod.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
@@ -511,6 +511,29 @@ async function handleNotification(body: any): Promise<Response | void> {
       await setCommandGroupEnabled(broadcasterId, "showcase", on);
       await sendChatMessage(
         `@${display} ${on ? "This channel is now listed on tavernworks.dev." : "This channel is no longer listed on tavernworks.dev."} (The site refreshes within a few minutes.)`,
+        broadcasterId,
+      );
+    }
+    return new Response("OK");
+  }
+
+  // !rob off pauses robbing for 15 minutes (rob.ts checks it); !rob on
+  // lifts the pause early and also turns the dashboard's "rob" switch back
+  // on. Matched before the group check so !rob on works while that's off.
+  // No "status": that's a valid Twitch name someone could be robbing.
+  const robToggle = chatMessage.trim().match(/^!rob\s+(on|off)$/i);
+  if (robToggle) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can turn robbing on or off.`, broadcasterId);
+    } else if (robToggle[1].toLowerCase() === "off") {
+      await setRobPause(broadcasterId, Date.now() + 15 * 60_000);
+      await sendChatMessage(`@${display} Robbing is off for the next 15 minutes. Purses are safe. (!rob on to end it early.)`, broadcasterId);
+    } else {
+      await setRobPause(broadcasterId, 0);
+      await setCommandGroupEnabled(broadcasterId, "rob", true);
+      const goldOff = !(await isPointsEnabled(broadcasterId));
+      await sendChatMessage(
+        `@${display} Robbing is back on — !rob @player to try your luck.${goldOff ? " (Gold is off, so !rob stays quiet until !gold on.)" : ""}`,
         broadcasterId,
       );
     }

@@ -40,6 +40,7 @@ import {
   getBalance,
   isPointsEnabled,
   robberWaitMs,
+  robPauseMs,
   stampRobbery,
   transferPoints,
   trySpend,
@@ -120,6 +121,13 @@ export async function handleRobCommand(
 
   // Coin off: silent no-op, same as !gold / !giveaway.
   if (!(await isPointsEnabled(broadcasterId))) return true;
+
+  // A mod's 15-minute "!rob off" (main.ts).
+  const paused = await robPauseMs(broadcasterId);
+  if (paused > 0) {
+    await sendChatMessage(`@${display} the town watch is out — robbing is off for another ${waitText(paused)}.`, broadcasterId);
+    return true;
+  }
 
   const robber = chatter.toLowerCase();
   const arg = (match[1] ?? "").trim();
