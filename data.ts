@@ -1,6 +1,7 @@
 // Static D&D 5e (2014) baseline data
 
 import type { Ability, ClassData, Race } from "./types.ts";
+import { TOA_MONSTERS } from "./toa_monsters.ts";
 
 export const races: Record<string, Race> = {
   Human: {
@@ -2226,6 +2227,8 @@ export const SOLO_MONSTERS: SoloMonster[] = [
     die: 8,
     bonus: 8,
   },
+  // Tomb of Annihilation (toa_monsters.ts)
+  ...TOA_MONSTERS,
 ];
 
 /**

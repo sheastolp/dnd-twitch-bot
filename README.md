@@ -118,6 +118,7 @@ Chat: `!guide` or `!link` posts that same URL.
 | **dashboard.ts** | `!dashboard [reset]` — mints/rotates the per-channel web dashboard link, and the GET/POST `/dashboard` route handlers |
 | **maps.ts** | `!map` — create/list/view/delete grid battle maps, paint/fill terrain, and place/move/remove character tokens |
 | **lookups.ts** | dnd5eapi + formatting + reference links |
+| **toa_monsters.ts** | Tomb of Annihilation monsters (83, CR 1/8–23, Acererak to Su-monsters) added to the core huntable table in `data.ts` — generated from the 5e.tools ToA bestiary with book AC/HP/to-hit and damage capped to the core table's range for each CR |
 | **fivetools.ts** | 5e.tools (2014) archive for lookups and the bestiary: downloads the site's data from its GitHub mirror (`FIVETOOLS_DATA_URL` overrides; 2014.5e.tools itself is behind a Cloudflare bot check), converts it to the dnd5eapi shape, caches it in memory for a day, links to 2014.5e.tools pages. Warmed at server start |
 | **twitch.ts** | Tokens, multi-part chat send |
 | **pages.ts** | Guild Codex HTML, logs, character sheet UI, battle map view/list pages, operator admin logs page, web dashboard page |
