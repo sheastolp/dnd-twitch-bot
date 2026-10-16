@@ -10,6 +10,7 @@ import {
   formatStatLine,
 } from "./utils.ts";
 import {
+  getBroadcaster,
   getCharacter,
   saveCharacter,
   getCreationSession,
@@ -129,12 +130,17 @@ export function xpForMonsterCr(cr: string): number {
 /**
  * Award XP for defeating a monster (never for PvP).
  * Optionally auto-levels when XP crosses 5e thresholds.
+ * Returns null (no XP) while the stream is offline (broadcasters.is_live,
+ * kept current by stream.online/offline EventSub) — same rule as canEarnGold
+ * in points_db.ts, so mods testing commands offline don't level up.
  */
 export async function awardMonsterXp(
   username: string,
   cr: string,
   broadcasterId: string,
 ): Promise<{ gained: number; total: number; leveledTo?: number } | null> {
+  const b = await getBroadcaster(broadcasterId);
+  if (!b || Number(b.is_live) !== 1) return null;
   const c = await getCharacter(username, broadcasterId);
   if (!c) return null;
   const gained = xpForMonsterCr(cr);
