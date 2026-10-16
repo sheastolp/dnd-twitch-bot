@@ -7,7 +7,7 @@
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
 import { INSTANCE, sqlite } from "./sqlite.ts";
-import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled, getCommandGroupToggles, listCustomCommandsFull, isMerchantEnabled } from "./db.ts";
+import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled, getCommandGroupToggles, listCustomCommandsFull, listCustomTriggers, listTimedMessages, isMerchantEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
 import { listNicknames } from "./mentions.ts";
@@ -116,15 +116,17 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     return page("GuildScribe Terms of Service", `<h1>GuildScribe Terms of Service</h1><p>GuildScribe is a free, fan-made Twitch utility for D&amp;D-style character and chat gameplay, offered as-is. It is not affiliated with Twitch, Wizards of the Coast, or any game publisher. Use it lawfully and respectfully, and follow Twitch's rules and the streamer/channel's rules.</p><p>Do not use the bot to harass, spam, abuse, evade moderation, or interfere with other users. Channel owners are responsible for deciding whether the bot is appropriate for their community, and for how they configure moderation tools such as auto-ban.</p><p>Coin, gear, characters and other in-game items have no real-world value and can't be exchanged for money. Some replies are written by AI and may be wrong or odd.</p><p>The service may be changed, limited, suspended, or removed at any time. Gameplay data and generated results are not guaranteed to be preserved.</p><p>Report abuse or ask for help: ${SUPPORT_CONTACT_HTML}.</p><p><a href="/">Return to GuildScribe</a> · <a href="/privacy">Privacy</a></p>`);
   }
   // Per-channel command list (the page !commands links to): that channel's
-  // custom commands plus the built-in features it has switched on. Same
+  // custom commands, triggers and timed messages plus the built-in features it has switched on. Same
   // trust model as /bestiary. Without ?channel= it is the Guild Codex.
   if (req.method === "GET" && path === "/commands" && url.searchParams.has("channel")) {
     const channelId = url.searchParams.get("channel");
     if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
     const broadcaster = await getBroadcaster(channelId);
     if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Command list unavailable for this channel.", { status: 404 });
-    const [commands, groups, points, market, hoard, npc] = await Promise.all([
+    const [commands, triggerRows, timedRows, groups, points, market, hoard, npc] = await Promise.all([
       listCustomCommandsFull(channelId),
+      listCustomTriggers(channelId),
+      listTimedMessages(channelId),
       getCommandGroupToggles(channelId),
       isPointsEnabled(channelId),
       isMerchantEnabled(channelId),
@@ -134,8 +136,16 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const customCommands = commands
       .filter((c: any) => Number(c.enabled ?? 1) === 1)
       .map((c: any) => ({ name: String(c.name), response: String(c.response ?? ""), uses: Number(c.uses ?? 0) }));
+    // Triggers only fire while the "triggers" switch is on; timed messages
+    // post regardless of their (command-only) "timedmsgs" switch.
+    const triggers = groups.triggers === false ? [] : triggerRows
+      .filter((t: any) => Number(t.enabled ?? 1) === 1)
+      .map((t: any) => ({ keyword: String(t.keyword), response: String(t.response ?? ""), uses: Number(t.uses ?? 0) }));
+    const timedMessages = timedRows
+      .filter((m: any) => Number(m.enabled ?? 1) === 1)
+      .map((m: any) => ({ message: String(m.message ?? ""), intervalMinutes: Number(m.interval_minutes ?? 0) }));
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
-    return new Response(renderChannelCommandsPage(channelName, { customCommands, groups, dedicated: { points, market, hoard, npc } }, PUBLIC_BASE_URL), {
+    return new Response(renderChannelCommandsPage(channelName, { customCommands, triggers, timedMessages, groups, dedicated: { points, market, hoard, npc } }, PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
