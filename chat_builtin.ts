@@ -7,6 +7,7 @@ import { recordDiceRollEvent, getDiceLeaderboard, getDiceStatsForUser, isChronic
 import { maybeChronicleQuote } from "./chronicle.ts";
 import { isNpcChatterActive, maybeNpcChatter } from "./npcs.ts";
 import { handleCustomCommandInvocation, handleTriggerMatch } from "./customcommands.ts";
+import { channelCommandsUrl } from "./commands_page.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
@@ -137,6 +138,11 @@ export async function handleBuiltinChatCommand(ctx: {
   } else if (chatMessage === "!link" || chatMessage === "!guide") {
     await sendChatMessage(
       `@${display} 📜 Guild Codex (full command guide): ${PUBLIC_BASE_URL}/guide`,
+      broadcasterId,
+    );
+  } else if (/^!commands$/i.test(chatMessage)) {
+    await sendChatMessage(
+      `@${display} 📜 Every command in this channel, custom ones included: ${channelCommandsUrl(PUBLIC_BASE_URL, broadcasterId)}`,
       broadcasterId,
     );
   } else if (/^!start(?:\s+\w+)?$/i.test(chatMessage)) {

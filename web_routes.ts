@@ -7,7 +7,7 @@
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
 import { INSTANCE, sqlite } from "./sqlite.ts";
-import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled } from "./db.ts";
+import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled, getCommandGroupToggles, listCustomCommandsFull, isMerchantEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
 import { isPointsEnabled, listChannelBalances } from "./points_db.ts";
 import { listNicknames } from "./mentions.ts";
@@ -15,6 +15,9 @@ import { getRaidRosterStatus, RAID_MIN_CR } from "./raid.ts";
 import { getAdaptations, getChannelRoster } from "./bestiary.ts";
 import { renderBestiaryPage } from "./bestiary_page.ts";
 import { renderGearPage } from "./gear_page.ts";
+import { renderChannelCommandsPage } from "./commands_page.ts";
+import { isHoardEnabled } from "./hoard_db.ts";
+import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
 import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
@@ -111,6 +114,30 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "GET" && (path === "/terms" || path === "/tos")) {
     return page("GuildScribe Terms of Service", `<h1>GuildScribe Terms of Service</h1><p>GuildScribe is a free, fan-made Twitch utility for D&amp;D-style character and chat gameplay, offered as-is. It is not affiliated with Twitch, Wizards of the Coast, or any game publisher. Use it lawfully and respectfully, and follow Twitch's rules and the streamer/channel's rules.</p><p>Do not use the bot to harass, spam, abuse, evade moderation, or interfere with other users. Channel owners are responsible for deciding whether the bot is appropriate for their community, and for how they configure moderation tools such as auto-ban.</p><p>Coin, gear, characters and other in-game items have no real-world value and can't be exchanged for money. Some replies are written by AI and may be wrong or odd.</p><p>The service may be changed, limited, suspended, or removed at any time. Gameplay data and generated results are not guaranteed to be preserved.</p><p>Report abuse or ask for help: ${SUPPORT_CONTACT_HTML}.</p><p><a href="/">Return to GuildScribe</a> · <a href="/privacy">Privacy</a></p>`);
+  }
+  // Per-channel command list (the page !commands links to): that channel's
+  // custom commands plus the built-in features it has switched on. Same
+  // trust model as /bestiary. Without ?channel= it is the Guild Codex.
+  if (req.method === "GET" && path === "/commands" && url.searchParams.has("channel")) {
+    const channelId = url.searchParams.get("channel");
+    if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster = await getBroadcaster(channelId);
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Command list unavailable for this channel.", { status: 404 });
+    const [commands, groups, points, market, hoard, npc] = await Promise.all([
+      listCustomCommandsFull(channelId),
+      getCommandGroupToggles(channelId),
+      isPointsEnabled(channelId),
+      isMerchantEnabled(channelId),
+      isHoardEnabled(channelId),
+      isNpcEnabled(channelId),
+    ]);
+    const customCommands = commands
+      .filter((c: any) => Number(c.enabled ?? 1) === 1)
+      .map((c: any) => ({ name: String(c.name), response: String(c.response ?? ""), uses: Number(c.uses ?? 0) }));
+    const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
+    return new Response(renderChannelCommandsPage(channelName, { customCommands, groups, dedicated: { points, market, hoard, npc } }, PUBLIC_BASE_URL), {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
   if (req.method === "GET" && (path === "/guide" || path === "/commands")) {
     return page(
@@ -455,11 +482,11 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     return await handleDashboardStart(PUBLIC_ORIGIN);
   }
   // Home page "Find a channel" form: Twitch channel name -> that channel's
-  // public roster, bestiary or gear list (all need the numeric broadcaster id).
+  // public roster, bestiary, gear list or command list (all need the numeric broadcaster id).
   if (req.method === "GET" && path === "/find") {
     const login = String(url.searchParams.get("channel") ?? "").trim().replace(/^@/, "").toLowerCase();
     const wanted = url.searchParams.get("page");
-    const target = wanted === "bestiary" || wanted === "gear" ? wanted : "roster";
+    const target = wanted === "bestiary" || wanted === "gear" || wanted === "commands" ? wanted : "roster";
     const back = `<p><a href="/">Return to the Guild Hall</a></p>`;
     if (!/^[a-z0-9_]{1,25}$/.test(login)) {
       return page("Channel not found", `<h1>Channel not found</h1><p>Enter a Twitch channel name, like <code>stonedsheamus</code>.</p>${back}`);
@@ -645,7 +672,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     if (!username && !channelId) {
       return page(
         "D&D Twitch Bot",
-        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn ember" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><h2>Visit a guild</h2><form action="/find" method="get" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><input name="channel" placeholder="Twitch channel name" aria-label="Twitch channel name" required autocomplete="off"><button type="submit" name="page" value="roster">Roster</button><button type="submit" name="page" value="bestiary">Bestiary</button><button type="submit" name="page" value="gear">Gear</button></form><p><a class="btn ghost" href="/dashboard/start">Mod Dashboard</a> <span class="muted" style="font-size:.92rem;opacity:.85">Log in with Twitch to manage a channel you own or moderate.</span></p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a> · <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""} · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>`,
+        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn ember" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><h2>Visit a guild</h2><form action="/find" method="get" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><input name="channel" placeholder="Twitch channel name" aria-label="Twitch channel name" required autocomplete="off"><button type="submit" name="page" value="roster">Roster</button><button type="submit" name="page" value="bestiary">Bestiary</button><button type="submit" name="page" value="gear">Gear</button><button type="submit" name="page" value="commands">Commands</button></form><p><a class="btn ghost" href="/dashboard/start">Mod Dashboard</a> <span class="muted" style="font-size:.92rem;opacity:.85">Log in with Twitch to manage a channel you own or moderate.</span></p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a> · <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""} · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>`,
       );
     }
     if (!username) return new Response("Missing character user.", { status: 400 });
