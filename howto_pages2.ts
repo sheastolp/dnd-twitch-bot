@@ -119,7 +119,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
     summary: "Fine swearing into a jar, ban fake-viewer spam automatically, and give viewers short battle-log names.",
     steps: [
       `The <strong>swear jar</strong> is automatic: each swear word costs the chatter 2 cp, announced in chat. <code>!jar</code> shows the total; <code>!fine</code> fines the streamer.`,
-      `Mods can fine a viewer with <code>!jar +5sp @user</code>, take coin out with <code>!jar -1gp</code>, and once a week hand the whole jar to a random recent chatter with <code>!jar giveaway</code>.`,
+      `Mods can fine a viewer with <code>!jar +5sp @user</code>, take coin out with <code>!jar -1gp</code>, and once a week hand the whole jar to a random recent chatter with <code>!jar giveaway</code> (or to someone they pick with <code>!jar giveaway @user</code>).`,
       `The jar learns your channel's own swears. Review them with <code>!jar words</code> and veto one with <code>!jar forget &lt;word&gt;</code>.`,
       `Turn on <code>!autoban on</code> to permanently ban anyone (not mods) who posts "ai viewers" spam. It's off by default and needs the broadcaster to have <a href="/connect">reconnected</a> once.`,
       `Every viewer gets a fantasy nickname the first time they chat, used in all of the bot's replies. Anyone can pick their own with <code>!nick Fel</code>; mods can set someone else's with <code>!nick @felivore Fel</code>. <code>!nick list</code> shows them all.`,

@@ -12,6 +12,7 @@
 //   !jar -<amount>       take from the jar by hand (mod only)   e.g. !jar -8
 //   !jar giveaway        give the WHOLE jar to a random recent chatter (mod
 //                        only, at most once every 7 days per channel)
+//   !jar giveaway @user  same, but the mod picks the winner (shares the cooldown)
 //   !fine                fine the streamer one swear word (anyone)
 //
 // !jar and !fine deliberately have NO cooldown (main.ts exempts them from the
@@ -165,6 +166,10 @@ async function pickGiveawayWinner(broadcasterId: string, excludeLogin: string): 
   if (!res.rows.length) return null;
   const row: any = res.rows[Math.floor(Math.random() * res.rows.length)];
   return { username: String(row.username), displayName: String(row.display_name || row.username) };
+}
+
+function botLogin(): string {
+  return (Deno.env.get("TWITCH_BOT_LOGIN") ?? "guildscribebot").trim().replace(/^@/, "").toLowerCase();
 }
 
 function formatWait(ms: number): string {
@@ -417,6 +422,12 @@ const GIVEAWAY_LINES: Array<(winner: string, amount: string, by: string) => stri
   (w, a, by) => `🎉 Fortune smiles on @${w}: the jar's entire ${a} is theirs!`,
 ];
 
+const TARGETED_GIVEAWAY_LINES: Array<(winner: string, amount: string, by: string) => string> = [
+  (w, a, by) => `🎉 @${by} hands the swear jar to @${w} — all ${a} of it!`,
+  (w, a, by) => `🎉 By @${by}'s decree, the swear jar's whole ${a} goes to @${w}!`,
+  (w, a, by) => `🎉 @${by} pours the swear jar into @${w}'s purse: ${a}!`,
+];
+
 const PAID_LINES: Array<(name: string, paid: string, jar: string) => string> = [
   (n, p, j) => `🫙 @${n} had to pay the swear jar ${p}! The jar now holds ${j}.`,
   (n, p, j) => `🫙 Foul tongue detected! @${n} drops ${p} into the swear jar (jar: ${j}).`,
@@ -482,7 +493,8 @@ export async function handleJarCommand(
 
   if (m[1].toLowerCase() === "fine") return await handleFine(display, broadcasterId);
 
-  if (/^giveaway$/i.test(args)) return await handleGiveaway(display, broadcasterId, isModerator);
+  const give = args.match(/^giveaway(?:\s+@?([a-z0-9_]{1,25}))?$/i);
+  if (give) return await handleGiveaway(display, broadcasterId, isModerator, give[1]?.toLowerCase());
   if (/^words$/i.test(args)) return await handleWords(display, broadcasterId, isModerator);
   const forget = args.match(/^forget\s+(\S+)$/i);
   if (forget) return await handleForget(forget[1], display, broadcasterId, isModerator);
@@ -516,7 +528,7 @@ export async function handleJarCommand(
   }
   if (!adj || amount === null || amount <= 0) {
     await sendChatMessage(
-      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway (mod only) | !jar words / !jar forget <word> (mod: learned words) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
+      `@${display} Usage: !jar (see the total) | !jar +8 (add 8 cp) | !jar +8 @user (mod: fine them 8 cp) | !jar -8 (mod only) | !jar giveaway [@user] (mod only) | !jar words / !jar forget <word> (mod: learned words) | !fine (fine the streamer). Units work too: 5sp, 1gp.`,
       broadcasterId,
     );
     return true;
@@ -589,14 +601,28 @@ async function handleFine(display: string, broadcasterId: string): Promise<boole
 // ── !jar giveaway ──
 
 /** Mod/broadcaster only: pays the whole jar out to a random recent chatter's
- * gold and empties the jar. At most once per GIVEAWAY_COOLDOWN_MS (7 days)
- * per channel; an empty jar or an empty pool doesn't use up the week. */
-async function handleGiveaway(display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
+ * gold (or to `target`, when the mod names one) and empties the jar. At most
+ * once per GIVEAWAY_COOLDOWN_MS (7 days) per channel, shared by both forms; an
+ * empty jar or an empty pool doesn't use up the week. */
+async function handleGiveaway(
+  display: string,
+  broadcasterId: string,
+  isModerator: boolean,
+  target?: string,
+): Promise<boolean> {
   if (!isModerator) {
     await sendChatMessage(`@${display} only the broadcaster or a moderator can give away the swear jar.`, broadcasterId);
     return true;
   }
   if (!(await isPointsEnabled(broadcasterId))) return true;
+  if (target && target === display.toLowerCase()) {
+    await sendChatMessage(`🫙 @${display} You can't give the swear jar to yourself.`, broadcasterId);
+    return true;
+  }
+  if (target && target === botLogin()) {
+    await sendChatMessage(`🫙 @${display} GuildScribe keeps no purse — pick a chatter to give the jar to.`, broadcasterId);
+    return true;
+  }
 
   const now = Date.now();
   const wait = (await getLastGiveawayAt(broadcasterId)) + GIVEAWAY_COOLDOWN_MS - now;
@@ -609,8 +635,14 @@ async function handleGiveaway(display: string, broadcasterId: string, isModerato
     return true;
   }
 
-  const row = await getBroadcaster(broadcasterId);
-  const winner = await pickGiveawayWinner(broadcasterId, String(row?.login ?? ""));
+  let winner: { username: string; displayName: string } | null;
+  if (target) {
+    const bal = await getBalance(broadcasterId, target);
+    winner = { username: target, displayName: bal?.displayName || target };
+  } else {
+    const row = await getBroadcaster(broadcasterId);
+    winner = await pickGiveawayWinner(broadcasterId, String(row?.login ?? ""));
+  }
   if (!winner) {
     await sendChatMessage(`🫙 @${display} No one has chatted recently enough to win — try again once chat has been active.`, broadcasterId);
     return true;
@@ -630,7 +662,7 @@ async function handleGiveaway(display: string, broadcasterId: string, isModerato
   await adjustJar(broadcasterId, -amount);
   await adjustBalance(broadcasterId, winner.username, winner.displayName, amount);
   await sqlite.execute("UPDATE swear_jar_giveaways SET amount = ? WHERE broadcaster_id = ?", [amount, broadcasterId]);
-  await sendChatMessage(pick(GIVEAWAY_LINES)(winner.displayName, formatCoins(amount), display), broadcasterId);
+  await sendChatMessage(pick(target ? TARGETED_GIVEAWAY_LINES : GIVEAWAY_LINES)(winner.displayName, formatCoins(amount), display), broadcasterId);
   return true;
 }
 

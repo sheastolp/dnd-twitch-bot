@@ -111,7 +111,7 @@ ${blocked.length
 <h2>Built-in words</h2>
 <p class="muted">Charged in every channel, with these optional prefixes (${escapeHtml(BUILTIN_SWEARS.prefixes.join(", "))}) and endings (${escapeHtml(BUILTIN_SWEARS.suffixes.map((s) => "-" + s).join(", "))}), and common letter swaps like <code>sh1t</code> or <code>$hit</code>. These can only be changed in the bot's code.</p>
 <div class="chips" id="builtin">${builtin}</div>
-<div class="card"><p class="muted small" style="margin:0">Chat: <code>!jar</code> · <code>!jar words</code> · <code>!jar forget &lt;word&gt;</code> (mods) · <code>!jar giveaway</code> (mods) · <code>!fine</code></p></div>
+<div class="card"><p class="muted small" style="margin:0">Chat: <code>!jar</code> · <code>!jar words</code> · <code>!jar forget &lt;word&gt;</code> (mods) · <code>!jar giveaway [@user]</code> (mods) · <code>!fine</code></p></div>
 <script>(function(){var q=document.getElementById("q"),items=[].slice.call(document.querySelectorAll("table.filter tbody tr, #builtin .chip"));q.addEventListener("input",function(){var t=q.value.trim().toLowerCase();items.forEach(function(r){r.hidden=!!t&&r.getAttribute("data-search").indexOf(t)===-1})})})();</script>`;
 
   return scrollDoc(`${name} — Swear jar`, body, {
