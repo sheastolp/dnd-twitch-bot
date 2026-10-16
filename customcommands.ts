@@ -235,7 +235,7 @@ export const RESERVED_NAMES = new Set([
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "start", "link", "guide",
   "cmd", "trigger", "command", "commands", "hug", "map", "roster", "mod", "admin", "bot",
-  "timedmsg", "timedmessage", "timer", "dashboard", "autoban", "whispertest", "gold", "goldboard", "giveaway", "rob",
+  "timedmsg", "timedmessage", "timer", "dashboard", "autoban", "whispertest", "gold", "goldboard", "treasury", "giveaway", "rob",
   "stall", "autohunt", "autohuntstatus", "autohuntstop", "huntcooldown", "huntcd", "watchtime", "followage", "nick",
   "var", "vars", "variable", "checklist", "save",
 ]);

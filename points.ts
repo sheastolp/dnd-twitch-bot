@@ -17,6 +17,7 @@
 //   !gold                          your balance and rank
 //   !gold @user                    someone else's balance
 //   !gold top [N]  /  !goldboard   richest adventurers (default 5, max 10)
+//   !gold list  /  !treasury       link to the /gold page of every purse
 //   !gold today [@user]            your (or someone's) gold gained or lost today
 //   !gold today all                everyone's gain or loss today, plus the net
 //   !gold give @user <amount>      gift some of your coin (e.g. 5sp)
@@ -55,6 +56,7 @@ import {
   trySpend,
 } from "./points_db.ts";
 import { optNum } from "./channel_options.ts";
+import { PUBLIC_BASE_URL } from "./config.ts";
 import { settleDueAutohunts } from "./autohunt.ts";
 
 /** Copper earned per qualifying chat message. */
@@ -135,7 +137,7 @@ export async function maybeAwardChatPoints(
 
 // ── Command router ──
 
-/** Handles !gold, !goldboard and !giveaway. Returns true if it consumed the
+/** Handles !gold, !goldboard, !treasury and !giveaway. Returns true if it consumed the
  * message. The on/off/status subcommands work even while the system is off
  * (so a mod can turn it on); everything else is a silent no-op when off. */
 export async function handlePointsCommand(
@@ -146,6 +148,10 @@ export async function handlePointsCommand(
   isModerator: boolean,
 ): Promise<boolean> {
   const text = chatMessage.trim();
+  if (/^!treasury$/i.test(text)) {
+    if (await isPointsEnabled(broadcasterId)) await sendTreasuryLink(display, broadcasterId);
+    return true;
+  }
   const goldMatch = text.match(/^!(gold|goldboard)(?:\s+(.*))?$/i);
   const giveawayMatch = text.match(/^!giveaway(?:\s+(.*))?$/i);
   if (!goldMatch && !giveawayMatch) return false;
@@ -272,6 +278,12 @@ async function showDailyGold(rawTarget: string, chatter: string, display: string
   return true;
 }
 
+/** !treasury / !gold list — link to the /gold page of every purse. */
+async function sendTreasuryLink(display: string, broadcasterId: string): Promise<boolean> {
+  await sendChatMessage(`@${display} 💰 The guild treasury — every adventurer's gold, richest first: ${PUBLIC_BASE_URL}/gold?channel=${broadcasterId}`, broadcasterId);
+  return true;
+}
+
 async function handleGold(
   args: string,
   chatter: string,
@@ -281,6 +293,9 @@ async function handleGold(
 ): Promise<boolean> {
   // !gold  — own balance
   if (!args) return await showBalance(chatter, display, broadcasterId, true);
+
+  // !gold list — link to the /gold web page of every purse
+  if (/^(?:list|all|page)$/i.test(args)) return await sendTreasuryLink(display, broadcasterId);
 
   // !gold top [N]
   const top = args.match(/^top(?:\s+(.*))?$/i);

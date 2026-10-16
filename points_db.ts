@@ -529,3 +529,18 @@ export async function purgePointsData(broadcasterId: string) {
     await sqlite.execute(`DELETE FROM ${table} WHERE broadcaster_id = ?`, [broadcasterId]);
   }
 }
+
+/** Every purse in a channel, richest first (for the /gold page). */
+export async function listChannelPurses(
+  broadcasterId: string,
+): Promise<{ username: string; displayName: string; balance: number }[]> {
+  const res = await sqlite.execute(
+    "SELECT username, display_name, balance FROM points_balances WHERE broadcaster_id = ? AND balance > 0 ORDER BY balance DESC, username ASC",
+    [broadcasterId],
+  );
+  return (res.rows as any[]).map((r) => ({
+    username: String(r.username).toLowerCase(),
+    displayName: String(r.display_name || r.username),
+    balance: Number(r.balance ?? 0),
+  }));
+}

@@ -113,7 +113,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   chatgold: { section: "Gold, leaderboard & giveaways", label: "Earning gold (copper for chatting)", commands: [] },
   goldcheck: { section: "Gold, leaderboard & giveaways", label: "Your purse (!gold, !gold @user)", commands: [] },
   goldgive: { section: "Gold, leaderboard & giveaways", label: "Gifting (!gold give)", commands: [] },
-  leaderboard: { section: "Gold, leaderboard & giveaways", label: "Leaderboard (!gold top, !goldboard)", commands: ["goldboard"] },
+  leaderboard: { section: "Gold, leaderboard & giveaways", label: "Leaderboard (!gold top, !goldboard, !treasury)", commands: ["goldboard", "treasury"] },
   giveaways: { section: "Gold, leaderboard & giveaways", label: "Giveaways (!giveaway)", commands: ["giveaway"] },
   rob: { section: "Gold, leaderboard & giveaways", label: "Robbing (!rob)", commands: ["rob"], parent: "combat" },
   bribe: { section: "Gold, leaderboard & giveaways", label: "Bribing (!bribe — always fails, costs most of your purse)", commands: ["bribe"] },
