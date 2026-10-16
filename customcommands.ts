@@ -59,11 +59,15 @@
 //                     that provider's set for this channel (public,
 //                     unauthenticated provider APIs)
 //
+// Every placeholder can also be written $(…) — $(user), $(random a|b),
+// $(count snacks) to count up a named counter, etc. See dollar_syntax.ts.
+//
 // Every placeholder that needs a network or DB call is only resolved when it
 // actually appears in the response text, so a plain response with none of
 // them costs nothing extra.
 
 import { pick, compactText } from "./utils.ts";
+import { convertDollarSyntax } from "./dollar_syntax.ts";
 import { sendChatMessage, sendChatMessages, getAppToken, getChannelInfo, getStreamUptime, env } from "./twitch.ts";
 import {
   addCustomCommand,
@@ -261,7 +265,8 @@ async function applyTemplate(
     count?: number;
   },
 ): Promise<string> {
-  let out = response.includes("{var:") ? await resolveVariables(response, vars.broadcasterId, vars.user) : response;
+  let out = convertDollarSyntax(response);
+  if (out.includes("{var:")) out = await resolveVariables(out, vars.broadcasterId, vars.user);
 
   let randomBlocks = 0;
   out = out.replace(new RegExp(`\\{random:([^{}]{1,${MAX_RANDOM_OPTIONS_LEN}})\\}`, "gi"), (_match, options: string) => {
@@ -600,7 +605,7 @@ async function handleVarSubcommand(
   const action = (parts[1] ?? "").toLowerCase();
   const usage =
     `@${display} Variables: !var set <name> <value> | !var add <name> <n> | !var remove <name> | !var get <name> | !var list — ` +
-    `use {var:name} in a command/trigger response ({var:name+1} to count up). set/add/remove are mod-only`;
+    `use {var:name} or $(getcount name) in a command/trigger response ($(count name) to count up). set/add/remove are mod-only`;
 
   if (action === "list" || action === "") {
     const rows = await listCustomVariables(broadcasterId);

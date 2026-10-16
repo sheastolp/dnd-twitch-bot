@@ -86,6 +86,8 @@ export function translateSeReply(reply: string): { text: string; notes: string[]
         if (v.includes("|")) notes.push(`\${${v}}'s fallback isn't carried over`);
         return `{${m[1]}}`;
       }
+      m = v.match(/^(count|getcount)\s+([a-z0-9_]{1,25})$/i);
+      if (m) return m[1].toLowerCase() === "count" ? `{var:${m[2].toLowerCase()}+1}` : `{var:${m[2].toLowerCase()}}`;
       m = v.match(/^random\.(-?\d+)-(-?\d+)$/i);
       if (m) return `{randnum:${m[1]}-${m[2]}}`;
       m = v.match(/^random\.pick\s+(.+)$/i);

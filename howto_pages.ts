@@ -104,7 +104,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
       `Prefer forms? Do all of this on the <a href="/howto/dashboard">web dashboard</a>.`,
     ],
     tips: [
-      `Handy placeholders: <code>{user}</code>, <code>{target}</code> (first @mention), <code>{args}</code>, <code>{count}</code>, <code>{random:a|b|c}</code>, <code>{randnum:1-100}</code>, <code>{d20}</code>, <code>{math:(3+4)*2}</code>, <code>{game}</code>, <code>{title}</code>, <code>{uptime}</code>.`,
+      `Handy placeholders: <code>{user}</code>, <code>{target}</code> (first @mention), <code>{args}</code>, <code>{count}</code>, <code>{random:a|b|c}</code>, <code>{randnum:1-100}</code>, <code>{d20}</code>, <code>{math:(3+4)*2}</code>, <code>{game}</code>, <code>{title}</code>, <code>{uptime}</code>. Count things with <code>$(count snacks)</code> (adds one and shows the total) — and any placeholder can be written <code>$(user)</code> style too.`,
       `Custom names can't reuse a built-in command word.`,
     ],
     codex: "custom",
