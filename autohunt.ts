@@ -268,12 +268,13 @@ export async function settleAutohunt(
   }
 
   const left = formatDuration(session.ends_at - now);
-  const head = `🏹 autohunt report — ${wins + losses} bout${wins + losses === 1 ? "" : "s"} (${wins}W/${losses}L)${
+  // The count and W/L cover the whole trip so far, not just this settle.
+  const head = `🏹 autohunt report — ${fresh.bouts} bout${fresh.bouts === 1 ? "" : "s"} (${tally(fresh)})${
     rests ? `, ${rests} rest${rests === 1 ? "" : "s"}` : ""
   }`;
   const tail = `${gains}${levelNote} | ${left} left.`;
   return {
-    text: `${tag}${name} ${head} | ${tail} Trip so far (${tally(fresh)}): ${all}.`,
+    text: `${tag}${name} ${head} | ${tail} Trip so far: ${all}.`,
     summary: `${lead}${head}: ${shown} | ${tail}`,
     hunter: { name, wins: fresh.wins, losses: fresh.losses, done: false },
   };
