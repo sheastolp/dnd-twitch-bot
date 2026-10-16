@@ -9,6 +9,7 @@ export interface AutohuntSession {
   broadcaster_id: string;
   username: string;
   display_name: string;
+  user_id: string; // Twitch user ID, for whispered reports ('' for sessions started before it was stored)
   started_at: number;
   ends_at: number;
   next_at: number; // when the next bout is due
@@ -30,7 +31,7 @@ export async function ensureAutohuntTables() {
       bouts INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
       total_xp INTEGER NOT NULL DEFAULT 0, total_copper INTEGER NOT NULL DEFAULT 0,
       levels_gained INTEGER NOT NULL DEFAULT 0, reports_sent INTEGER NOT NULL DEFAULT 0,
-      log TEXT NOT NULL DEFAULT '',
+      log TEXT NOT NULL DEFAULT '', user_id TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (broadcaster_id, username)
     )`,
   );
@@ -46,6 +47,12 @@ export async function ensureAutohuntTables() {
   } catch (_) {
     /* column already exists */
   }
+  // Tables created before whispered reports existed.
+  try {
+    await sqlite.execute(`ALTER TABLE autohunt_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`);
+  } catch (_) {
+    /* column already exists */
+  }
 }
 
 function rowToSession(r: any): AutohuntSession {
@@ -53,6 +60,7 @@ function rowToSession(r: any): AutohuntSession {
     broadcaster_id: String(r.broadcaster_id),
     username: String(r.username),
     display_name: String(r.display_name),
+    user_id: String(r.user_id ?? ""),
     started_at: Number(r.started_at),
     ends_at: Number(r.ends_at),
     next_at: Number(r.next_at),
@@ -95,11 +103,11 @@ export async function listAutohuntSessions(broadcasterId: string): Promise<Autoh
 export async function createAutohuntSession(s: AutohuntSession) {
   await sqlite.execute(
     `INSERT OR REPLACE INTO autohunt_sessions
-      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained, reports_sent, log)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins, losses, total_xp, total_copper, levels_gained, reports_sent, log, user_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       s.broadcaster_id, s.username.toLowerCase(), s.display_name, s.started_at, s.ends_at, s.next_at,
-      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained, s.reports_sent, s.log,
+      s.bouts, s.wins, s.losses, s.total_xp, s.total_copper, s.levels_gained, s.reports_sent, s.log, s.user_id,
     ],
   );
 }

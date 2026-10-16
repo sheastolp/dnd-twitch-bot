@@ -36,6 +36,8 @@ export type OptionDef = {
   unit?: "s" | "m";
   /** Number kinds: whole numbers only. */
   int?: boolean;
+  /** Word kinds: the only words accepted (otherwise any 2–20 letters or numbers). */
+  choices?: string[];
   /** Values offered in the input's suggestion list, as the streamer would type them. */
   suggest: string[];
   /** Kept in another module's table instead of channel_options. */
@@ -65,6 +67,8 @@ export const OPTIONS: OptionDef[] = [
     def: env("HUNT_LOOT_MULTIPLIER", 1, 0, 100), min: 0, max: 100, suggest: ["0", "0.5", "1", "2", "3"] },
   { key: "autohunt.max", bundle: "fighting", label: "Heroes out on !autohunt at once", kind: "number", int: true,
     def: env("AUTOHUNT_MAX_ACTIVE", 10, 1, 50), min: 1, max: 50, suggest: ["5", "10", "20"] },
+  { key: "autohunt.reports", bundle: "fighting", label: "Autohunt progress reports", help: "whisper = sent privately to each hunter; chat = posted in chat.", kind: "word",
+    def: "whisper", choices: ["whisper", "chat"], suggest: ["whisper", "chat"] },
   // Raid boss
   { key: "raid.cooldown", bundle: "raid", label: "Time between raids", help: "Same as !rally cooldown in chat.", kind: "duration", unit: "m",
     def: env("RAID_COOLDOWN_SECONDS", 600, 0, 7200), min: 0, max: 7200, suggest: ["off", "5m", "10m", "20m", "30m"], table: "raid_settings" },
@@ -216,6 +220,7 @@ export function parseOptionInput(o: OptionDef, raw: string): { ok: true; value: 
   if (!t || t === "default") return { ok: true, value: null };
   if (o.kind === "word") {
     const w = t.replace(/^!/, "");
+    if (o.choices) return o.choices.includes(w) ? { ok: true, value: w } : { ok: false, error: `${o.label}: choose ${o.choices.join(" or ")}.` };
     return /^[a-z0-9]{2,20}$/.test(w) ? { ok: true, value: w } : { ok: false, error: `${o.label}: one word, 2–20 letters or numbers (like "${o.def}").` };
   }
   let n: number;
