@@ -37,7 +37,7 @@
 import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
-import { env, getAppToken, sendChatMessage } from "./twitch.ts";
+import { env, getAppToken, getUserIdByLogin, sendChatMessage } from "./twitch.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { isBotAccount, pick } from "./utils.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
@@ -358,15 +358,6 @@ const formatSince = (d: Date) => d.toLocaleDateString("en-US", { timeZone: "UTC"
 
 // ── Helix ──
 
-async function lookupUserId(login: string): Promise<string | null> {
-  const res = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, {
-    headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data?.data?.[0]?.id ? String(data.data[0].id) : null;
-}
-
 type FollowResult =
   | { kind: "following"; followedAt: Date }
   | { kind: "not_following" }
@@ -436,7 +427,7 @@ export async function handleWatchtimeCommand(
     }
 
     // !followage
-    const targetId = isSelf ? chatterId : await lookupUserId(targetLogin);
+    const targetId = isSelf ? chatterId : await getUserIdByLogin(targetLogin);
     if (!targetId) {
       await sendChatMessage(`@${display} the scribes can't find a Twitch user named ${rawTarget}.`, broadcasterId);
       return true;

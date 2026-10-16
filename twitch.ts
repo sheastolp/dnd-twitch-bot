@@ -258,6 +258,16 @@ export async function sendSpellSections(sections: string[], display: string, bro
   }
 }
 
+/** A Twitch user's id from their login, via Helix Get Users (app token). */
+export async function getUserIdByLogin(login: string): Promise<string | null> {
+  const res = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, {
+    headers: { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") },
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.data?.[0]?.id ? String(data.data[0].id) : null;
+}
+
 export type BanResult = { ok: true } | { ok: false; status: number; message: string };
 
 /** Bans a user via Helix Ban User — permanently, or as a timeout when
