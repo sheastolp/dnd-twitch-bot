@@ -664,7 +664,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handlePointsCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
-  if (await handleJarCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+  if (await handleJarCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleBribeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleSilenceCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");

@@ -483,6 +483,7 @@ export async function maybeChargeSwearJar(
 /** Handles !jar. Returns true if it consumed the message. */
 export async function handleJarCommand(
   chatMessage: string,
+  chatter: string,
   display: string,
   broadcasterId: string,
   isModerator: boolean,
@@ -494,7 +495,7 @@ export async function handleJarCommand(
   if (m[1].toLowerCase() === "fine") return await handleFine(display, broadcasterId);
 
   const give = args.match(/^giveaway(?:\s+@?([a-z0-9_]{1,25}))?$/i);
-  if (give) return await handleGiveaway(display, broadcasterId, isModerator, give[1]?.toLowerCase());
+  if (give) return await handleGiveaway(chatter, display, broadcasterId, isModerator, give[1]?.toLowerCase());
   if (/^words$/i.test(args)) return await handleWords(display, broadcasterId, isModerator);
   const forget = args.match(/^forget\s+(\S+)$/i);
   if (forget) return await handleForget(forget[1], display, broadcasterId, isModerator);
@@ -605,6 +606,7 @@ async function handleFine(display: string, broadcasterId: string): Promise<boole
  * once per GIVEAWAY_COOLDOWN_MS (7 days) per channel, shared by both forms; an
  * empty jar or an empty pool doesn't use up the week. */
 async function handleGiveaway(
+  chatter: string,
   display: string,
   broadcasterId: string,
   isModerator: boolean,
@@ -615,7 +617,7 @@ async function handleGiveaway(
     return true;
   }
   if (!(await isPointsEnabled(broadcasterId))) return true;
-  if (target && target === display.toLowerCase()) {
+  if (target && target === chatter.toLowerCase()) {
     await sendChatMessage(`🫙 @${display} You can't give the swear jar to yourself.`, broadcasterId);
     return true;
   }
