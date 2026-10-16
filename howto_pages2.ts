@@ -122,7 +122,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
       `Mods can fine a viewer with <code>!jar +5sp @user</code>, take coin out with <code>!jar -1gp</code>, and once a week hand the whole jar to a random recent chatter with <code>!jar giveaway</code>.`,
       `The jar learns your channel's own swears. Review them with <code>!jar words</code> and veto one with <code>!jar forget &lt;word&gt;</code>.`,
       `Turn on <code>!autoban on</code> to permanently ban anyone (not mods) who posts "ai viewers" spam. It's off by default and needs the broadcaster to have <a href="/connect">reconnected</a> once.`,
-      `Every viewer gets a fantasy nickname the first time they chat, used in all of the bot's replies. Pick a different one: <code>!nick @felivore Fel</code>. <code>!nick list</code> shows them all.`,
+      `Every viewer gets a fantasy nickname the first time they chat, used in all of the bot's replies. Anyone can pick their own with <code>!nick Fel</code>; mods can set someone else's with <code>!nick @felivore Fel</code>. <code>!nick list</code> shows them all.`,
     ],
     tips: [
       `Put the jar total on stream with the <code>jar</code> overlay.`,
