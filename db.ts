@@ -397,7 +397,7 @@ export async function getCommandGroupToggles(broadcasterId: string): Promise<Rec
   const out: Record<string, boolean> = {};
   for (const [group, def] of Object.entries(COMMAND_GROUPS)) {
     // Never switched since the split? Inherit the older group it came from.
-    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? true;
+    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? !def.defaultOff;
   }
   return out;
 }
@@ -413,7 +413,7 @@ export async function isCommandGroupEnabled(broadcasterId: string, group: string
   );
   const row = res.rows.find((r: any) => String(r.group_name) === group) ??
     res.rows.find((r: any) => String(r.group_name) === parent);
-  return !row || Number(row.enabled) === 1;
+  return row ? Number(row.enabled) === 1 : !COMMAND_GROUPS[group]?.defaultOff;
 }
 
 export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {

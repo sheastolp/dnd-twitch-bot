@@ -14,6 +14,7 @@
 //   GET /overlay/idle?channel=<id|login>             its list of the channel's heroes (class, level)
 //   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
+//   GET /overlay?channel=<id|login>&panel=reader     Chat Reader: reads chat aloud on the streamer's own device (chat_reader.ts)
 //
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
@@ -38,6 +39,7 @@ import { getDelveOptions, getIdleHeroes, renderIdlePage } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
+import { renderChatReaderOff, renderChatReaderPage } from "./chat_reader.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
@@ -451,6 +453,14 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: nothing can be recognized as GuildScribe, so nothing plays */ }
     return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1"));
+  }
+  if (panel === "reader") {
+    if (!(await isCommandGroupEnabled(channel.id, "chatreader"))) return html(renderChatReaderOff());
+    const live = await liveChannelName(channel);
+    let botId = "";
+    try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: GuildScribe is skipped by login only if it's in the channel's bot list */ }
+    const channelBots = await getChannelBotLogins(channel.id).catch(() => new Set<string>());
+    return html(renderChatReaderPage(channelKey, live.login, live.name, botId, channelBots));
   }
   if (panel === "idle") {
     const live = await liveChannelName(channel);

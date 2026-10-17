@@ -61,7 +61,7 @@ function dashHidden(broadcasterId: string, key: string): string {
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
 export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "hoard", "pokeball"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "quotes"]);
+const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "chatreader", "quotes"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;

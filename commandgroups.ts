@@ -59,6 +59,8 @@ export interface CommandGroup {
   section: string;
   commands: string[];
   parent?: string;
+  /** Off until a steward switches it on (every other group starts on). */
+  defaultOff?: boolean;
 }
 
 export const COMMAND_GROUPS: Record<string, CommandGroup> = {
@@ -151,6 +153,10 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // command still works (same as Hunt and Hoard above).
   delve: { section: "Stream overlays", label: "The Endless Delve (idle game overlay, on its own or in the theme; !delve)", commands: ["delve"] },
   soundbytes: { section: "Stream overlays", label: "Sound Bytes (!sound — tavern sound effects on stream)", commands: [] },
+  // Chat Reader (chat_reader.ts): reads chat aloud to the streamer on their
+  // phone/PC, for console streams. Off by default; !chatreader (mods) posts
+  // the link and says when it's off, so it isn't listed under `commands`.
+  chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [], defaultOff: true },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },

@@ -74,6 +74,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["soundbytes"],
   },
   {
+    key: "chatreader", icon: "🗣️", name: "Chat Reader",
+    what: "Reads your chat out loud to you — handy when streaming straight from a console with no second screen. Skips bots and !commands, drops messages mods delete, and never goes out on stream.",
+    yourPart: "Type !chatreader in chat (or open it from !overlays), open the link on your phone or PC near you and tap Start. Pick the voice and speed under Settings.",
+    switches: ["chatreader"],
+  },
+  {
     key: "hoard", icon: "💰", name: "Hunt and Hoard",
     what: "A deeper hunting game: wounds carry between fights, a shared bounty board, and a potion shop — !hunt, !bounties, !shop.",
     yourPart: "Nothing.",

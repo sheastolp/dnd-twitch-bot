@@ -506,6 +506,15 @@ export async function handleBuiltinChatCommand(ctx: {
         : `@${display} only the broadcaster or a moderator can use !overlays.`,
       broadcasterId,
     );
+  } else if (/^!chatreader$/i.test(chatMessage)) {
+    await sendChatMessage(
+      !isModerator
+        ? `@${display} only the broadcaster or a moderator can use !chatreader.`
+        : !(await isCommandGroupEnabled(broadcasterId, "chatreader"))
+        ? `@${display} 🗣️ Chat Reader is off — turn it on under Stream overlays on the dashboard (!dashboard), then try again.`
+        : `@${display} 🗣️ Chat Reader — open this on your phone or PC and tap Start to hear chat read aloud: ${baseUrl}/overlay?channel=${broadcasterId}&panel=reader`,
+      broadcasterId,
+    );
   } else if (/^!delve$/i.test(chatMessage)) {
     await sendChatMessage(delveHelpText(display, await getDelveOptions(broadcasterId)), broadcasterId);
   } else if (chatMessage.startsWith("!hp ")) {
