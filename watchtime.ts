@@ -24,7 +24,16 @@
 //     (gaps over WATCHTIME_SESSION_GAP_MINUTES, default 15, aren't counted).
 //     Both paths advance the same last_seen_at, so nothing is counted twice.
 //   - Bots (isBotAccount) are never counted. Nothing counts while offline.
-//   - Totals start from the day this shipped; there is no history to backfill.
+//   - HISTORY. GuildScribe's own clock only starts when it joins a channel, so
+//     !watchtime also reads the viewer's StreamElements watch time (public
+//     API, no token: /kappa/v2/points/{channel}/{user}) — the same number SE's
+//     !watchtime shows, going back to whenever SE joined. The first time a
+//     viewer's SE total is read it's snapshotted next to their GuildScribe
+//     total (watchtime_se_baseline). The reply is then
+//       max(SE now, SE snapshot + GuildScribe time since the snapshot)
+//     so a channel still running both bots isn't double-counted, and one that
+//     dropped SE keeps its history and keeps growing on GuildScribe's clock.
+//     Channels with no StreamElements account just get GuildScribe's total.
 //
 // FOLLOW AGE. Twitch's Get Channel Followers endpoint needs a *user* token
 // with moderator:read:followers for the broadcaster or one of their mods. The
@@ -38,7 +47,7 @@ import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { env, getAppToken, getUserIdByLogin, sendChatMessage } from "./twitch.ts";
-import { recordMonitorEvent } from "./db.ts";
+import { getBroadcaster, recordMonitorEvent } from "./db.ts";
 import { isBotAccount, pick } from "./utils.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
 
@@ -128,6 +137,24 @@ export async function ensureWatchtimeTables() {
   // in_chat: 1 while the chatters poll last saw this viewer in the list.
   try { await sqlite.execute("ALTER TABLE watchtime_stats ADD COLUMN in_chat INTEGER NOT NULL DEFAULT 0"); } catch (_) {}
   await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS watchtime_se_baseline (
+      broadcaster_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      se_ms INTEGER NOT NULL,
+      gs_ms INTEGER NOT NULL,
+      taken_at INTEGER NOT NULL,
+      PRIMARY KEY (broadcaster_id, username)
+    )`,
+  );
+  // se_id is '' when StreamElements has no channel for this broadcaster.
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS watchtime_se_channel (
+      broadcaster_id TEXT PRIMARY KEY,
+      se_id TEXT NOT NULL,
+      checked_at INTEGER NOT NULL
+    )`,
+  );
+  await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS watchtime_polls (
       broadcaster_id TEXT PRIMARY KEY,
       last_poll_at INTEGER NOT NULL DEFAULT 0,
@@ -140,6 +167,8 @@ export async function ensureWatchtimeTables() {
 export async function purgeWatchtimeData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM watchtime_stats WHERE broadcaster_id = ?", [broadcasterId]);
   await sqlite.execute("DELETE FROM watchtime_polls WHERE broadcaster_id = ?", [broadcasterId]);
+  await sqlite.execute("DELETE FROM watchtime_se_baseline WHERE broadcaster_id = ?", [broadcasterId]);
+  await sqlite.execute("DELETE FROM watchtime_se_channel WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
 /** Moves a viewer's clock forward. Call for every message from a real
@@ -177,6 +206,81 @@ async function getWatchtime(broadcasterId: string, username: string): Promise<{ 
   );
   if (!res.rows.length) return null;
   return { totalMs: Number(res.rows[0].total_ms), displayName: String(res.rows[0].display_name ?? username) };
+}
+
+// ── StreamElements history ──
+
+const SE_API = "https://api.streamelements.com/kappa/v2";
+const SE_TIMEOUT_MS = 5_000;
+// How long a channel lookup (found or not) is trusted before asking SE again.
+const SE_CHANNEL_TTL_MS = 24 * 60 * 60_000;
+
+async function seGet(path: string): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${SE_API}${path}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(SE_TIMEOUT_MS) });
+  let body: any = null;
+  try { body = await res.json(); } catch (_) { /* non-JSON error page */ }
+  return { status: res.status, body };
+}
+
+/** The broadcaster's StreamElements channel id, "" if they have none, null if
+ * SE couldn't be reached and nothing is cached. */
+async function getSeChannelId(broadcasterId: string): Promise<string | null> {
+  const cached = await sqlite.execute("SELECT se_id, checked_at FROM watchtime_se_channel WHERE broadcaster_id = ?", [broadcasterId]);
+  const row = cached.rows[0];
+  if (row && Date.now() - Number(row.checked_at) < SE_CHANNEL_TTL_MS) return String(row.se_id);
+  const login = String((await getBroadcaster(broadcasterId))?.login ?? "").toLowerCase();
+  if (!USERNAME_RE.test(login)) return row ? String(row.se_id) : null;
+  try {
+    const res = await seGet(`/channels/${encodeURIComponent(login)}`);
+    let seId: string;
+    if (res.status === 200 && res.body?._id) seId = String(res.body._id);
+    else if (res.status === 404 || res.status === 400) seId = "";
+    else return row ? String(row.se_id) : null;
+    await sqlite.execute("INSERT OR REPLACE INTO watchtime_se_channel (broadcaster_id, se_id, checked_at) VALUES (?,?,?)", [broadcasterId, seId, Date.now()]);
+    return seId;
+  } catch (_e) {
+    return row ? String(row.se_id) : null;
+  }
+}
+
+/** A viewer's StreamElements watch time in ms (SE reports minutes); 0 if SE
+ * has never seen them, null if SE couldn't be reached. */
+async function fetchSeWatchtimeMs(seId: string, username: string): Promise<number | null> {
+  try {
+    const res = await seGet(`/points/${encodeURIComponent(seId)}/${encodeURIComponent(username)}`);
+    if (res.status === 404) return 0;
+    if (res.status !== 200) return null;
+    const minutes = Number(res.body?.watchtime ?? 0);
+    return Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) * 60_000 : 0;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/** Watch time including StreamElements history (see the header comment).
+ * null when neither GuildScribe nor StreamElements has seen the viewer. */
+async function getTotalWatchtime(broadcasterId: string, username: string): Promise<{ totalMs: number; displayName: string } | null> {
+  const user = username.toLowerCase();
+  const own = await getWatchtime(broadcasterId, user);
+  const gsMs = own?.totalMs ?? 0;
+  const baseRes = await sqlite.execute("SELECT se_ms, gs_ms FROM watchtime_se_baseline WHERE broadcaster_id = ? AND username = ?", [broadcasterId, user]);
+  const base = baseRes.rows[0] ? { seMs: Number(baseRes.rows[0].se_ms), gsMs: Number(baseRes.rows[0].gs_ms) } : null;
+
+  const seId = await getSeChannelId(broadcasterId).catch(() => null);
+  const seNow = seId ? await fetchSeWatchtimeMs(seId, user) : null;
+
+  let totalMs = gsMs;
+  if (base) {
+    totalMs = Math.max(seNow ?? 0, base.seMs + Math.max(0, gsMs - base.gsMs));
+  } else if (seNow !== null && seNow > 0) {
+    await sqlite.execute(
+      "INSERT OR IGNORE INTO watchtime_se_baseline (broadcaster_id, username, se_ms, gs_ms, taken_at) VALUES (?,?,?,?,?)",
+      [broadcasterId, user, seNow, gsMs, Date.now()],
+    );
+    totalMs = Math.max(seNow, gsMs);
+  }
+  if (!own && totalMs <= 0) return null;
+  return { totalMs, displayName: own?.displayName ?? user };
 }
 
 // ── Chatters poll (called by watchtime_cron.ts) ──
@@ -411,7 +515,7 @@ export async function handleWatchtimeCommand(
 
   try {
     if (command === "watchtime") {
-      const stats = await getWatchtime(broadcasterId, targetLogin);
+      const stats = await getTotalWatchtime(broadcasterId, targetLogin);
       if (!stats) {
         await sendChatMessage(
           isSelf
