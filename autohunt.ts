@@ -111,10 +111,21 @@ export interface AutohuntReport {
   userId: string;
 }
 
-/** Where a channel's unprompted reports go (channel_options.ts:
- * autohunt.reports): whispered to each hunter (default) or posted in chat. */
+/** Where a channel's reports go (channel_options.ts: autohunt.reports):
+ * whispered to each hunter (default) or posted in chat. */
 async function whisperReports(broadcasterId: string): Promise<boolean> {
   return (await optWord(broadcasterId, "autohunt.reports")) !== "chat";
+}
+
+/** Whispers a report's full text to its hunter. False when it can't be
+ * whispered (no user ID, whispers not set up, or refused). */
+async function whisperReport(r: AutohuntReport): Promise<boolean> {
+  if (!r.userId) return false;
+  // The whisper goes to the hunter, so drop the name the chat text leads with.
+  const lead = r.text.match(/^@?(\S+)\s+/);
+  const body = lead && lead[1].toLowerCase() === r.hunter.name.toLowerCase() ? r.text.slice(lead[0].length) : r.text;
+  const parts = splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim());
+  return sendWhisperParts(r.userId, parts);
 }
 
 /** Posts a settle's report in chat (see AutohuntReport). */
@@ -122,26 +133,35 @@ export function postAutohuntReport(report: AutohuntReport, broadcasterId: string
   return sendChatMessages(report.text, broadcasterId, { summary: report.summary });
 }
 
+/** Delivers a report the hunter asked for (!autohunt status/stop). When the
+ * channel whispers reports it is whispered only — chat just gets a short
+ * pointer (or a note that the whisper couldn't be sent), never the report. */
+async function deliverDirectReport(report: AutohuntReport, display: string, broadcasterId: string) {
+  if (!(await whisperReports(broadcasterId))) return postAutohuntReport(report, broadcasterId);
+  if (!report.userId) report.userId = getReplyInitiator()?.userId ?? "";
+  const ok = await whisperReport(report);
+  return sendChatMessages(
+    ok
+      ? `@${display} 🏹 your autohunt report was whispered to you.`
+      : `@${display} 🏹 I couldn't whisper your autohunt report — check that your whispers are open.`,
+    broadcasterId,
+  );
+}
+
 /** Delivers unprompted (cron) reports. When the channel whispers reports (the
- * default), each hunter gets their full report privately; any that can't be
- * whispered (no user ID, whispers not set up, or refused) fall back to chat.
- * In chat, several hunters' reports become ONE message: every hunter
- * currently out (settled this time or not) with their trip's W/L, plus any
- * whose trip just ended, pointing to !autohunt status for the details.
- * Every hunter is @-tagged, so the roll call shows their real name (not
- * their nickname) and pings them. */
+ * default), each hunter gets their full report privately and nothing is
+ * posted in chat; one that can't be whispered is skipped (the trip's log is
+ * kept, so !autohunt status still shows it). Only when the channel posts
+ * reports in chat do several hunters' reports become ONE message: every
+ * hunter currently out (settled this time or not) with their trip's W/L,
+ * plus any whose trip just ended, pointing to !autohunt status for the
+ * details. Every hunter is @-tagged, so the roll call shows their real name
+ * (not their nickname) and pings them. */
 export async function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
   if (await whisperReports(broadcasterId)) {
-    const unsent: AutohuntReport[] = [];
-    for (const r of reports) {
-      // The whisper goes to the hunter, so drop the name the chat text leads with.
-      const lead = r.text.match(/^@?(\S+)\s+/);
-      const body = lead && lead[1].toLowerCase() === r.hunter.name.toLowerCase() ? r.text.slice(lead[0].length) : r.text;
-      const parts = splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim());
-      if (!r.userId || !(await sendWhisperParts(r.userId, parts))) unsent.push(r);
-    }
-    if (!unsent.length) return true;
-    reports = unsent;
+    let ok = true;
+    for (const r of reports) if (!(await whisperReport(r))) ok = false;
+    return ok;
   }
   if (reports.length === 1) return postAutohuntReport(reports[0], broadcasterId);
   const hunters = (await listAutohuntSessions(broadcasterId))
@@ -351,7 +371,7 @@ export async function handleAutohuntCommand(
     }
     // Pay anything already due so the numbers below are current.
     const report = await settleAutohunt(existing, { direct: true });
-    if (report) await postAutohuntReport(report, broadcasterId);
+    if (report) await deliverDirectReport(report, display, broadcasterId);
     const s = await getAutohuntSession(broadcasterId, user);
     if (!s) return true; // that settle ended the session
     if (!report) {
@@ -372,7 +392,7 @@ export async function handleAutohuntCommand(
     }
     const report = await settleAutohunt(existing, { forceEnd: true, direct: true });
     // null means the cron settled it in the same instant; the session is gone either way.
-    if (report) await postAutohuntReport(report, broadcasterId);
+    if (report) await deliverDirectReport(report, display, broadcasterId);
     else await say(`@${display} 🏹 your autohunt has already wrapped up.`);
     return true;
   }
@@ -386,7 +406,7 @@ export async function handleAutohuntCommand(
   if (existing && Date.now() >= existing.ends_at) {
     // Finished but not yet settled (the cron skips offline channels): wrap it up now.
     const report = await settleAutohunt(existing, { direct: true });
-    if (report) await postAutohuntReport(report, broadcasterId);
+    if (report) await deliverDirectReport(report, display, broadcasterId);
     else await say(`@${display} 🏹 your autohunt has already wrapped up.`);
     return true;
   }

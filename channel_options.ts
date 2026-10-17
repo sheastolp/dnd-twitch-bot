@@ -67,7 +67,7 @@ export const OPTIONS: OptionDef[] = [
     def: env("HUNT_LOOT_MULTIPLIER", 1, 0, 100), min: 0, max: 100, suggest: ["0", "0.5", "1", "2", "3"] },
   { key: "autohunt.max", bundle: "fighting", label: "Heroes out on !autohunt at once", kind: "number", int: true,
     def: env("AUTOHUNT_MAX_ACTIVE", 10, 1, 50), min: 1, max: 50, suggest: ["5", "10", "20"] },
-  { key: "autohunt.reports", bundle: "fighting", label: "Autohunt progress reports", help: "whisper = sent privately to each hunter; chat = posted in chat.", kind: "word",
+  { key: "autohunt.reports", bundle: "fighting", label: "Autohunt progress reports", help: "whisper = only whispered to each hunter, never posted in chat; chat = in-chat summary.", kind: "word",
     def: "whisper", choices: ["whisper", "chat"], suggest: ["whisper", "chat"] },
   // Raid boss
   { key: "raid.cooldown", bundle: "raid", label: "Time between raids", help: "Same as !rally cooldown in chat.", kind: "duration", unit: "m",

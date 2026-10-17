@@ -1,9 +1,11 @@
 // GuildScribe — autohunt settlement.
 // Val Town CRON TRIGGER (interval val). Set the schedule in the Val Town UI;
 // every 15 minutes is Val Town's minimum and is plenty: each run settles every
-// bout that has come due since the last one and posts ONE chat message per
-// channel: a lone hunter's full report, or for several a roll call of everyone
-// autohunting with their W/L (see postAutohuntReports in autohunt.ts).
+// bout that has come due since the last one and whispers each hunter their
+// report (the default), or — when the dashboard's autohunt.reports is "chat" —
+// posts ONE chat message per channel: a lone hunter's full report, or for
+// several a roll call of everyone autohunting with their W/L (see
+// postAutohuntReports in autohunt.ts).
 //
 // Only channels that are live get settled; an offline channel's sessions wait
 // (their end time still counts down, so the hunt can finish the moment the
