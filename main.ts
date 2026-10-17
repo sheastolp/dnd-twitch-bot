@@ -265,6 +265,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     // batch event gets a thank-you, so a 10-gift bomb is one message
     // instead of eleven.
     if (subscriptionType === "channel.subscribe" && body.event?.is_gift) return new Response("OK");
+    if (!(await isCommandGroupEnabled(subBroadcasterId, "subthanks"))) return new Response("OK");
 
     const thankYou =
       subscriptionType === "channel.subscribe"
@@ -294,6 +295,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     // Stay quiet rather than thanking a raider into an offline channel
     // (reuses raidConnection.is_live already fetched above).
     if (Number(raidConnection.is_live) !== 1) return new Response("OK");
+    if (!(await isCommandGroupEnabled(raidBroadcasterId, "raidthanks"))) return new Response("OK");
     await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId);
     return new Response("OK");
   }

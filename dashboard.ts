@@ -59,7 +59,8 @@ import { randomMerchantIntervalMs } from "./merchant.ts";
 import { applyBotCheckForm, renderBotCheckPage } from "./botdetect.ts";
 import { applyAutoBanForm, renderAutoBanPage } from "./autoban_page.ts";
 import { isAutoModEnabled, setAutoModEnabled } from "./automod.ts";
-import { applyBotListForm, renderBotListPage } from "./channel_bots.ts";
+import { applyBotListForm, isBotCheckAutoAdd, renderBotListPage, setBotCheckAutoAdd } from "./channel_bots.ts";
+import { isReminderEnabled, setReminderEnabled } from "./checklist.ts";
 import { applyPokeballForm, renderPokeballPage } from "./pokeball_page.ts";
 import { applySwearJarForm, renderSwearJarPage } from "./swearjar_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
@@ -235,7 +236,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, autoModEnabled, pointsEnabled, hoardEnabled, pokeballEnabled] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, autoModEnabled, pointsEnabled, hoardEnabled, pokeballEnabled, checklistEnabled, botCheckAutoAdd] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -251,6 +252,8 @@ export async function renderDashboard(
     isPointsEnabled(channelId),
     isHoardEnabled(channelId),
     isPokeballEnabled(channelId),
+    isReminderEnabled(channelId),
+    isBotCheckAutoAdd(channelId),
   ]);
   const [options, connection] = await Promise.all([optionInputs(channelId), getChannelStatus(channelId)]);
   const data: DashboardData = {
@@ -277,6 +280,8 @@ export async function renderDashboard(
     pointsEnabled,
     hoardEnabled,
     pokeballEnabled,
+    checklistEnabled,
+    botCheckAutoAdd,
     options,
     connection,
   };
@@ -667,6 +672,18 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       await setNpcChatterEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPC chatter turned ${enabled ? "on" : "off"}.` }, "toggle-npcchatter"));
     }
+    case "checklist_on":
+    case "checklist_off": {
+      const enabled = intent === "checklist_on";
+      await setReminderEnabled(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: enabled ? "Go-live checklist turned on — add items with !checklist add <item>." : "Go-live checklist turned off (items are kept)." }, "toggle-checklist"));
+    }
+    case "botcheckauto_on":
+    case "botcheckauto_off": {
+      const enabled = intent === "botcheckauto_on";
+      await setBotCheckAutoAdd(channelId, enabled);
+      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Bot list auto-add turned ${enabled ? "on" : "off"}.` }, "toggle-botcheckauto"));
+    }
     case "quick": {
       // Quick setup: several feature bundles at once (dashboard_quick.ts).
       const message = await applyQuickSetup(channelId, form);
@@ -712,12 +729,12 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
 async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
-  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball, automod] = await Promise.all([
+  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball, automod, checklist, botcheckauto] = await Promise.all([
     getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
     isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId), isHoardEnabled(channelId),
-    isPokeballEnabled(channelId), isAutoModEnabled(channelId),
+    isPokeballEnabled(channelId), isAutoModEnabled(channelId), isReminderEnabled(channelId), isBotCheckAutoAdd(channelId),
   ]);
-  return { ...groups, bot, market, chronicle, autoban, automod, points, npc, npcchatter, hoard, pokeball };
+  return { ...groups, bot, market, chronicle, autoban, automod, points, npc, npcchatter, hoard, pokeball, checklist, botcheckauto };
 }
 
 /** Turns one dashboard switch on or off, dedicated or command group. */
@@ -733,6 +750,8 @@ async function setSwitch(channelId: string, sw: string, on: boolean): Promise<vo
     case "npcchatter": return void await setNpcChatterEnabled(channelId, on);
     case "hoard": return void await setHoardEnabled(channelId, on);
     case "pokeball": return void await setPokeballEnabled(channelId, on);
+    case "checklist": return void await setReminderEnabled(channelId, on);
+    case "botcheckauto": return void await setBotCheckAutoAdd(channelId, on);
     default:
       if (sw in COMMAND_GROUPS) await setCommandGroupEnabled(channelId, sw, on);
   }

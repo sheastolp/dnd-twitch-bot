@@ -63,6 +63,9 @@ export interface CommandGroup {
   defaultOff?: boolean;
 }
 
+/** Groups in this section are shown with the dedicated switches, not as a folder. */
+export const FEATURE_SECTION = "Bot & feature switches";
+
 export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // Adventurer's parchment
   charfun: { section: "Adventurer's parchment", label: "For fun (!shmash)", commands: ["shmash"] },
@@ -143,7 +146,14 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   botcheck: { section: "Onboarding and support", label: "Bot viewer check (!botcheck)", commands: ["botcheck"] },
   ads: { section: "Onboarding and support", label: "Ad-break tracking (!adcheck, !adslogged)", commands: ["adcheck", "adslogged"], parent: "misc" },
   adalerts: { section: "Onboarding and support", label: "Ad-break alerts (heads-up before ads, notice when they start)", commands: [] },
-  followthanks: { section: "Onboarding and support", label: "Thank new followers in chat", commands: [] },
+  // Automatic replies to Twitch events and plain chat. FEATURE_SECTION puts
+  // them in the dashboard's "Bot & feature switches" square instead of a
+  // Command groups folder. main.ts / chat_builtin.ts / follow_thanks.ts
+  // check these themselves (no command word).
+  followthanks: { section: FEATURE_SECTION, label: "Thank new followers in chat", commands: [] },
+  subthanks: { section: FEATURE_SECTION, label: "Sub thank-yous (new subs, resubs and gift subs)", commands: [] },
+  raidthanks: { section: FEATURE_SECTION, label: "Raid thank-yous (welcomes an incoming raid)", commands: [] },
+  goodnight: { section: FEATURE_SECTION, label: "Goodnight send-offs (replies when chat says goodnight)", commands: [] },
   // Not a chat feature: whether this channel appears on tavernworks.dev's
   // public channel list (GET /api/channels in web_routes.ts). On by default;
   // also switched from chat with !dndbot showcase on/off (main.ts).
@@ -179,6 +189,9 @@ export const DEDICATED_LABELS: Record<string, string> = {
   npc: "AI NPCs",
   npcchatter: "AI NPC chatter",
   hoard: "Hunt and Hoard",
+  pokeball: "Pokéball advisor",
+  checklist: "Go-live checklist",
+  botcheckauto: "Bot list auto-add",
 };
 
 /**

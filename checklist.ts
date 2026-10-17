@@ -57,12 +57,12 @@ async function listItems(broadcasterId: string): Promise<string[]> {
   return res.rows.map((r: any) => String(r.item));
 }
 
-async function isReminderEnabled(broadcasterId: string): Promise<boolean> {
+export async function isReminderEnabled(broadcasterId: string): Promise<boolean> {
   const res = await sqlite.execute("SELECT enabled FROM stream_checklist_settings WHERE broadcaster_id = ?", [broadcasterId]);
   return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
 }
 
-async function setReminderEnabled(broadcasterId: string, enabled: boolean) {
+export async function setReminderEnabled(broadcasterId: string, enabled: boolean) {
   await sqlite.execute(
     "INSERT OR REPLACE INTO stream_checklist_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)",
     [broadcasterId, enabled ? 1 : 0, Date.now()],

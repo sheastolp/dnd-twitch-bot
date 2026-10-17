@@ -581,9 +581,10 @@ export async function handleBuiltinChatCommand(ctx: {
     // Russian babushka (babushka.ts). Claims the message, so it never also
     // draws a goodnight/trigger/chronicle/NPC reply.
     await maybeReplyToMention(chatMessage, chatter, display, broadcasterId, isModerator);
-  } else if (isGoodnightMessage(chatMessage)) {
-    // Plain-chat "goodnight" detection (not a "!" command). Cooldown per
-    // channel so a wave of goodnights from many viewers only draws one reply.
+  } else if (isGoodnightMessage(chatMessage) && await isCommandGroupEnabled(broadcasterId, "goodnight")) {
+    // Plain-chat "goodnight" detection (not a "!" command), unless its
+    // dashboard switch is off. Cooldown per channel so a wave of goodnights
+    // from many viewers only draws one reply.
     if (await checkGoodnightCooldown(broadcasterId, GOODNIGHT_COOLDOWN_MS)) {
       await sendChatMessage(goodnightReply(), broadcasterId);
     }

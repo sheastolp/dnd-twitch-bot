@@ -4,7 +4,7 @@
 
 import { QUICK_CSS, renderQuickSetup } from "./dashboard_quick.ts";
 import { escapeHtml } from "./utils.ts";
-import { COMMAND_GROUPS } from "./commandgroups.ts";
+import { COMMAND_GROUPS, FEATURE_SECTION } from "./commandgroups.ts";
 import { page } from "./page_shell.ts";
 import { DASH_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
 import { CHANNEL_STATUS_CSS, renderChannelStatusCard, type ChannelStatus } from "./channel_status.ts";
@@ -37,6 +37,10 @@ export interface DashboardData {
   pointsEnabled: boolean;
   hoardEnabled: boolean;
   pokeballEnabled: boolean;
+  /** Go-live checklist reminder (checklist.ts, !checklist on/off). */
+  checklistEnabled: boolean;
+  /** Bot viewer check adds likely bots to the bot list by itself (channel_bots.ts). */
+  botCheckAutoAdd: boolean;
   /** Per-channel options as typed ("" = default), for Quick setup (channel_options.ts). */
   options?: Record<string, string>;
   /** Connection health card (channel_status.ts); omitted = no card. */
@@ -49,7 +53,7 @@ export function switchStates(d: DashboardData): Record<string, boolean> {
     ...d.groupToggles,
     bot: d.botEnabled, market: d.marketEnabled, chronicle: d.chronicleEnabled, autoban: d.autoBanEnabled,
     automod: d.autoModEnabled, points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
-    pokeball: d.pokeballEnabled,
+    pokeball: d.pokeballEnabled, checklist: d.checklistEnabled, botcheckauto: d.botCheckAutoAdd,
   };
 }
 
@@ -59,9 +63,9 @@ function dashHidden(broadcasterId: string, key: string): string {
 
 /** Switches with their own dedicated on/off (not COMMAND_GROUPS); each has a
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
-export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "hoard", "pokeball"];
+export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "hoard", "pokeball", "checklist", "botcheckauto"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
-const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "chatreader", "quotes"]);
+const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "logs", "connections", "delve", "soundbytes", "chatreader", "quotes", "botcheckauto", "subthanks", "raidthanks", "goodnight"]);
 
 function guideLink(key: string): string {
   return NO_GUIDE_CARD.has(key) ? "" : ` <a class="guide-link" href="/guide#card-${key}" target="_blank" rel="noopener">guide ↗</a>`;
@@ -115,7 +119,7 @@ function sectionSlug(name: string): string {
 /** Top-of-page index: jump links to each dashboard section plus the command-group
  * sub-sections, and expand/collapse-all controls. */
 function renderDashboardIndex(): string {
-  const groupNames = [...new Set(Object.values(COMMAND_GROUPS).map((g) => g.section))];
+  const groupNames = [...new Set(Object.values(COMMAND_GROUPS).map((g) => g.section))].filter((n) => n !== FEATURE_SECTION);
   const groupLinks = groupNames
     .map((n) => `<li><a href="#grp-${sectionSlug(n)}">${escapeHtml(n)}</a></li>`)
     .join("");
@@ -140,7 +144,9 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     toggleTile(d, "automod", "Spam filters", "Removes links, caps, symbol walls, emote floods, copy-paste spam and very long messages from non-mods, then times out repeat offenders on a strike ladder — same as !automod on/off. Mods: !permit @user lets one viewer post a link. Tune it under 🔨 Auto-ban & spam filters", d.autoModEnabled, `<input type="hidden" name="intent" value="${d.autoModEnabled ? "automod_off" : "automod_on"}">`, d.autoBanPermitted ? "" : `⚠️ Moderation permission not granted yet — the broadcaster needs to <a href="/connect">reconnect</a> and approve it.`),
     featureToggleRow(d, "points_on", "points_off", "Gold, leaderboard & giveaways", "Viewers earn copper by chatting and from monster loot on hunts (10 cp = 1 sp, 10 sp = 1 gp); !gold, !gold top, !giveaway, !rob, and real coin prices for !haggle — same as !gold on/off", d.pointsEnabled),
     featureToggleRow(d, "pokeball_on", "pokeball_off", "Pokéball advisor", "Suggests a ball when PokemonCommunityGame announces a wild Pokémon — off by default; same as !ball on/off. Teach and edit the channel's balls under 🔴 Pokéballs", d.pokeballEnabled),
-  ].join("");
+    featureToggleRow(d, "checklist_on", "checklist_off", "Go-live checklist", "Whispers the broadcaster their start-of-stream checklist the moment the stream goes live — off by default; same as !checklist on/off. Add items with !checklist add <item>; nothing is sent while it's empty", d.checklistEnabled),
+    featureToggleRow(d, "botcheckauto_on", "botcheckauto_off", "Bot list auto-add", "Each bot viewer check adds the chatters it's fairly sure are bots to the channel's bot list, so the bot ignores them. Off = only accounts you add by hand on 🧾 Bot list", d.botCheckAutoAdd),
+  ];
   // Chronicle and the AI NPCs have their own dedicated switches, but they
   // live in the "Chronicle, oracle & NPCs" folder beside !oracle, matching
   // the Codex section their cards are in.
@@ -149,9 +155,17 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     featureToggleRow(d, "npc_on", "npc_off", "AI NPCs", "Lets viewers talk to AI-voiced NPCs with !npc talk", d.npcEnabled),
     featureToggleRow(d, "npcchatter_on", "npcchatter_off", "AI NPC chatter", "NPCs jumping into chat on their own (needs AI NPCs on too)", d.npcChatterEnabled),
   ];
+  const featureFlags = [d.botEnabled, d.marketEnabled, d.autoBanEnabled, d.autoModEnabled, d.pointsEnabled, d.pokeballEnabled, d.checklistEnabled, d.botCheckAutoAdd];
   // One switch per Guild Codex card, under that card's guide section.
   const bySection = new Map<string, { rows: string[]; on: number; keys: string[] }>();
   for (const [key, def] of Object.entries(COMMAND_GROUPS)) {
+    // Chat-event replies sit with the dedicated switches up top.
+    if (def.section === FEATURE_SECTION) {
+      const enabled = d.groupToggles[key] ?? !def.defaultOff;
+      dedicated.push(groupToggleRow(d, key, def.label, enabled));
+      featureFlags.push(enabled);
+      continue;
+    }
     const g = bySection.get(def.section) ?? { rows: [], on: 0, keys: [] };
     g.keys.push(key);
     const enabled = d.groupToggles[key] ?? true;
@@ -183,13 +197,13 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
       </details>`;
     })
     .join("")}</div>`;
-  const flags = [d.botEnabled, d.marketEnabled, d.autoBanEnabled, d.pointsEnabled, d.pokeballEnabled];
+  const flags = featureFlags;
   const flagsOn = flags.filter(Boolean).length;
   const groupTotal = [...bySection.values()].reduce((n, g) => n + g.rows.length, 0);
   const groupOn = [...bySection.values()].reduce((n, g) => n + g.on, 0);
   return { switches: bigSquare("sec-features", "Bot &amp; feature switches", `${plural(flags.length, "switch", "switches")} · ${flagsOn} on`,
     `<p class="muted">Turning off the entire bot overrides everything else. Changes apply immediately.</p>
-    <div class="tiles mini">${dedicated}</div>`),
+    <div class="tiles mini">${dedicated.join("")}</div>`),
     groups: bigSquare("sec-groups", "Command groups", `${plural(bySection.size, "group")} · ${groupOn}/${groupTotal} on`,
     `<p class="muted">One switch per card in the <a href="/guide" target="_blank" rel="noopener">Guild Codex</a>. Gold cards also need ${reqLink(d, "points")} — switches with a <span class="gold-swatch">gold border</span> are ones other switches depend on, and each switch's window links to whatever it needs.</p>
     ${groups}`, true) };

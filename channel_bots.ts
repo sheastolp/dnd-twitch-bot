@@ -155,7 +155,7 @@ export async function isBotCheckAutoAdd(broadcasterId: string): Promise<boolean>
   return !row || Number(row.botcheck_auto) === 1;
 }
 
-async function setBotCheckAutoAdd(broadcasterId: string, on: boolean) {
+export async function setBotCheckAutoAdd(broadcasterId: string, on: boolean) {
   await sqlite.execute(
     "INSERT INTO channel_bot_settings (broadcaster_id, botcheck_auto) VALUES (?,?) ON CONFLICT(broadcaster_id) DO UPDATE SET botcheck_auto = excluded.botcheck_auto",
     [broadcasterId, on ? 1 : 0],
