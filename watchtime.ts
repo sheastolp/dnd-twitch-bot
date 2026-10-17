@@ -34,6 +34,9 @@
 //     so a channel still running both bots isn't double-counted, and one that
 //     dropped SE keeps its history and keeps growing on GuildScribe's clock.
 //     Channels with no StreamElements account just get GuildScribe's total.
+//   - SINCE. Twitch keeps no watch-time history, so to reach back before any
+//     bot, the reply also names the viewer's Twitch follow date ("on the guild
+//     roll since …"), when the follower permission allows reading it.
 //
 // FOLLOW AGE. Twitch's Get Channel Followers endpoint needs a *user* token
 // with moderator:read:followers for the broadcaster or one of their mods. The
@@ -488,6 +491,20 @@ async function fetchFollow(broadcasterId: string, userId: string): Promise<Follo
   return Number.isFinite(parsed.getTime()) ? { kind: "following", followedAt: parsed } : { kind: "error" };
 }
 
+/** The viewer's Twitch follow date, for !watchtime's "since" tail — it goes
+ * back before GuildScribe (or any bot) joined. null whenever it can't be had
+ * (not following, no follower permission, Helix error); never throws. */
+async function watchingSince(broadcasterId: string, knownId: string, login: string): Promise<Date | null> {
+  try {
+    const userId = knownId || await getUserIdByLogin(login);
+    if (!userId || userId === broadcasterId) return null;
+    const result = await fetchFollow(broadcasterId, userId);
+    return result.kind === "following" ? result.followedAt : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 // ── Command ──
 
 /** Handles !watchtime and !followage. Returns true if it consumed the message. */
@@ -515,18 +532,22 @@ export async function handleWatchtimeCommand(
 
   try {
     if (command === "watchtime") {
-      const stats = await getTotalWatchtime(broadcasterId, targetLogin);
+      const [stats, followedAt] = await Promise.all([
+        getTotalWatchtime(broadcasterId, targetLogin),
+        watchingSince(broadcasterId, isSelf ? chatterId : "", targetLogin),
+      ]);
+      const since = followedAt ? ` 📜 On the guild roll since ${formatSince(followedAt)} (${formatFollowAge(followedAt, new Date())}).` : "";
       if (!stats) {
         await sendChatMessage(
           isSelf
-            ? `@${display} the scribes haven't logged any watch time for you yet — hang around while the stream is live and the hourglass starts turning.`
-            : `@${display} the scribes haven't logged any watch time for ${who} yet.`,
+            ? `@${display} the scribes haven't logged any watch time for you yet — hang around while the stream is live and the hourglass starts turning.${since}`
+            : `@${display} the scribes haven't logged any watch time for ${who} yet.${since}`,
           broadcasterId,
         );
         return true;
       }
       const shownWhose = isSelf ? "your" : `${stats.displayName}'s`;
-      await sendChatMessage(`@${display} ${pick(WATCHTIME_LINES)(shownWhose, formatWatchtime(stats.totalMs))}`, broadcasterId);
+      await sendChatMessage(`@${display} ${pick(WATCHTIME_LINES)(shownWhose, formatWatchtime(stats.totalMs))}${since}`, broadcasterId);
       return true;
     }
 
