@@ -169,7 +169,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [], defaultOff: true },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
-  lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"] },
+  lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"], defaultOff: true },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
   // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka
