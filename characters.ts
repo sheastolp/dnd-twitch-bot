@@ -99,6 +99,9 @@ export function customCharacterFromSession(s: any): Character {
   };
 }
 
+/** 5e cumulative XP thresholds, index = level - 1 (levels 1–12 enough for bot content). */
+export const XP_THRESHOLDS = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000];
+
 /** 5e-style XP for common solo-monster CRs used by the bot. */
 export function xpForMonsterCr(cr: string): number {
   const table: Record<string, number> = {
@@ -146,8 +149,7 @@ export async function awardMonsterXp(
   const gained = xpForMonsterCr(cr);
   c.xp = (c.xp ?? 0) + gained;
 
-  // 5e cumulative XP thresholds (levels 1–12 enough for bot content)
-  const thresholds = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000];
+  const thresholds = XP_THRESHOLDS;
   let newLevel = c.level;
   for (let lv = thresholds.length; lv >= 1; lv--) {
     if (c.xp >= thresholds[lv - 1]) {

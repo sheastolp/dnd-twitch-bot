@@ -32,6 +32,7 @@ import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleOverlayRoute } from "./overlay.ts";
+import { handleExtensionRoute } from "./extension.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
 import { handleHowtoRoute } from "./howto.ts";
 import { FAVICON_PATHS, handleFavicon } from "./favicon.ts";
@@ -346,6 +347,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   if (path.startsWith("/overlay")) {
     const overlay = await handleOverlayRoute(req, url, path);
     if (overlay) return overlay;
+  }
+  // Twitch Extension backend (panel + video overlay poll /ext/state with
+  // their extension JWT) — see extension.ts.
+  if (path.startsWith("/ext/")) {
+    const ext = await handleExtensionRoute(req, path);
+    if (ext) return ext;
   }
 
   if (req.method === "GET" && path === "/maps") {

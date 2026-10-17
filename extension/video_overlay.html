@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GuildScribe</title>
+  <link rel="stylesheet" href="ext.css">
+  <link rel="stylesheet" href="video_overlay.css">
+</head>
+<body>
+  <div id="dock" class="dock">
+    <button id="pill" class="pill" aria-expanded="false" aria-controls="card">
+      <span id="pill-icon"></span>
+      <span class="pill-text"><b>GuildScribe</b><span id="pill-sub" class="pill-sub">Guild hall</span></span>
+      <span id="pill-bar" class="pill-bar hidden"><i></i></span>
+    </button>
+    <section id="card" class="card sheet hidden" aria-label="GuildScribe">
+      <div id="head"></div>
+      <button id="close" class="close" aria-label="Close">×</button>
+      <nav class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="live">Live</button>
+        <button role="tab" aria-selected="false" data-tab="hero">My Hero</button>
+        <button role="tab" aria-selected="false" data-tab="board">Leaderboards</button>
+      </nav>
+      <div id="err" class="err hidden" role="status"></div>
+      <div id="body" class="scroll" role="tabpanel" aria-live="polite"></div>
+    </section>
+  </div>
+  <script src="https://extension-files.twitch.tv/helper/v1/twitch-ext.min.js"></script>
+  <script src="ext.js"></script>
+  <script src="video_overlay.js"></script>
+</body>
+</html>

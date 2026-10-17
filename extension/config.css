@@ -1,0 +1,6 @@
+html, body { background: var(--desk); }
+.cfg { max-width: 640px; margin: 0 auto; }
+.cfg ol { margin: 0; padding-left: 20px; }
+.cfg li { margin: 4px 0; }
+.ok { color: var(--ok); font-weight: 700; }
+.bad { color: var(--bad); font-weight: 700; }

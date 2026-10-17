@@ -1,0 +1,39 @@
+/* Video overlay view: a transparent layer over the whole player. Everything
+   sits in one dock on the right edge, clear of Twitch's top bar and bottom
+   controls, and only shows while the player controls do (or while open). */
+html, body { height: 100%; background: transparent; overflow: hidden; }
+.dock {
+  position: absolute; right: 12px; top: 16%; max-height: 72%;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  transition: opacity .25s ease;
+}
+.dock.away { opacity: 0; pointer-events: none; }
+
+.pill {
+  display: flex; align-items: center; gap: 7px; padding: 5px 10px 5px 6px; max-width: 220px;
+  background: linear-gradient(180deg, var(--wood-2), var(--wood-1)); color: #f1e3bf;
+  border: 1px solid var(--brass); border-radius: 20px; box-shadow: 0 2px 8px #0009; text-align: left;
+}
+.pill:hover { filter: brightness(1.12); }
+.pill:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.pill .d20 { width: 22px; height: 22px; flex: none; }
+.pill-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.pill-text b { font-size: 12px; }
+.pill-sub { font-size: 10px; color: #d8c79b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+.pill-bar { width: 44px; height: 6px; background: #0006; border-radius: 3px; overflow: hidden; flex: none; }
+.pill-bar i { display: block; height: 100%; background: #c5463a; transition: width .6s ease; }
+
+.card {
+  position: relative; width: 300px; min-height: 0; flex: 0 1 auto;
+  display: flex; flex-direction: column; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 18px #000b;
+}
+.card .scroll { overflow-y: auto; min-height: 0; flex: 1; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+.close {
+  position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--brass); background: #0004; color: #f1e3bf; font-size: 17px; line-height: 1;
+}
+.close:focus-visible { outline: 2px solid var(--brass); }
+
+@media (max-width: 500px) {
+  .card { width: min(300px, calc(100vw - 24px)); }
+}
