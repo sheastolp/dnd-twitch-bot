@@ -494,6 +494,8 @@ export async function handleBuiltinChatCommand(ctx: {
         broadcasterId,
       );
     }
+  } else if (/^!lurk$/i.test(chatMessage)) {
+    await sendChatMessage(`Thank you, @${display}, for your attendance. The ledger has been noted.`, broadcasterId);
   } else if (/^!roster$/i.test(chatMessage)) {
     await sendChatMessage(
       `@${display} 📜 The guild roster — every adventurer and party in this channel: ${baseUrl}/roster?channel=${broadcasterId}`,
