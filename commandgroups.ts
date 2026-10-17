@@ -73,6 +73,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   charsaves: { section: "Adventurer's parchment", label: "Save and restore (!savechar, !loadchar, !resetchar)", commands: ["savechar", "loadchar", "resetchar"], parent: "character" },
   charcreate: { section: "Adventurer's parchment", label: "Create and view (!newchar, !createchar, !char, !abilities, !roster)", commands: ["newchar", "createchar", "char", "abilities", "roster"], parent: "character" },
   streamstats: { section: "Adventurer's parchment", label: "Stream stats (!watchtime, !followage, !nick)", commands: ["watchtime", "followage", "nick"], parent: "misc" },
+  gamestats: { section: "Adventurer's parchment", label: "Game stats (!stats — Warframe by default, game picked on the dashboard's Game stats page)", commands: ["stats"], parent: "misc" },
   // Fate's dice
   d20: { section: "Fate's dice", label: "D20 of Fate (!d20, bare !roll / !r, !save +mods)", commands: ["d20", "save"], parent: "dice" },
   diceroll: { section: "Fate's dice", label: "Dice expressions (!roll NdS, !roll @user)", commands: [], parent: "dice" },

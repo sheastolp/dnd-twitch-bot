@@ -62,6 +62,7 @@ import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline,
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
+import { ensureGameStatsTables, handleGameStatsCommand, purgeGameStatsData } from "./game_stats.ts";
 import { ensureSeImportTables, purgeSeImportData } from "./se_import.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
@@ -131,6 +132,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureBattleLogTables,
   ensureSavingThrowTables,
   ensureQuoteTables,
+  ensureGameStatsTables,
   ensureSeImportTables,
 ];
 
@@ -500,6 +502,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgePokeballData(broadcasterId);
       await purgeSavingThrowData(broadcasterId);
       await purgeQuoteData(broadcasterId);
+      await purgeGameStatsData(broadcasterId);
     } else {
       await disconnectBroadcasterData(broadcasterId, false);
       await disconnectPointsData(broadcasterId);
@@ -707,6 +710,8 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleQuoteCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+  // !stats (game_stats.ts): the game the dashboard picked, Warframe by default.
+  if (await handleGameStatsCommand(chatMessage, display, broadcasterId)) return new Response("OK");
 
   await handleBuiltinChatCommand({ chatMessage, chatter, display, broadcasterId, isModerator, baseUrl });
 }

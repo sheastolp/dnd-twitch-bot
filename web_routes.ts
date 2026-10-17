@@ -22,7 +22,7 @@ import { isHoardEnabled } from "./hoard_db.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
@@ -500,6 +500,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // The Pokéball advisor's ball list (pokeball_page.ts) — same gate.
     return await handlePokeballPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/stats") {
+    // What !stats shows (game_stats_page.ts) — same gate.
+    return await handleGameStatsPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/swearjar") {
     // The swear jar's word list (swearjar_page.ts) — same gate.
     return await handleSwearJarPage(url, req.headers.get("Cookie"));
@@ -770,6 +774,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/pokeballs") {
     return await handlePokeballForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/stats") {
+    return await handleGameStatsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/swearjar") {
     return await handleSwearJarForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
