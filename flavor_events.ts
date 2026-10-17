@@ -1,5 +1,5 @@
 // Auto replies for Twitch events: sub/resub/gift thank-yous, incoming-raid
-// thank-yous, and the plain-chat goodnight send-off.
+// and new-follower thank-yous, and the plain-chat goodnight send-off.
 // Split out of utils.ts to keep every file well under Val Town's per-file
 // size ceiling.
 
@@ -193,6 +193,26 @@ const RAID_LINES: Array<(name: string, party: string) => string> = [
 /** Thank-you for an incoming raid (channel.raid). */
 export function rollRaidThankYou(raiderName: string, viewers: number): string {
   return pick(RAID_LINES)(raiderName, raidPartyPhrase(viewers));
+}
+
+const FOLLOW_LINES: Array<(name: string) => string> = [
+  (name) => `📜 @${name} signs the guild's visitor ledger. Welcome, traveler — thanks for the follow!`,
+  (name) => `🍺 A new face at the tavern door: @${name}! Thanks for following — pull up a stool.`,
+  (name) => `🗺️ @${name} has marked the guild hall on their map. Thanks for the follow!`,
+  (name) => `🕯️ A candle is lit in the window for @${name}. Thanks for following, adventurer!`,
+  (name) => `🎲 @${name} rolls initiative and joins the following! Welcome to the table.`,
+  (name) => `🧭 @${name}'s compass found its way here. Thanks for the follow!`,
+  (name) => `🎻 The bard adds a verse for @${name}, our newest follower. Welcome!`,
+  (name) => `🛡️ @${name} hangs their shield by the hearth. Thanks for following!`,
+  (name) => `🦉 A messenger owl brings word: @${name} now follows the guild. Welcome!`,
+  (name) => `✨ @${name} joins the guild's following — may your rolls be ever favorable!`,
+  (name) => `🏰 The gatekeeper waves @${name} through. Thanks for the follow!`,
+  (name) => `📯 A horn sounds for @${name}, newest follower of the guild. Welcome!`,
+];
+
+/** Thank-you for a new follower (channel.follow). */
+export function rollFollowThankYou(displayName: string): string {
+  return pick(FOLLOW_LINES)(displayName);
 }
 
 // Matches "goodnight"-style chat messages so the bot can send off adventurers

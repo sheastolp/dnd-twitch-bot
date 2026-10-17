@@ -20,7 +20,7 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: 
   // Optional: without it the spam filters clear a message with a 1-second
   // timeout instead, so a channel missing it isn't flagged as "partial".
   { scope: "moderator:manage:chat_messages", feature: "Spam filters: delete single messages", optional: true },
-  { scope: "moderator:read:followers", feature: "Watch-time follower checks" },
+  { scope: "moderator:read:followers", feature: "Follower thank-yous and watch-time follower checks" },
   { scope: "moderator:read:chatters", feature: "Watch-time and bot viewer check" },
 ];
 
@@ -33,6 +33,7 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: 
 export const EXTRA_SUBSCRIPTIONS: Array<{ kinds: string[]; feature: string; scope?: string; selfHeals?: boolean }> = [
   { kinds: ["sub", "resub", "gift"], feature: "Sub thank-yous", scope: "channel:read:subscriptions" },
   { kinds: ["raid"], feature: "Raid thank-yous" },
+  { kinds: ["follow"], feature: "Follower thank-yous", scope: "moderator:read:followers", selfHeals: true },
   { kinds: ["stream_online", "stream_offline"], feature: "Live / offline tracking", selfHeals: true },
   { kinds: ["ad_break"], feature: "Ad-break alerts", scope: "channel:read:ads", selfHeals: true },
   { kinds: ["redemption"], feature: "Channel-point boons", scope: "channel:read:redemptions" },

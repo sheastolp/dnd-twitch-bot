@@ -6,6 +6,7 @@
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
+import { subscribeToFollows } from "./follow_thanks.ts";
 import { INSTANCE, sqlite } from "./sqlite.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled, getCommandGroupToggles, listCustomCommandsFull, listCustomTriggers, listTimedMessages, isMerchantEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
@@ -286,6 +287,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
         await saveExtraEventSubSubscription(user.id, "raid", raidSub.id);
       } catch (e) {
         await recordMonitorEvent("eventsub_raid_subscription_failed", `${user.id}: ${String(e)}`);
+      }
+      // Best-effort: new-follower thank-you (follow_thanks.ts). Needs
+      // moderator:read:followers, requested above.
+      try {
+        await subscribeToFollows(user.id, PUBLIC_ORIGIN);
+      } catch (e) {
+        await recordMonitorEvent("eventsub_follow_subscription_failed", `${user.id}: ${String(e)}`);
       }
       // Best-effort: powers the "quiet while offline" check (see main
       // dispatch above and the two cron files). Also needs no extra OAuth

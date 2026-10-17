@@ -42,6 +42,7 @@ import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_option
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
+import { ensureFollowSubscription, ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
@@ -110,6 +111,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureNowPlayingTables,
   ensureChannelOptionTables,
   ensureAdAlertTables,
+  ensureFollowThanksTables,
   ensureSocialTables,
   ensurePointsTables,
   ensureSwearJarTables,
@@ -296,6 +298,12 @@ async function handleNotification(body: any): Promise<Response | void> {
     return new Response("OK");
   }
 
+  // New follower: a short thank-you in chat (follow_thanks.ts).
+  if (subscriptionType === "channel.follow") {
+    try { await onFollow(body.event); } catch (e) { await recordMonitorEvent("follow_event_error", String(e)); }
+    return new Response("OK");
+  }
+
   // Stream going live/offline — just keeps broadcasters.is_live current so
   // every other check above/below (and the merchant/timed-message crons)
   // can read it as a plain column instead of calling Twitch on every
@@ -311,6 +319,8 @@ async function handleNotification(body: any): Promise<Response | void> {
       if (subscriptionType === "stream.online" && !(await isChannelBlocked(liveBroadcasterId))) {
         await onChecklistStreamOnline(liveBroadcasterId);
       }
+      // Channels connected before follow thank-yous existed (follow_thanks.ts).
+      if (subscriptionType === "stream.online") await ensureFollowSubscription(liveBroadcasterId, PUBLIC_ORIGIN);
     }
     return new Response("OK");
   }
@@ -476,6 +486,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeChannelBotData(broadcasterId);
       await purgeChannelOptions(broadcasterId);
       await purgeAdAlertData(broadcasterId);
+      await purgeFollowThanksData(broadcasterId);
       await purgePointsData(broadcasterId);
       await purgeSwearJarData(broadcasterId);
       await purgeRedemptionData(broadcasterId);

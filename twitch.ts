@@ -645,6 +645,18 @@ export async function createRaidEventSubscription(broadcasterId: string, callbac
   );
 }
 
+// New followers — powers follow_thanks.ts. channel.follow v2 needs a
+// moderator who granted moderator:read:followers (the same grant !followage
+// uses); the broadcaster is their own moderator, so both ids are theirs.
+export async function createFollowEventSubscription(broadcasterId: string, callbackUrl: string) {
+  return createEventSubSubscription(
+    "channel.follow",
+    "2",
+    { broadcaster_user_id: broadcasterId, moderator_user_id: broadcasterId },
+    callbackUrl,
+  );
+}
+
 // Stream going live/offline — powers the fast, no-API-call "quiet while
 // offline" check (broadcasters.is_live, updated by these notifications; see
 // main.ts). Like channel.raid, both need no extra OAuth scope beyond the
