@@ -2,7 +2,7 @@
 // feature module. Split out of main.ts to keep files well under Val Town's
 // per-file size ceiling.
 
-import { getCharacter, saveCharacter, adjustHp, backupCharacter, loadBackup, resetCharacter, getConnections, getRecentLogs, checkGoodnightCooldown, saveCreationSession, isCommandGroupEnabled, listCustomTriggers } from "./db.ts";
+import { getCustomCommand, getCharacter, saveCharacter, adjustHp, backupCharacter, loadBackup, resetCharacter, getConnections, getRecentLogs, checkGoodnightCooldown, saveCreationSession, isCommandGroupEnabled, listCustomTriggers } from "./db.ts";
 import { recordDiceRollEvent, getDiceLeaderboard, getDiceStatsForUser, isChronicleEnabled } from "./social_db.ts";
 import { maybeChronicleQuote } from "./chronicle.ts";
 import { isNpcChatterActive, maybeNpcChatter } from "./npcs.ts";
@@ -11,7 +11,7 @@ import { channelCommandsUrl } from "./commands_page.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
-import { env, sendChatMessage, sendChatMessages, sendSpellSections } from "./twitch.ts";
+import { env, sendChatMessage, sendChatMessages, sendSpellSections, getUserIdByLogin, getChannelInfo } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
@@ -496,6 +496,8 @@ export async function handleBuiltinChatCommand(ctx: {
     }
   } else if (/^!lurk$/i.test(chatMessage)) {
     await sendChatMessage(`Thank you, @${display}, for your attendance. The ledger has been noted.`, broadcasterId);
+  } else if (await shoutoutClaims(chatMessage, broadcasterId)) {
+    await handleShoutout(chatMessage, display, broadcasterId, isModerator);
   } else if (/^!roster$/i.test(chatMessage)) {
     await sendChatMessage(
       `@${display} 📜 The guild roster — every adventurer and party in this channel: ${baseUrl}/roster?channel=${broadcasterId}`,
@@ -613,4 +615,39 @@ export async function handleBuiltinChatCommand(ctx: {
       }
     }
   }
+}
+
+/** Whether the built-in !so / !shoutout answers this message: only when its
+ * switch is on and the channel has no custom command of that name. */
+async function shoutoutClaims(chatMessage: string, broadcasterId: string): Promise<boolean> {
+  const word = chatMessage.match(/^!(so|shoutout)(?:\s|$)/i)?.[1]?.toLowerCase();
+  if (!word) return false;
+  const [on, custom] = await Promise.all([isCommandGroupEnabled(broadcasterId, "shoutout"), getCustomCommand(broadcasterId, word)]);
+  return on && !custom;
+}
+
+/** !so @user (mods): a chat shoutout naming the channel's last game. */
+async function handleShoutout(chatMessage: string, display: string, broadcasterId: string, isModerator: boolean) {
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can use !so.`, broadcasterId);
+    return;
+  }
+  const target = chatMessage.match(/^!(?:so|shoutout)\s+@?([a-z0-9_]{1,25})\b/i)?.[1]?.toLowerCase();
+  if (!target) {
+    await sendChatMessage(`@${display} use !so @username`, broadcasterId);
+    return;
+  }
+  const targetId = await getUserIdByLogin(target);
+  if (!targetId) {
+    await sendChatMessage(`@${display} couldn't find a Twitch channel called ${target}.`, broadcasterId);
+    return;
+  }
+  const info = await getChannelInfo(targetId);
+  const game = info?.gameName ? ` They were last seen adventuring in ${info.gameName}.` : "";
+  await sendChatMessage(
+    `📣 Hail, travelers! Go give @${target} a follow at https://twitch.tv/${target}.${game} Tell them the guild sent you!`,
+    broadcasterId,
+    [target],
+    { keepNames: true },
+  );
 }

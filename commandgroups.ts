@@ -173,6 +173,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // funstuff.ts FUN_WORDS; "good bot" / "bad bot" replies check this switch too.
   funstuff: { section: "Other", label: "Fun stuff (!coinflip, !flip, !jumble, !tempc/!tempf, !dadjoke, !catfact, !dogpic, …)", commands: ["coinflip",  "flip",  "angryflip",  "unflip",  "jumble",  "tempc",  "tempf",  "dadjoke",  "animalfact",  "catfact",  "dogfact",  "otterfact",  "penguinfact",  "slothfact",  "owlfact",  "sharkfact",  "frogfact",  "cowfact",  "duckfact",  "foxfact",  "pandafact",  "capybarafact",  "axolotlfact",  "beefact",  "dolphinfact",  "wolffact",  "raccoonfact",  "octopusfact",  "kittyfact",  "puppyfact",  "doggofact",  "seaotterfact",  "capyfact",  "beesfact",  "honeybeefact",  "redfoxfact",  "catpic",  "dogpic",  "foxpic",  "duckpic",  "capybarapic",  "kittypic",  "puppypic",  "doggopic",  "capypic",  "redfoxpic"] },
   lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"], defaultOff: true },
+  // chat_builtin.ts checks this switch itself and yields to a channel's own
+  // !so custom command (often imported from Nightbot/StreamElements).
+  shoutout: { section: "Other", label: "Shoutouts (!so @user — mods)", commands: [], defaultOff: true },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
   // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka
