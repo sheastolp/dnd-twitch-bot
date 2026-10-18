@@ -22,6 +22,11 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: 
   { scope: "moderator:manage:chat_messages", feature: "Spam filters: delete single messages", optional: true },
   { scope: "moderator:read:followers", feature: "Follower thank-yous and watch-time follower checks" },
   { scope: "moderator:read:chatters", feature: "Watch-time and bot viewer check" },
+  // Optional: Sery_Bot-style protection and !clip ask for a reconnect when first used.
+  { scope: "moderator:manage:shield_mode", feature: "Hate-raid shield, !shield and offline lock", optional: true },
+  { scope: "moderator:manage:chat_settings", feature: "Offline lock (emote/followers/subs-only)", optional: true },
+  { scope: "user:manage:blocked_users", feature: "Follow-bot blocking (!removebots)", optional: true },
+  { scope: "clips:edit", feature: "!clip", optional: true },
 ];
 
 /** Extra EventSub subscriptions /connect creates (eventsub_extra_subscriptions.kind).

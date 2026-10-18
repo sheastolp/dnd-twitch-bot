@@ -64,6 +64,12 @@ import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePo
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
 import { ensureGameStatsTables, handleGameStatsCommand, purgeGameStatsData } from "./game_stats.ts";
 import { ensureSeImportTables, purgeSeImportData } from "./se_import.ts";
+import { ensureNightbotImportTables, purgeNightbotImportData } from "./nightbot_import.ts";
+import { ensureStreamGuardTables, handleStreamGuardCommand, maybeHateRaid, onStreamStatusGuard, purgeStreamGuardData } from "./stream_guard.ts";
+import { ensureFollowBotTables, handleFollowBotCommand, maybeBlockFollowBot, purgeFollowBotData } from "./followbots.ts";
+import { handleClipCommand } from "./clips.ts";
+import { ensureModLogTables, purgeModLogData } from "./mod_log.ts";
+import { handleFunCommand, maybeBotBanter } from "./funstuff.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
@@ -134,6 +140,10 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureQuoteTables,
   ensureGameStatsTables,
   ensureSeImportTables,
+  ensureNightbotImportTables,
+  ensureStreamGuardTables,
+  ensureFollowBotTables,
+  ensureModLogTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -304,7 +314,8 @@ async function handleNotification(body: any): Promise<Response | void> {
 
   // New follower: a short thank-you in chat (follow_thanks.ts).
   if (subscriptionType === "channel.follow") {
-    try { await onFollow(body.event); } catch (e) { await recordMonitorEvent("follow_event_error", String(e)); }
+    // Follow bots (followbots.ts) are blocked first and get no thank-you.
+    try { if (!(await maybeBlockFollowBot(body.event))) await onFollow(body.event); } catch (e) { await recordMonitorEvent("follow_event_error", String(e)); }
     return new Response("OK");
   }
 
@@ -325,6 +336,8 @@ async function handleNotification(body: any): Promise<Response | void> {
       }
       // Channels connected before follow thank-yous existed (follow_thanks.ts).
       if (subscriptionType === "stream.online") await ensureFollowSubscription(liveBroadcasterId, PUBLIC_ORIGIN);
+      // Offline lock + going-live announcement (stream_guard.ts).
+      try { await onStreamStatusGuard(liveBroadcasterId, subscriptionType === "stream.online"); } catch (e) { await recordMonitorEvent("stream_guard_error", String(e)); }
     }
     return new Response("OK");
   }
@@ -418,6 +431,12 @@ async function handleNotification(body: any): Promise<Response | void> {
     await maybeAutoMod(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
   ) return new Response("OK");
 
+  // Hate-raid shield (stream_guard.ts): many new accounts posting the same
+  // thing at once get banned and Shield Mode goes on. Off by default.
+  if (
+    await maybeHateRaid(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
+  ) return new Response("OK");
+
   // Stay quiet in chat while the channel is offline — but let mod+ (the
   // broadcaster, lead moderators and moderators; see hasModeratorBadge in
   // utils.ts) keep using every command normally so they can test
@@ -480,6 +499,8 @@ async function handleNotification(body: any): Promise<Response | void> {
     await purgeViewerNames(broadcasterId);
     await purgeReplyPages(broadcasterId);
     await purgeSeImportData(broadcasterId);
+    await purgeNightbotImportData(broadcasterId);
+    await purgeStreamGuardData(broadcasterId); // the offline lock acts on the channel, so it goes with the bot
     await purgeNowPlayingData(broadcasterId); // Spotify tokens go with the bot, purge or not
     if (purge) {
       await purgeChannelData(broadcasterId);
@@ -491,6 +512,8 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeChannelOptions(broadcasterId);
       await purgeAdAlertData(broadcasterId);
       await purgeFollowThanksData(broadcasterId);
+      await purgeFollowBotData(broadcasterId);
+      await purgeModLogData(broadcasterId);
       await purgePointsData(broadcasterId);
       await purgeSwearJarData(broadcasterId);
       await purgeRedemptionData(broadcasterId);
@@ -700,6 +723,13 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleAutoModCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+  // Sery_Bot-style tools: !hateraid, !shield, !offlinelock, !onlinenotif, !onlinecheck,
+  // !followbots, !removebots, !checkforbots, !clip, and the fun commands.
+  if (await handleStreamGuardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+  if (await handleFollowBotCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+  if (await handleClipCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+  if (await handleFunCommand(chatMessage, display, broadcasterId)) return new Response("OK");
+  if (!chatMessage.startsWith("!") && await isCommandGroupEnabled(broadcasterId, "funstuff") && await maybeBotBanter(chatMessage, broadcasterId)) return new Response("OK");
   if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (
     await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)

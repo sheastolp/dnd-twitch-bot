@@ -69,6 +69,8 @@ import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "
 import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
+import { startNightbotConnect } from "./nightbot_import.ts";
+import { applyModCenterForm, renderModCenterPage } from "./mod_center.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -959,6 +961,31 @@ export async function handleSpotifyConnect(url: URL, cookieHeader: string | null
   return redirectTo(`${PUBLIC_ORIGIN}/dashboard/music?${params.toString()}`);
 }
 
+// ── Mod center (mod_center.ts), behind the same key + login ──
+
+export async function handleModCenterPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderModCenterPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleModCenterForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyModCenterForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  if (result) params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/mod?${params.toString()}${result?.anchor ? `#${result.anchor}` : ""}`);
+}
+
 // ── Auto-ban word list page (autoban_page.ts), behind the same key + login ──
 
 export async function handleAutoBanPage(url: URL, cookieHeader: string | null): Promise<Response> {
@@ -1010,7 +1037,7 @@ export async function handleQuotesForm(form: FormData, baseUrl: string, cookieHe
   return redirectTo(`${baseUrl}/dashboard/quotes?${params.toString()}`);
 }
 
-// ── StreamElements import page (se_import.ts), behind the same key + login ──
+// ── StreamElements / Nightbot import page (se_import.ts), behind the same key + login ──
 
 export async function handleImportPage(url: URL, cookieHeader: string | null): Promise<Response> {
   const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
@@ -1020,6 +1047,7 @@ export async function handleImportPage(url: URL, cookieHeader: string | null): P
     broadcasterId: auth.channelId,
     broadcasterName: String(b?.display_name || b?.login || auth.channelId),
     key: auth.key,
+    from: url.searchParams.get("from") ?? undefined,
     stage: url.searchParams.get("stage") ?? undefined,
     notice: url.searchParams.get("notice") ?? undefined,
     error: url.searchParams.get("error") ?? undefined,
@@ -1032,7 +1060,19 @@ export async function handleImportForm(form: FormData, baseUrl: string, cookieHe
   if (auth instanceof Response) return auth;
   const result = await applyImportForm(auth.channelId, form);
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  const from = String(form.get("from") ?? "");
+  if (from) params.set("from", from);
   if (result.stage) params.set("stage", result.stage);
   else params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/import?${params.toString()}`);
+}
+
+/** GET /dashboard/import/nightbot — off to Nightbot to log in (comes back via /nightbot/callback). */
+export async function handleNightbotConnect(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const to = await startNightbotConnect(auth.channelId, auth.key);
+  if (to) return redirectTo(to);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, from: "nightbot", error: "Nightbot login isn't set up on this GuildScribe — fetch the public commands instead." });
+  return redirectTo(`${PUBLIC_ORIGIN}/dashboard/import?${params.toString()}`);
 }

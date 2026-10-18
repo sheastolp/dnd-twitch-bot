@@ -155,6 +155,10 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   subthanks: { section: FEATURE_SECTION, label: "Sub thank-yous (new subs, resubs and gift subs)", commands: [] },
   raidthanks: { section: FEATURE_SECTION, label: "Raid thank-yous (welcomes an incoming raid)", commands: [] },
   goodnight: { section: FEATURE_SECTION, label: "Goodnight send-offs (replies when chat says goodnight)", commands: [] },
+  // Stream protection (stream_guard.ts / followbots.ts), off until switched on.
+  hateraid: { section: FEATURE_SECTION, label: "Hate-raid shield (bans waves of new accounts posting the same thing, turns on Shield Mode; !hateraid)", commands: [], defaultOff: true },
+  followbots: { section: FEATURE_SECTION, label: "Block follow bots (removes bot-looking new followers; !followbots, !removebots)", commands: [], defaultOff: true },
+  golive: { section: FEATURE_SECTION, label: "Going-live announcement (title, game, and a warning if chat is locked down; !onlinenotif)", commands: [], defaultOff: true },
   // Not a chat feature: whether this channel appears on tavernworks.dev's
   // public channel list (GET /api/channels in web_routes.ts). On by default;
   // also switched from chat with !dndbot showcase on/off (main.ts).
@@ -170,6 +174,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [], defaultOff: true },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
+  clips: { section: "Other", label: "Clips (!clip [title], !clip45, !clip60)", commands: ["clip", "clip15", "clip20", "clip30", "clip45", "clip60"] },
+  // funstuff.ts FUN_WORDS; "good bot" / "bad bot" replies check this switch too.
+  funstuff: { section: "Other", label: "Fun stuff (!coinflip, !flip, !jumble, !tempc/!tempf, !dadjoke, !catfact, !dogpic, …)", commands: ["coinflip",  "flip",  "angryflip",  "unflip",  "jumble",  "tempc",  "tempf",  "dadjoke",  "animalfact",  "catfact",  "dogfact",  "otterfact",  "penguinfact",  "slothfact",  "owlfact",  "sharkfact",  "frogfact",  "cowfact",  "duckfact",  "foxfact",  "pandafact",  "capybarafact",  "axolotlfact",  "beefact",  "dolphinfact",  "wolffact",  "raccoonfact",  "octopusfact",  "kittyfact",  "puppyfact",  "doggofact",  "seaotterfact",  "capyfact",  "beesfact",  "honeybeefact",  "redfoxfact",  "catpic",  "dogpic",  "foxpic",  "duckpic",  "capybarapic",  "kittypic",  "puppypic",  "doggopic",  "capypic",  "redfoxpic"] },
   lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"], defaultOff: true },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },

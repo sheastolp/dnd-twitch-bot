@@ -18,12 +18,13 @@
 //      messages.
 
 import { sqlite } from "./sqlite.ts";
-import { addCustomCommand, editCustomCommand, getBroadcaster, getCustomCommand, listTimedMessages, addTimedMessage, setCustomCommandCooldown, setCustomCommandEnabled } from "./db.ts";
+import { addCustomCommand, editCustomCommand, getBroadcaster, getCustomCommand, listTimedMessages, addTimedMessage, setCustomCommandCooldown, setCustomCommandEnabled, setCustomCommandUses } from "./db.ts";
 import { MAX_COOLDOWN_SECONDS, MAX_CUSTOM_RESPONSE_LEN, RESERVED_NAMES, sanitizeCommandName } from "./customcommands.ts";
 import { MAX_INTERVAL_MINUTES, MAX_TIMED_MESSAGE_LEN, MIN_INTERVAL_MINUTES } from "./timedmessages.ts";
 import { addQuote, listQuotes, MAX_QUOTE_LEN } from "./quotes.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
+import { nightbotConnectConfigured, stageNightbotPublic } from "./nightbot_import.ts";
 
 const SE_API = "https://api.streamelements.com/kappa/v2";
 const STAGE_TTL_MS = 30 * 60 * 1000;
@@ -37,10 +38,13 @@ const SHADOWS_FEATURE: Record<string, string> = {
   sound: "Sound Bytes", sounds: "Sound Bytes",
 };
 
-export type StagedCommand = { name: string; response: string; cooldownSec: number; enabled: boolean; notes: string[]; ok: boolean; exists: boolean; aliasOf?: string };
+export type StagedCommand = { name: string; response: string; cooldownSec: number; enabled: boolean; uses?: number; notes: string[]; ok: boolean; exists: boolean; aliasOf?: string };
 export type StagedQuote = { no: number; text: string; game: string; createdAt: number; addedBy: string; duplicate: boolean };
 export type StagedTimer = { name: string; message: string; intervalMinutes: number; enabled: boolean; notes: string[]; ok: boolean };
+export type ImportSource = "streamelements" | "nightbot";
+export const SOURCE_LABELS: Record<ImportSource, string> = { streamelements: "StreamElements", nightbot: "Nightbot" };
 export type Staged = {
+  source?: ImportSource; // missing on stages saved before Nightbot import existed
   username: string;
   displayName: string;
   commands: StagedCommand[];
@@ -116,6 +120,60 @@ export function translateSeReply(reply: string): { text: string; notes: string[]
   return { text: out.trim(), notes: [...new Set(notes)], ok };
 }
 
+// ── Shared by every source (nightbot_import.ts too) ─────────────────────────
+
+/** One command as another bot had it: its name first, then any aliases. */
+export type CommandSource = { names: string[]; text: string; notes: string[]; ok: boolean; cooldownSec: number; enabled: boolean; uses?: number };
+
+/** Checks each command's name(s) against this channel and turns them into
+ * checklist rows (one per name; aliases become their own commands). */
+export async function stageCommands(broadcasterId: string, list: CommandSource[], sourceLabel = "StreamElements"): Promise<StagedCommand[]> {
+  const commands: StagedCommand[] = [];
+  const seen = new Set<string>();
+  for (const c of list) {
+    for (const [i, raw] of c.names.entries()) {
+      const notes = [...c.notes];
+      let ok = c.ok && !!c.text;
+      const name = sanitizeCommandName(raw);
+      if (!name) {
+        notes.push(`“!${raw.slice(0, 30)}” isn't a valid command name here (2–25 letters, numbers, - or _)`);
+        ok = false;
+      } else if (RESERVED_NAMES.has(name)) {
+        notes.push(`!${name} is a built-in GuildScribe command`);
+        ok = false;
+      } else if (SHADOWS_FEATURE[name]) {
+        notes.push(`replaces ${SHADOWS_FEATURE[name]} for !${name}`);
+        ok = false;
+      }
+      const key = name ?? raw.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const exists = !!name && !!(await getCustomCommand(broadcasterId, name));
+      if (exists) notes.push("already exists here — importing overwrites it");
+      if (!c.enabled && !notes.some((n) => n.startsWith("off in"))) notes.push(`off in ${sourceLabel}; imports switched off`);
+      commands.push({
+        name: name ?? raw.slice(0, 30), response: c.text, cooldownSec: c.cooldownSec, enabled: c.enabled, uses: c.uses,
+        notes, ok: ok && !exists && c.enabled, exists, aliasOf: i > 0 ? c.names[0] : undefined,
+      });
+    }
+  }
+  return commands;
+}
+
+/** Parks a staged import for STAGE_TTL_MS (replacing this channel's last one); returns its id. */
+export async function saveStage(broadcasterId: string, staged: Staged): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await sqlite.execute("DELETE FROM se_import_staging WHERE created_at < ? OR broadcaster_id = ?", [now - STAGE_TTL_MS, broadcasterId]);
+  await sqlite.execute("INSERT INTO se_import_staging (id, broadcaster_id, payload, created_at) VALUES (?,?,?,?)", [id, broadcasterId, JSON.stringify(staged), now]);
+  return id;
+}
+
+/** The existing timed messages, lowercased, to flag repeats. */
+export async function existingTimedMessages(broadcasterId: string): Promise<Set<string>> {
+  return new Set((await listTimedMessages(broadcasterId)).map((m: any) => String(m.message ?? "").toLowerCase()));
+}
+
 // ── Fetching ────────────────────────────────────────────────────────────────
 
 async function seGet(path: string, token?: string): Promise<{ status: number; body: any }> {
@@ -159,8 +217,7 @@ export async function stageSeImport(broadcasterId: string, rawUsername: string, 
   cmdRes ??= await seGet(`/bot/commands/${seId}/public`).catch(() => null);
   const rawCommands: any[] = Array.isArray(cmdRes?.body) ? cmdRes!.body : [];
 
-  const commands: StagedCommand[] = [];
-  const seen = new Set<string>();
+  const sources: CommandSource[] = [];
   for (const c of rawCommands) {
     const reply = String(c.reply ?? "");
     const t = translateSeReply(reply);
@@ -176,31 +233,9 @@ export async function stageSeImport(broadcasterId: string, rawUsername: string, 
     if (Number(c.cost ?? 0) > 0) t.notes.push(`cost ${c.cost} points in StreamElements; free here`);
     const cooldownSec = Math.min(MAX_COOLDOWN_SECONDS, Math.max(0, Number(c.cooldown?.global ?? 5)));
     const names = [String(c.command ?? ""), ...(Array.isArray(c.aliases) ? c.aliases.map(String) : [])];
-    for (const [i, raw] of names.entries()) {
-      const notes = [...t.notes];
-      let ok = t.ok && !!t.text;
-      const name = sanitizeCommandName(raw);
-      if (!name) {
-        notes.push(`“!${raw.slice(0, 30)}” isn't a valid command name here (2–25 letters, numbers, - or _)`);
-        ok = false;
-      } else if (RESERVED_NAMES.has(name)) {
-        notes.push(`!${name} is a built-in GuildScribe command`);
-        ok = false;
-      } else if (SHADOWS_FEATURE[name]) {
-        notes.push(`replaces ${SHADOWS_FEATURE[name]} for !${name}`);
-        ok = false;
-      }
-      const key = name ?? raw.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const exists = !!name && !!(await getCustomCommand(broadcasterId, name));
-      if (exists) notes.push("already exists here — importing overwrites it");
-      commands.push({
-        name: name ?? raw.slice(0, 30), response: t.text, cooldownSec, enabled: c.enabled !== false,
-        notes, ok: ok && !exists && c.enabled !== false, exists, aliasOf: i > 0 ? String(c.command) : undefined,
-      });
-    }
+    sources.push({ names, text: t.text, notes: t.notes, ok: t.ok, cooldownSec, enabled: c.enabled !== false });
   }
+  const commands = await stageCommands(broadcasterId, sources);
 
   // Quotes and timers need the token.
   const quotes: StagedQuote[] = [];
@@ -284,12 +319,8 @@ export async function stageSeImport(broadcasterId: string, rawUsername: string, 
     }
   }
 
-  const staged: Staged = { username, displayName, commands, quotes, timers, quotesStatus, timersStatus };
-  const id = crypto.randomUUID();
-  const now = Date.now();
-  await sqlite.execute("DELETE FROM se_import_staging WHERE created_at < ? OR broadcaster_id = ?", [now - STAGE_TTL_MS, broadcasterId]);
-  await sqlite.execute("INSERT INTO se_import_staging (id, broadcaster_id, payload, created_at) VALUES (?,?,?,?)", [id, broadcasterId, JSON.stringify(staged), now]);
-  return { id };
+  const staged: Staged = { source: "streamelements", username, displayName, commands, quotes, timers, quotesStatus, timersStatus };
+  return { id: await saveStage(broadcasterId, staged) };
 }
 
 async function loadStage(broadcasterId: string, id: string): Promise<Staged | null> {
@@ -311,7 +342,9 @@ type Result = { ok: boolean; message: string; stage?: string };
 export async function applyImportForm(broadcasterId: string, form: FormData): Promise<Result> {
   const intent = String(form.get("intent") ?? "");
   if (intent === "fetch") {
-    const r = await stageSeImport(broadcasterId, String(form.get("username") ?? ""), String(form.get("token") ?? ""));
+    const r = String(form.get("from") ?? "") === "nightbot"
+      ? await stageNightbotPublic(broadcasterId, String(form.get("username") ?? ""))
+      : await stageSeImport(broadcasterId, String(form.get("username") ?? ""), String(form.get("token") ?? ""));
     return "error" in r ? { ok: false, message: r.error } : { ok: true, message: "", stage: r.id };
   }
   if (intent !== "import") return { ok: false, message: "Unknown action." };
@@ -320,6 +353,7 @@ export async function applyImportForm(broadcasterId: string, form: FormData): Pr
   if (!staged) return { ok: false, message: "That preview expired (they last 30 minutes) — fetch it again." };
   const picked = (field: string) => new Set(form.getAll(field).map((v) => Number(v)).filter(Number.isInteger));
   const cmdPicks = picked("cmd"), quotePicks = picked("quote"), timerPicks = picked("timer");
+  const src = staged.source ?? "streamelements";
 
   const done = { commands: 0, quotes: 0, timers: 0 };
   const problems: string[] = [];
@@ -330,7 +364,7 @@ export async function applyImportForm(broadcasterId: string, form: FormData): Pr
     if (await getCustomCommand(broadcasterId, name)) {
       await editCustomCommand(broadcasterId, name, c.response);
     } else {
-      const r = await addCustomCommand(broadcasterId, name, c.response, `streamelements:${staged.username}`);
+      const r = await addCustomCommand(broadcasterId, name, c.response, `${src}:${staged.username}`);
       if (!r.ok) {
         if (r.error === "cap") { problems.push(`custom command limit (${r.max}) reached`); break; }
         continue;
@@ -338,11 +372,12 @@ export async function applyImportForm(broadcasterId: string, form: FormData): Pr
     }
     await setCustomCommandCooldown(broadcasterId, name, c.cooldownSec * 1000);
     await setCustomCommandEnabled(broadcasterId, name, c.enabled);
+    if (c.uses && c.response.includes("{count}")) await setCustomCommandUses(broadcasterId, name, c.uses);
     done.commands++;
   }
   for (const [i, q] of staged.quotes.entries()) {
     if (!quotePicks.has(i)) continue;
-    const r = await addQuote(broadcasterId, { text: q.text, game: q.game, addedBy: q.addedBy, createdAt: q.createdAt || undefined, source: "streamelements", preferNo: q.no });
+    const r = await addQuote(broadcasterId, { text: q.text, game: q.game, addedBy: q.addedBy, createdAt: q.createdAt || undefined, source: src, preferNo: q.no });
     if (!r.ok) {
       if (r.error === "cap") { problems.push("the quote book is full"); break; }
       continue;
@@ -351,7 +386,7 @@ export async function applyImportForm(broadcasterId: string, form: FormData): Pr
   }
   for (const [i, t] of staged.timers.entries()) {
     if (!timerPicks.has(i) || !t.message) continue;
-    const r = await addTimedMessage(broadcasterId, t.message, t.intervalMinutes, `streamelements:${staged.username}`);
+    const r = await addTimedMessage(broadcasterId, t.message, t.intervalMinutes, `${src}:${staged.username}`);
     if (!r.ok) { problems.push(`timed message limit (${r.max}) reached`); break; }
     done.timers++;
   }
@@ -372,6 +407,7 @@ export async function renderImportPage(d: {
   broadcasterId: string;
   broadcasterName: string;
   key: string;
+  from?: string;
   stage?: string;
   notice?: string;
   error?: string;
@@ -381,10 +417,22 @@ export async function renderImportPage(d: {
   const name = escapeHtml(d.broadcasterName);
   const b = await getBroadcaster(d.broadcasterId);
   const staged = d.stage ? await loadStage(d.broadcasterId, d.stage) : null;
+  const source: ImportSource = staged?.source ?? (d.from === "nightbot" ? "nightbot" : "streamelements");
+  const label = SOURCE_LABELS[source];
   const defaultUser = staged?.username ?? String(b?.login ?? "");
 
-  const fetchForm = `<form method="post" action="/dashboard/import" class="fetchform">${hidden}<input type="hidden" name="intent" value="fetch">
-<label>Twitch username on StreamElements<input type="text" name="username" value="${escapeHtml(defaultUser)}" required maxlength="25" autocomplete="off" placeholder="stonedsheamus"></label>
+  const tabs = `<p>${(Object.keys(SOURCE_LABELS) as ImportSource[]).map((s) =>
+    `<a class="btn${s === source ? "" : " ghost"}" href="/dashboard/import?${qs}&amp;from=${s}"${s === source ? ` aria-current="page"` : ""}>${SOURCE_LABELS[s]}</a>`).join(" ")}</p>`;
+  const userField = `<label>Twitch username on ${label}<input type="text" name="username" value="${escapeHtml(defaultUser)}" required maxlength="25" autocomplete="off" placeholder="stonedsheamus"></label>`;
+  const nbLogin = nightbotConnectConfigured()
+    ? `<div class="card"><p><strong>Want timers too, with every variable intact?</strong> Log in with the Nightbot account that owns the channel. GuildScribe asks Nightbot for read access to commands and timers, reads them once, then logs itself back out — nothing is kept.</p><p><a class="btn ember" href="/dashboard/import/nightbot?${qs}">Log in with Nightbot</a></p></div>`
+    : "";
+  const nbForm = `${nbLogin}<form method="post" action="/dashboard/import" class="fetchform">${hidden}<input type="hidden" name="intent" value="fetch"><input type="hidden" name="from" value="nightbot">
+${userField}
+<div class="row"><button type="submit" class="${nbLogin ? "ghost" : "ember"}">Fetch public commands</button> <span class="muted small">No login — works for any channel. Nightbot's public list hides variables, so GuildScribe rebuilds the simple ones and flags the rest.</span></div></form>
+<p class="muted small">Nightbot has no quote book, so there are never quotes to bring over.</p>`;
+  const seForm = `<form method="post" action="/dashboard/import" class="fetchform">${hidden}<input type="hidden" name="intent" value="fetch"><input type="hidden" name="from" value="streamelements">
+${userField}
 <label>StreamElements JWT token <span class="muted small">(optional — only for quotes and timers)</span><input type="password" name="token" autocomplete="off" placeholder="Paste to include quotes and timers"></label>
 <div class="row"><button type="submit" class="ember">Fetch from StreamElements</button> <span class="muted small">Nothing is imported until you pick what to keep on the next step.</span></div></form>
 <details class="card"><summary><strong>Where's the JWT token?</strong></summary><p>Log in at <a href="https://streamelements.com/dashboard/account/channels" target="_blank" rel="noopener">streamelements.com → Account → Channels</a> as the channel owner, click <em>Show secrets</em>, and copy <em>JWT Token</em>. GuildScribe sends it to StreamElements once to read the quotes and timers and doesn't keep it. It's a password for your StreamElements account — paste it only here, and you can reset it on that same page afterwards if you like. Custom commands are public, so they import without it — including from another channel's username.</p></details>`;
@@ -410,21 +458,26 @@ export async function renderImportPage(d: {
     ).join("");
     const table = (head: string, rows: string) => `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
 
-    preview = `<h2 style="margin-bottom:0">From ${escapeHtml(staged.displayName)}'s StreamElements</h2>
-<p class="muted">Ticked rows import. Unticked ones are flagged — read the note in orange, and tick it anyway if that's fine. Variables like <code>\${user}</code> were changed to GuildScribe's <code>{user}</code>.</p>
+    const example = source === "nightbot" ? "<code>$(query)</code> were changed to GuildScribe's <code>{args}</code>" : "<code>\${user}</code> were changed to GuildScribe's <code>{user}</code>";
+    preview = `<h2 style="margin-bottom:0">From ${escapeHtml(staged.displayName)}'s ${label}</h2>
+<p class="muted">Ticked rows import. Unticked ones are flagged — read the note in orange, and tick it anyway if that's fine. Variables like ${example}.</p>
 <form method="post" action="/dashboard/import">${hidden}<input type="hidden" name="intent" value="import"><input type="hidden" name="stage" value="${escapeHtml(d.stage!)}">
 ${section("cmd", "Commands", staged.commands.length, table(`<th></th><th>Command</th><th>Response</th>`, cmdRows), "")}
 ${section("quote", "Quotes", staged.quotes.length, table(`<th></th><th class="num">#</th><th>Quote</th><th>Game · date</th>`, quoteRows), staged.quotesStatus)}
-${staged.quotes.length ? `<p class="muted small">Quotes keep their StreamElements number when it's free here; otherwise they're added at the end.</p>` : ""}
+${staged.quotes.length ? `<p class="muted small">Quotes keep their ${label} number when it's free here; otherwise they're added at the end.</p>` : ""}
 ${section("timer", "Timers → timed messages", staged.timers.length, table(`<th></th><th>Timer</th><th>Message</th>`, timerRows), staged.timersStatus)}
-<div class="sticky"><button type="submit" class="ember">Import ticked items</button> <a class="btn ghost" href="/dashboard/import?${qs}">Cancel</a></div></form>
+<div class="sticky"><button type="submit" class="ember">Import ticked items</button> <a class="btn ghost" href="/dashboard/import?${qs}&amp;from=${source}">Cancel</a></div></form>
 <script>document.addEventListener("click",function(e){var t=e.target,f=t.getAttribute&&(t.getAttribute("data-all")||t.getAttribute("data-none"));if(!f)return;var on=!!t.getAttribute("data-all");[].forEach.call(document.querySelectorAll('input[name="'+f+'"]'),function(c){c.checked=on})});</script>`;
   }
 
-  const body = `<header class="dash-top"><div><span class="pill">Import from StreamElements</span><h1>${name}</h1></div><span><a class="btn ghost" href="/dashboard/quotes?${qs}">📜 Quotes</a> <a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></span></header>
+  const intro = source === "nightbot"
+    ? `<p>Moving over from Nightbot? Bring its <strong>custom commands</strong> and <strong>timers</strong> across. You'll see everything first and pick what to keep.</p>`
+    : `<p>Moving over from the StreamElements chatbot? Bring its <strong>custom commands</strong>, <strong>quotes</strong> and <strong>timers</strong> across by Twitch username. You'll see everything first and pick what to keep.</p>`;
+  const body = `<header class="dash-top"><div><span class="pill">Import from ${label}</span><h1>${name}</h1></div><span><a class="btn ghost" href="/dashboard/quotes?${qs}">📜 Quotes</a> <a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></span></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>Moving over from the StreamElements chatbot? Bring its <strong>custom commands</strong>, <strong>quotes</strong> and <strong>timers</strong> across by Twitch username. You'll see everything first and pick what to keep.</p>
-${staged ? "" : fetchForm}
+${staged ? "" : tabs}
+${intro}
+${staged ? "" : source === "nightbot" ? nbForm : seForm}
 ${preview}`;
   return scrollDoc(`${name} — Import`, body, { width: 1100, css: CSS });
 }

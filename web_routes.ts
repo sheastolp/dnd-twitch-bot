@@ -22,8 +22,9 @@ import { isHoardEnabled } from "./hoard_db.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
+import { handleNightbotCallback } from "./nightbot_import.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
 import { page, renderCharacterPage, renderGuidePage, renderMapPage, renderMapListPage, renderRosterPage, renderAdminLogsPage } from "./pages.ts";
@@ -516,13 +517,24 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Auto-ban word list + ignore list (autoban_page.ts) — same gate.
     return await handleAutoBanPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/mod") {
+    // The Mod center (mod_center.ts) — same gate.
+    return await handleModCenterPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/quotes") {
     // The quote book (quotes.ts) — same gate.
     return await handleQuotesPage(url, req.headers.get("Cookie"));
   }
   if (req.method === "GET" && path === "/dashboard/import") {
-    // StreamElements import (se_import.ts) — same gate.
+    // StreamElements / Nightbot import (se_import.ts) — same gate.
     return await handleImportPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/import/nightbot") {
+    return await handleNightbotConnect(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/nightbot/callback") {
+    // Nightbot's OAuth return; trusted by its one-time state, created behind the dashboard gate.
+    return await handleNightbotCallback(url);
   }
   if (req.method === "GET" && path === "/dashboard/go") {
     // Guide cards' "Dashboard switch" links (see handleDashboardGo).
@@ -786,6 +798,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/autoban") {
     return await handleAutoBanForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/mod") {
+    return await handleModCenterForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/quotes") {
     return await handleQuotesForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

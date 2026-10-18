@@ -286,7 +286,7 @@ export async function renderQuotesDashboardPage(d: {
 <td class="actions"><button type="submit" form="${id}" name="intent" value="save" class="ghost">Save</button> <button type="submit" form="${id}" name="intent" value="delete" class="ghost" onclick="return confirm('Delete quote #${q.no}?')">Delete</button></td></tr>`;
   }).join("");
 
-  const body = `<header class="dash-top"><div><span class="pill">Quotes</span><h1>${name}</h1></div><span><a class="btn ghost" href="/dashboard/import?${qs}">⇪ Import from StreamElements</a> <a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></span></header>
+  const body = `<header class="dash-top"><div><span class="pill">Quotes</span><h1>${name}</h1></div><span><a class="btn ghost" href="/dashboard/import?${qs}">⇪ Import from StreamElements / Nightbot</a> <a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></span></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 <div class="controls">${toggle}<span>${on ? "<strong>On</strong> — <code>!quote</code> answers in chat." : "<strong>Off</strong> — <code>!quote</code> is silent (or runs your own custom command by that name)."}</span></div>
 <p>Chat: <code>!quote</code> random · <code>!quote 12</code> · <code>!quote &lt;words&gt;</code> search · <code>!quotes</code> count + <a href="/quotes?channel=${encodeURIComponent(d.broadcasterId)}" target="_blank" rel="noopener">public list ↗</a>. Mods: <code>!quote add &lt;text&gt;</code> (saves the current game) · <code>!quote edit &lt;n&gt; &lt;text&gt;</code> · <code>!quote remove &lt;n&gt;</code>.</p>

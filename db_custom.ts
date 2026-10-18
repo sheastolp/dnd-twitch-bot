@@ -58,6 +58,11 @@ export async function deleteCustomCommand(broadcasterId: string, name: string) {
   return true;
 }
 
+/** Sets a command's use counter (what {count} shows), e.g. carried over from another bot. */
+export async function setCustomCommandUses(broadcasterId: string, name: string, uses: number) {
+  await sqlite.execute("UPDATE custom_commands SET uses = ? WHERE broadcaster_id = ? AND name = ?", [Math.max(0, Math.floor(uses)), broadcasterId, name]);
+}
+
 export async function setCustomCommandCooldown(broadcasterId: string, name: string, cooldownMs: number) {
   if (!(await getCustomCommand(broadcasterId, name))) return false;
   await sqlite.execute(

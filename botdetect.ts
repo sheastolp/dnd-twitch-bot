@@ -94,7 +94,7 @@ export interface BotScore {
 }
 
 /** Null when nothing about the account looks off. */
-function scoreUser(user: TwitchUser): BotScore | null {
+export function scoreUser(user: TwitchUser): BotScore | null {
   const reasons: string[] = [];
   let score = 0;
   const ageDays = (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
