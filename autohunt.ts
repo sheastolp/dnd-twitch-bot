@@ -15,8 +15,8 @@
 // hero's own !autohunt / status / stop. Settling is claimed atomically
 // (claimAutohuntBouts), so the cron and a viewer can't both pay the same bout.
 //
-// There is no resting mechanic: unlike Hunt & Hoard, GuildScribe heroes start
-// every fight at full HP, so a loss costs a bout's XP and loot, nothing more.
+// Every bout starts at full HP, so a loss costs a bout's XP and loot,
+// nothing more.
 
 import { getCharacter } from "./db.ts";
 import { recordMonsterOutcome, summonMonster } from "./bestiary.ts";
@@ -30,8 +30,6 @@ import { sendChatMessages } from "./twitch.ts";
 import { getReplyInitiator, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { splitChatMessage } from "./utils.ts";
 import { creditBounty } from "./hoard.ts";
-import { loadHero, restIfLow, settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
-import { AUTOHUNT_REGEN_MULTIPLIER } from "./hoard_data.ts";
 import {
   addAutohuntProgress,
   bumpAutohuntReports,
@@ -221,11 +219,6 @@ export async function settleAutohunt(
   let lastLevel: number | undefined;
   let missing = false;
 
-  // Hunt and Hoard wounds (hoard_combat.ts): when the module is on, bouts
-  // start at current HP and a low hero rests that bout instead of fighting.
-  // Passive regen runs at AUTOHUNT_REGEN_MULTIPLIER x while out hunting.
-  const wounds = await woundsOn(bid);
-  let rests = 0;
   for (let i = 0; i < count; i++) {
     // Re-read every bout: a level-up mid-trip changes what the hero fights.
     const c = await getCharacter(username, bid);
@@ -233,19 +226,11 @@ export async function settleAutohunt(
       missing = true;
       break;
     }
-    const hp0 = await startHp(bid, c, wounds, AUTOHUNT_REGEN_MULTIPLIER);
-    const rested = await restIfLow(bid, c, wounds);
-    if (rested !== null) {
-      rests++;
-      lines.push(`⛺ rested to ${rested}/${c.hpMax} HP`);
-      continue;
-    }
     // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
     const monster = (await summonMonster(bid, c.level))!;
-    const fight = simulateMonsterFight(c, session.display_name, monster, { startHp: hp0 });
+    const fight = simulateMonsterFight(c, session.display_name, monster);
     await recordMonsterOutcome(bid, monster.name, fight.won, c.level);
     await recordBattle(bid, { kind: "autohunt", side: String(session.display_name), foe: monster.name, outcome: fight.won ? "win" : "loss" });
-    await settleWounds(bid, username, fight.playerHp, wounds); // before XP (level-ups raise HP)
     if (fight.won) {
       wins++;
       const gained = await awardMonsterXp(username, monster.cr, bid);
@@ -258,7 +243,7 @@ export async function settleAutohunt(
       }
       const paid = await awardMonsterLoot([username], monster.cr, bid);
       copper += paid?.[0]?.copper ?? 0;
-      // Hunt and Hoard bounties count autohunt kills too (no-op when it's off).
+      // Hunt and Hoard bounties count autohunt kills too (no-op with monster hunts off).
       const bounty = await creditBounty(bid, username, monster.name);
       lines.push(`✔ beat ${monster.name} in ${fight.rounds} rd${fight.rounds === 1 ? "" : "s"} (you ${fight.playerHp}/${c.hpMax} HP)${bounty}`);
     } else {
@@ -267,7 +252,7 @@ export async function settleAutohunt(
     }
   }
 
-  if (wins + losses + rests > 0) {
+  if (wins + losses > 0) {
     // Manual hunts respect the cooldown from the hero's latest bout.
     await stampHunt(bid, [username], now);
     await addAutohuntProgress(bid, username, { bouts: wins + losses, wins, losses, xp, copper, levels, lines });
@@ -315,9 +300,7 @@ export async function settleAutohunt(
 
   const left = formatDuration(session.ends_at - now);
   // The count and W/L cover the whole trip so far, not just this settle.
-  const head = `🏹 autohunt report — ${fresh.bouts} bout${fresh.bouts === 1 ? "" : "s"} (${tally(fresh)})${
-    rests ? `, ${rests} rest${rests === 1 ? "" : "s"}` : ""
-  }`;
+  const head = `🏹 autohunt report — ${fresh.bouts} bout${fresh.bouts === 1 ? "" : "s"} (${tally(fresh)})`;
   const tail = `${gains}${levelNote} | ${left} left.`;
   return {
     text: `${tag}${name} ${head} | ${tail} Trip so far: ${all}.`,
@@ -433,9 +416,6 @@ export async function handleAutohuntCommand(
   }
   // Starting a hunt is subject to the same cooldown as every other hunt.
   if (!(await claimHunt(broadcasterId, [user], display, { self: user }))) return true;
-  // Cash in regen banked before the trip at the normal rate, so only time
-  // spent hunting earns the autohunt bonus.
-  if (await woundsOn(broadcasterId)) await loadHero(broadcasterId, user);
   const firstBoutIn = Math.max(BOUT_INTERVAL_MS, await getHuntCooldownMs(broadcasterId));
   const now = Date.now();
   await createAutohuntSession({

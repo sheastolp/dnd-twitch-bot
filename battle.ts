@@ -279,15 +279,13 @@ export class BattleLog {
 /**
  * Auto-resolve one solo hero-vs-monster fight with the real dice. Shared by
  * the chat command (!dndduel / !dndduel <monster>), the autohunt
- * (autohunt.ts) and Hunt and Hoard (hoard.ts) so all fight with exactly the
+ * (autohunt.ts) and !hunt (hoard.ts) so all fight with exactly the
  * same engine and odds, class abilities included (combat_abilities.ts).
  * Pure simulation: no DB writes, no chat. `username` is the display label
  * used in the battle log.
  */
-/** `opts.startHp` starts the hero wounded (Hunt and Hoard keeps HP between
- * hunts, see hoard.ts); every other fight starts at full HP. */
-export function simulateMonsterFight(c: any, username: string, monster: any, opts: { startHp?: number } = {}) {
-  const startHp = Math.max(1, Math.min(c.hpMax, Math.floor(opts.startHp ?? c.hpMax)));
+export function simulateMonsterFight(c: any, username: string, monster: any) {
+  const startHp = c.hpMax;
   // Slightly forgiving AC (base 11) for stream pacing; heroes hit a bit
   // harder vs monsters (d10 weapons) plus the hunter's edge.
   const hero = heroFighter(username, c, startHp, 11, { minDie: 10, edge: 1, fateDc: FATE_STAYS_HAND_DC });

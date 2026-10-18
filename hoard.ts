@@ -1,6 +1,7 @@
 // Hunt and Hoard — the Wandering Clerk's hunting-and-shopping game, ported
-// from the standalone Hunt & Hoard bot as a GuildScribe module and rebuilt on
-// GuildScribe's own systems:
+// from the standalone Hunt & Hoard bot and merged into GuildScribe's combat
+// (the "Monster hunts" switch, commandgroups.ts). Rebuilt on GuildScribe's
+// own systems:
 //
 //   heroes    the GuildScribe character sheet (!createchar) — no separate
 //             !enlist. Level, XP, HP and gear are the sheet's.
@@ -14,33 +15,28 @@
 //             sheet with applyGear, exactly like a !haggle purchase.
 //
 // What Hunt & Hoard adds on top:
-//   - HP that carries between fights. While the module is open, EVERY monster
-//     fight (!hunt, !dndduel solo/party hunts, !autohunt, raids) starts at the
-//     hero's current HP and leaves them where it ended — never below 1 (see
-//     hoard_combat.ts). Heal with !rest (to 80%), potions, or 3 HP every 15 min (6 on autohunt).
-//   - A merchant stall: three offers of potions and peddler gear, bought with
-//     coin. Each ware sells once (first buyer wins); sold slots stay empty
-//     until the whole stall turns over every 20 minutes.
-//   - A pack of potions: !inv, !use, !sell, !drop.
+//   - A merchant stall: three offers of peddler gear, bought with coin. Each
+//     ware sells once (first buyer wins); sold slots stay empty until the
+//     whole stall turns over every 20 minutes.
+//   - A pack: !inv. Potions no longer heal or sell on the stall (every fight
+//     starts at full HP); any left from before can be sold or dropped.
 //   - A bounty board: three "slay N of X" postings drawn from the bestiary's
 //     easy end. Every monster kill counts (creditBounty is called from the
 //     solo/party duel, autohunt and raid code); whoever finishes one first is
 //     paid and the posting is replaced.
 //   - A "Next:" hint on most replies saying what to do next.
 //
-// Off by default per channel (!hoard on / the dashboard). While off, or if
-// the channel has a custom command with the same name (e.g. its own !shop),
+// Switched by "Monster hunts" (on by default). While it's off, or if the
+// channel has a custom command with the same name (e.g. its own !shop),
 // these words fall through untouched.
 //
-//   !hoard [on|off|status]   your status + next step; mods switch the module
+//   !hoard                   your status + next step
 //   !hunt [monster]          hunt a random level-fit foe, or a named one
-//   !rest                    recover to 80% HP
 //   !bounties | !quests      the bounty board and your progress
 //   !shop | !merchant [#|name]  the stall, or one ware's details and lore
 //   !buy <#|name|1 3|all>    buy one, several or every ware (each sells once)
-//   !inv | !inventory        your potions and gear
-//   !use <potion>            drink a potion
-//   !sell <potion> | !drop <potion>
+//   !inv | !inventory        your gear (and any old potions)
+//   !sell <potion> | !drop <potion>  get rid of an old potion
 //   !purse | !coinpurse      your coin and what it can buy
 //   !ledger [@user]          a hero's Hunt and Hoard sheet
 
@@ -60,11 +56,9 @@ import { formatCoins } from "./coins.ts";
 import { adjustBalance, canEarnGold, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { formatRaceName, heroAc, pick } from "./utils.ts";
 import type { Character } from "./types.ts";
-import { isLowHp, loadHero } from "./hoard_combat.ts";
 import {
   type Bounty,
   findPackPotion,
-  findPotion,
   getBoard,
   getPlayer,
   getStall,
@@ -72,48 +66,31 @@ import {
   claimOffer,
   type StallOffer,
   type HoardPlayer,
-  isHoardEnabled,
   resolveOffer,
   type ResolvedOffer,
   rerollBounty,
   savePlayer,
-  setHoardEnabled,
 } from "./hoard_db.ts";
-import {
-  LORE_TEMPLATES,
-  MAX_POTION_STACK,
-  POTIONS,
-  REST_FRACTION,
-  SELL_BACK_SHARE,
-} from "./hoard_data.ts";
+import { LORE_TEMPLATES, POTIONS, SELL_BACK_SHARE } from "./hoard_data.ts";
 
-/** Chat word → dashboard group (commandgroups.ts) that switches it. */
-const WORD_GROUP: Record<string, string> = {
-  hunt: "hoardhunt", rest: "hoardhunt", ledger: "hoardhunt",
-  bounties: "hoardbounties", quests: "hoardbounties",
-  shop: "hoardshop", merchant: "hoardshop", buy: "hoardshop", sell: "hoardshop", use: "hoardshop", drop: "hoardshop",
-  inv: "hoardshop", inventory: "hoardshop", purse: "hoardshop", coinpurse: "hoardshop",
-};
+/** Every word here is switched by the "Monster hunts" group (commandgroups.ts). */
+const HUNT_GROUP = "hunts";
+const WORDS = new Set([
+  "hoard", "hunt", "ledger", "bounties", "quests",
+  "shop", "merchant", "buy", "sell", "drop", "inv", "inventory", "purse", "coinpurse",
+]);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const rollHeal = ([n, sides, flat]: [number, number, number]) => {
-  let total = flat;
-  for (let i = 0; i < n; i++) total += 1 + Math.floor(Math.random() * sides);
-  return total;
-};
 
 // ── The "Next:" hint ──
 
 async function nextStep(broadcasterId: string, username: string, c: Character | null, p: HoardPlayer): Promise<string> {
   if (!c) return "Next: !createchar to roll up a hero.";
-  // No hint at low HP — the player decides how to recover.
-  if (c.hpCurrent <= 1 || isLowHp(c)) return "";
-  const potion = findPackPotion(p, "");
   if (await isPointsEnabled(broadcasterId)) {
     const [bal, stall] = await Promise.all([getBalance(broadcasterId, username), getStall(broadcasterId)]);
     const coin = bal?.balance ?? 0;
     const offers = stall.map(resolveOffer);
-    const i = offers.findIndex((o) => o && o.price <= coin && (o.kind === "potion" ? !potion : !ownsGear(c, o.gear)));
+    const i = offers.findIndex((o) => o && o.price <= coin && !ownsGear(c, o.gear));
     if (i >= 0) return `Next: !buy ${i + 1} — you can afford the ${offers[i]!.name} (${formatCoins(offers[i]!.price)}).`;
   }
   const board = await getBoard(broadcasterId);
@@ -124,16 +101,13 @@ async function nextStep(broadcasterId: string, username: string, c: Character | 
 // ── Bounties ──
 
 function describeBounty(b: Bounty, progress: number): string {
-  const reward = [formatCoins(b.reward)];
-  const potion = b.potion ? POTIONS.find((x) => x.key === b.potion) : null;
-  if (potion) reward.push(potion.name);
-  return `Slay ${b.target} ${b.monster}${b.target === 1 ? "" : "s"} (CR ${b.cr}) ${Math.min(progress, b.target)}/${b.target} → ${reward.join(" + ")}`;
+  return `Slay ${b.target} ${b.monster}${b.target === 1 ? "" : "s"} (CR ${b.cr}) ${Math.min(progress, b.target)}/${b.target} → ${formatCoins(b.reward)}`;
 }
 
 /**
  * Logs one kill of `monsterName` toward the board, paying out and reposting
  * the slot the moment a hero finishes it. Returns a short note for the reply
- * ("" when no bounty matched or the module is off). Also called by every
+ * ("" when no bounty matched or monster hunts are off). Also called by every
  * monster fight: combat_monster.ts, combat_partyduel.ts, autohunt.ts, raid.ts. `player` lets the caller save once.
  */
 export async function creditBounty(
@@ -142,7 +116,7 @@ export async function creditBounty(
   monsterName: string,
   player?: HoardPlayer,
 ): Promise<string> {
-  if (!(await isHoardEnabled(broadcasterId)) || !(await isCommandGroupEnabled(broadcasterId, "hoardbounties"))) return "";
+  if (!(await isCommandGroupEnabled(broadcasterId, HUNT_GROUP))) return "";
   const board = await getBoard(broadcasterId);
   const index = board.findIndex((b) => b.monster.toLowerCase() === monsterName.toLowerCase());
   if (index < 0) return "";
@@ -153,14 +127,9 @@ export async function creditBounty(
   if (kills >= b.target) {
     delete p.progress[b.id];
     const paid: string[] = [];
-    if (await canEarnGold(broadcasterId)) { // no coin while offline (the potion still drops)
+    if (await canEarnGold(broadcasterId)) { // no coin while offline
       await adjustBalance(broadcasterId, username, username, b.reward);
       paid.push(formatCoins(b.reward));
-    }
-    const potion = b.potion ? POTIONS.find((x) => x.key === b.potion) : null;
-    if (potion) {
-      p.potions[potion.key] = Math.min(MAX_POTION_STACK, (p.potions[potion.key] ?? 0) + 1);
-      paid.push(`a ${potion.name}`);
     }
     await rerollBounty(broadcasterId, board, index);
     note = ` 📜 Bounty fulfilled — the ${b.monster} contract pays ${paid.join(" and ") || "in glory"}! A fresh posting goes up.`;
@@ -175,19 +144,18 @@ export async function creditBounty(
 // ── Formatting ──
 
 function offerLine(o: ResolvedOffer, i: number): string {
-  const what = o.kind === "potion" ? o.potion.desc : effectText(o.gear.effect) + (o.legendary ? ", ★ legendary" : "");
+  const what = effectText(o.gear.effect) + (o.legendary ? ", ★ legendary" : "");
   return `#${i + 1} ${o.name} (${what}) — ${formatCoins(o.price)} [${o.merchant}]`;
 }
 
 function lore(o: ResolvedOffer): string {
-  return pick(LORE_TEMPLATES[o.kind]).split("{owner}").join(o.merchant).split("{item}").join(o.name).split("{desc}").join(o.pitch);
+  return pick(LORE_TEMPLATES).split("{owner}").join(o.merchant).split("{item}").join(o.name).split("{desc}").join(o.pitch);
 }
 
-function sheetLine(c: Character, p: HoardPlayer, name: string, coin: number | null): string {
-  const potions = Object.values(p.potions).reduce((a, b) => a + b, 0);
+function sheetLine(c: Character, name: string, coin: number | null): string {
   const ac = heroAc(c, 11).ac;
-  return `${name} — Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} | ${c.hpCurrent}/${c.hpMax} HP | AC ${ac} | XP ${c.xp ?? 0}` +
-    (coin !== null ? ` | 🪙 ${formatCoins(coin)}` : "") + ` | ${plural(potions, "potion")} | ${plural((c.items ?? []).length, "item")} on the sheet`;
+  return `${name} — Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} | ${c.hpMax} HP | AC ${ac} | XP ${c.xp ?? 0}` +
+    (coin !== null ? ` | 🪙 ${formatCoins(coin)}` : "") + ` | ${plural((c.items ?? []).length, "item")} on the sheet`;
 }
 
 function findOffer(offers: Array<ResolvedOffer | null>, needle: string): number {
@@ -207,41 +175,20 @@ export async function handleHoardCommand(
   chatter: string,
   display: string,
   broadcasterId: string,
-  isModerator: boolean,
 ): Promise<boolean> {
   const m = chatMessage.trim().match(/^!([a-z]+)(?:\s+(.*))?$/i);
   if (!m) return false;
   const word = m[1].toLowerCase();
   const arg = (m[2] ?? "").trim();
-  if (word !== "hoard" && !(word in WORD_GROUP)) return false;
+  if (!WORDS.has(word)) return false;
   const say = (text: string) => sendChatMessage(`@${display} ${text}`, broadcasterId);
 
-  // !hoard on|off|status always answers, so mods can switch it on.
-  if (word === "hoard" && /^(on|off|status)$/i.test(arg)) {
-    const action = arg.toLowerCase();
-    if (action === "status") {
-      const on = await isHoardEnabled(broadcasterId);
-      await say(`⚔️💰 Hunt and Hoard is ${on ? "open — !hunt, !bounties, !shop and !hoard to see where you stand" : "closed in this channel"}.${isModerator ? ` Mods: !hoard ${on ? "off" : "on"}.` : ""}`);
-    } else if (!isModerator) {
-      await say("only the broadcaster or a moderator can open or close Hunt and Hoard.");
-    } else {
-      await setHoardEnabled(broadcasterId, action === "on");
-      await say(action === "on"
-        ? "⚔️💰 Hunt and Hoard is open! The Wandering Clerk posts bounties (!bounties) and the stall opens (!shop). Heroes: !hunt to begin, !hoard for your next step."
-        : "Hunt and Hoard is closed. Heroes, potions and bounty progress are kept for next time.");
-    }
-    return true;
-  }
+  // A channel's own command with the same name wins.
+  const custom = await getCustomCommand(broadcasterId, word);
+  if (custom && Number(custom.enabled ?? 1) === 1) return false;
+  if (!(await isCommandGroupEnabled(broadcasterId, HUNT_GROUP))) return false;
 
-  if (!(await isHoardEnabled(broadcasterId))) return false;
-  if (word !== "hoard") {
-    // A channel's own command with the same name wins.
-    const custom = await getCustomCommand(broadcasterId, word);
-    if (custom && Number(custom.enabled ?? 1) === 1) return false;
-    if (!(await isCommandGroupEnabled(broadcasterId, WORD_GROUP[word]))) return false;
-  }
-
-  const { c, p } = await loadHero(broadcasterId, chatter);
+  const [c, p] = await Promise.all([getCharacter(chatter, broadcasterId), getPlayer(broadcasterId, chatter)]);
   const noHero = "the Clerk can't find you in the ledger — roll up a hero with !createchar first.";
   const goldOn = await isPointsEnabled(broadcasterId);
   const goldOff = "the stall only deals in coin, and gold is switched off in this channel (a mod can turn it on with !gold on).";
@@ -249,11 +196,11 @@ export async function handleHoardCommand(
   switch (word) {
     case "hoard": {
       if (!c) {
-        await say(`⚔️💰 Welcome to Hunt and Hoard! Roll up a hero with !createchar, then !hunt monsters for XP and loot, fill bounties (!bounties) and spend it at the stall (!shop).`);
+        await say(`⚔️💰 Welcome to the hunt! Roll up a hero with !createchar, then !hunt monsters for XP and loot, fill bounties (!bounties) and spend it at the stall (!shop).`);
         return true;
       }
       const bal = goldOn ? (await getBalance(broadcasterId, chatter))?.balance ?? 0 : null;
-      await say(`The ledger reads: ${sheetLine(c, p, display, bal)}. ${await nextStep(broadcasterId, chatter, c, p)}`);
+      await say(`The ledger reads: ${sheetLine(c, display, bal)}. ${await nextStep(broadcasterId, chatter, c, p)}`);
       return true;
     }
 
@@ -262,23 +209,19 @@ export async function handleHoardCommand(
       if (!target || target === chatter.toLowerCase()) {
         if (!c) return say(noHero).then(() => true);
         const bal = goldOn ? (await getBalance(broadcasterId, chatter))?.balance ?? 0 : null;
-        await say(`${sheetLine(c, p, display, bal)}. ${await nextStep(broadcasterId, chatter, c, p)}`);
+        await say(`${sheetLine(c, display, bal)}. ${await nextStep(broadcasterId, chatter, c, p)}`);
         return true;
       }
       if (!/^[a-z0-9_]{1,25}$/.test(target)) return say("usage: !ledger or !ledger @username").then(() => true);
-      const other = await loadHero(broadcasterId, target);
-      if (!other.c) return say(`no ledger entry for ${target}.`).then(() => true);
+      const other = await getCharacter(target, broadcasterId);
+      if (!other) return say(`no ledger entry for ${target}.`).then(() => true);
       const bal = goldOn ? (await getBalance(broadcasterId, target))?.balance ?? 0 : null;
-      await say(`${target}'s ledger: ${sheetLine(other.c, other.p, target, bal)}.`);
+      await say(`${target}'s ledger: ${sheetLine(other, target, bal)}.`);
       return true;
     }
 
     case "hunt": {
       if (!c) return say(noHero).then(() => true);
-      if (c.hpCurrent <= 1) {
-        await say(`your hero can barely stand (${c.hpCurrent}/${c.hpMax} HP) — the Clerk insists on !rest or a potion (!use) before another bout.`);
-        return true;
-      }
       const monster = await summonMonster(broadcasterId, c.level, arg || null);
       if (!monster) {
         await say(`no quarry known as "${arg}". Check !bounties for the board, !bestiary for every huntable monster, or !hunt with no name and let fate pick.`);
@@ -286,13 +229,10 @@ export async function handleHoardCommand(
       }
       if (!(await claimHunt(broadcasterId, [chatter], display, { self: chatter }))) return true;
 
-      const startHp = c.hpCurrent;
-      const fight = simulateMonsterFight(c, chatter, monster, { startHp });
+      // Starts at full HP; wounds don't carry over to the next fight.
+      const fight = simulateMonsterFight(c, chatter, monster);
       const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, fight.won, c.level);
       await recordBattle(broadcasterId, { kind: "hunt", side: display, foe: monster.name, outcome: fight.won ? "win" : "loss" });
-      // HP carries over, but nobody dies on a hunt: worst case, 1 HP.
-      c.hpCurrent = Math.max(1, fight.playerHp);
-      await saveCharacter(c, broadcasterId);
 
       let rewards = "";
       let loot = "";
@@ -306,14 +246,15 @@ export async function handleHoardCommand(
         bounty = await creditBounty(broadcasterId, chatter, monster.name, p);
         await savePlayer(broadcasterId, chatter, p);
       }
-      // awardMonsterXp re-saves the sheet (a level-up raises max/current HP).
+      // awardMonsterXp re-saves the sheet (a level-up raises max HP).
       const after = (await getCharacter(chatter, broadcasterId)) ?? c;
+      const hpLeftNow = Math.max(0, fight.playerHp);
       const shownLog = fight.battle.render();
       const outcome = fight.won
         ? `${display} prevails! ${duelNarration("victory")}${rewards}${bounty}`
-        : `${monster.name} wins — ${display} staggers away at 1 HP. ${duelNarration("defeat")}`;
+        : `${monster.name} wins — ${display} limps home to recover. ${duelNarration("defeat")}`;
       const msg = `@${display} ⚔️ The Clerk sends you after ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp}). ` +
-        `${shownLog} — ${outcome} HP ${after.hpCurrent}/${after.hpMax}.${learnNote} ${await nextStep(broadcasterId, chatter, after, p)}`;
+        `${shownLog} — ${outcome} HP ${hpLeftNow}/${after.hpMax}.${learnNote} ${await nextStep(broadcasterId, chatter, after, p)}`;
       await sendChatMessages(msg, broadcasterId, {
         detail: msg.replace(shownLog, fight.battle.renderDetailed()),
         names: [chatter],
@@ -321,23 +262,10 @@ export async function handleHoardCommand(
           fighter: display,
           enemy: monster.name,
           outcome: fight.won ? `${display} wins!` : `${monster.name} wins.`,
-          hp: hpLeft([[display, after.hpCurrent, after.hpMax], [monster.name, fight.monsterHp, monster.hp]]),
+          hp: hpLeft([[display, hpLeftNow, after.hpMax], [monster.name, fight.monsterHp, monster.hp]]),
           loot,
         }) + bounty,
       });
-      return true;
-    }
-
-    case "rest": {
-      if (!c) return say(noHero).then(() => true);
-      const target = Math.min(c.hpMax, Math.ceil(c.hpMax * REST_FRACTION));
-      if (c.hpCurrent >= target) {
-        await say(`your hero is already well-rested (${c.hpCurrent}/${c.hpMax} HP). ${await nextStep(broadcasterId, chatter, c, p)}`);
-        return true;
-      }
-      c.hpCurrent = target;
-      await saveCharacter(c, broadcasterId);
-      await say(`🏕️ you make camp and recover to ${c.hpCurrent}/${c.hpMax} HP. ${await nextStep(broadcasterId, chatter, c, p)}`);
       return true;
     }
 
@@ -357,13 +285,8 @@ export async function handleHoardCommand(
         const i = findOffer(offers, arg);
         if (i >= 0) {
           const o = offers[i]!;
-          const effect = o.kind === "potion" ? o.potion.desc : `${effectText(o.gear.effect)}, permanent once bought`;
+          const effect = `${effectText(o.gear.effect)}, permanent once bought`;
           await say(`🛒 ${o.name} — ${effect} — ${formatCoins(o.price)}. 📖 ${lore(o)} !buy ${i + 1} to take it.`);
-          return true;
-        }
-        const potion = findPotion(arg);
-        if (potion) {
-          await say(`${potion.name} — ${potion.desc} — ${formatCoins(potion.price)} when the stall has one. Not on offer right now.`);
           return true;
         }
         await say(`nothing on the stall matches "${arg}". !shop to see today's wares.`);
@@ -409,7 +332,6 @@ export async function handleHoardCommand(
       const bought: Array<{ o: ResolvedOffer; detail: string }> = [];
       const skipped: string[] = [];
       let gearChanged = false;
-      let packChanged = false;
       for (const i of picks) {
         const slot: StallOffer = stall[i];
         const label = `#${i + 1}`;
@@ -422,16 +344,12 @@ export async function handleHoardCommand(
           skipped.push(`${label} is no longer stocked`);
           continue;
         }
-        if (o.kind === "gear" && !c) {
+        if (!c) {
           skipped.push(`${o.name} (gear needs a character — !createchar)`);
           continue;
         }
-        if (o.kind === "gear" && ownsGear(c!, o.gear)) {
+        if (ownsGear(c, o.gear)) {
           skipped.push(`${o.name} (you already carry one)`);
-          continue;
-        }
-        if (o.kind === "potion" && (p.potions[o.potion.key] ?? 0) >= MAX_POTION_STACK) {
-          skipped.push(`${o.name} (pack holds ${MAX_POTION_STACK} max)`);
           continue;
         }
         if (!(await trySpend(broadcasterId, chatter, o.price))) {
@@ -445,18 +363,11 @@ export async function handleHoardCommand(
           skipped.push(winner ? `${o.name} (${winner} bought it first)` : `${o.name} (the stall just turned over)`);
           continue;
         }
-        if (o.kind === "gear") {
-          const { applied, changes } = applyGear(c!, o.gear);
-          gearChanged = true;
-          bought.push({ o, detail: `on your sheet: ${effectText(applied) || "a fine curio"}${changes ? ` (${changes})` : ""}` });
-        } else {
-          p.potions[o.potion.key] = (p.potions[o.potion.key] ?? 0) + 1;
-          packChanged = true;
-          bought.push({ o, detail: `into the pack — !use ${o.potion.name} when you need it` });
-        }
+        const { applied, changes } = applyGear(c, o.gear);
+        gearChanged = true;
+        bought.push({ o, detail: `on your sheet: ${effectText(applied) || "a fine curio"}${changes ? ` (${changes})` : ""}` });
       }
       if (gearChanged) await saveCharacter(c!, broadcasterId);
-      if (packChanged) await savePlayer(broadcasterId, chatter, p);
 
       const skipText = skipped.length ? ` Skipped: ${skipped.join("; ")}.` : "";
       if (!bought.length) {
@@ -477,11 +388,11 @@ export async function handleHoardCommand(
       if (!c) return say(noHero).then(() => true);
       const potions = POTIONS.filter((x) => p.potions[x.key]).map((x) => `${x.name}${p.potions[x.key] > 1 ? ` x${p.potions[x.key]}` : ""}`);
       const gear = (c.items ?? []).length;
-      await say(`🎒 Potions: ${potions.length ? potions.join(", ") : "none"}. Gear: ${plural(gear, "item")} on your sheet, always in effect (!gear to list it). ${await nextStep(broadcasterId, chatter, c, p)}`);
+      const old = potions.length ? ` Old potions (they no longer heal — !sell or !drop them): ${potions.join(", ")}.` : "";
+      await say(`🎒 Gear: ${plural(gear, "item")} on your sheet, always in effect (!gear to list it).${old} ${await nextStep(broadcasterId, chatter, c, p)}`);
       return true;
     }
 
-    case "use":
     case "sell":
     case "drop": {
       if (!c) return say(noHero).then(() => true);
@@ -490,7 +401,7 @@ export async function handleHoardCommand(
         const gearHit = arg && (c.items ?? []).some((line) => line.toLowerCase().includes(arg.toLowerCase()));
         const have = POTIONS.filter((x) => p.potions[x.key]).map((x) => x.name).join(", ") || "no potions";
         await say(gearHit
-          ? "gear is bound to your character sheet and always in effect — it can't be used up, sold or dropped."
+          ? "gear is bound to your character sheet and always in effect — it can't be sold or dropped."
           : `${arg ? `nothing in your pack matches "${arg}".` : `${word} which potion?`} You carry: ${have}.`);
         return true;
       }
@@ -498,13 +409,7 @@ export async function handleHoardCommand(
       // Selling turns a potion into fresh coin, so it's closed while offline like every other way to earn.
       if (word === "sell" && !(await canEarnGold(broadcasterId))) return say("the stall doesn't buy back while the stream is offline — come back when it's live.").then(() => true);
       p.potions[potion.key] -= 1;
-      if (word === "use") {
-        const healed = rollHeal(potion.heal);
-        const before = c.hpCurrent;
-        c.hpCurrent = Math.min(c.hpMax, c.hpCurrent + healed);
-        await Promise.all([saveCharacter(c, broadcasterId), savePlayer(broadcasterId, chatter, p)]);
-        await say(`🧪 you drink the ${potion.name} and recover ${c.hpCurrent - before} HP (${c.hpCurrent}/${c.hpMax}). ${await nextStep(broadcasterId, chatter, c, p)}`);
-      } else if (word === "sell") {
+      if (word === "sell") {
         const price = Math.max(1, Math.floor(potion.price * SELL_BACK_SHARE));
         await savePlayer(broadcasterId, chatter, p);
         await adjustBalance(broadcasterId, chatter, display, price);

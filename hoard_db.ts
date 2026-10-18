@@ -1,10 +1,10 @@
 // Hunt and Hoard — persistence and the shared stall / bounty board (see
 // hoard.ts for the commands). Own tables, all keyed by channel:
 //
-//   hoard_settings  module on/off (off by default)
-//   hoard_players   per hero: potion pack, bounty progress, regen clock.
-//                   Level, XP, HP and gear live on the GuildScribe character.
-//   hoard_stall     the merchant stall's offers (JSON) + when it last turned over
+//   hoard_players   per hero: leftover potions (no longer sold or used) and
+//                   bounty progress. Level, XP, HP and gear live on the
+//                   GuildScribe character. (last_heal_at is unused.)
+//   hoard_stall     the merchant stall's gear offers (JSON) + when it last turned over
 //   hoard_board     the bounty board's postings (JSON) + when it was posted
 
 import { sqlite } from "./sqlite.ts";
@@ -17,12 +17,10 @@ import {
   BOARD_REFRESH_MS,
   BOARD_SLOTS,
   BOUNTY_MAX_CR,
-  BOUNTY_POTION_CHANCE,
   MERCHANT_NAMES,
   POTIONS,
   type Potion,
   STALL_LEGENDARY_CHANCE,
-  STALL_POTION_SHARE,
   STALL_REFRESH_MS,
   STALL_SLOTS,
 } from "./hoard_data.ts";
@@ -31,7 +29,8 @@ const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
 export async function ensureHoardTables() {
   await sqlite.batch([
-    `CREATE TABLE IF NOT EXISTS hoard_settings (broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)`,
+    // The old module on/off switch; Hunt and Hoard is part of combat now.
+    `DROP TABLE IF EXISTS hoard_settings`,
     `CREATE TABLE IF NOT EXISTS hoard_players (
       broadcaster_id TEXT NOT NULL, username TEXT NOT NULL, potions TEXT NOT NULL DEFAULT '{}',
       progress TEXT NOT NULL DEFAULT '{}', last_heal_at INTEGER NOT NULL DEFAULT 0,
@@ -44,26 +43,11 @@ export async function ensureHoardTables() {
 
 export async function purgeHoardData(broadcasterId: string) {
   await sqlite.batch(
-    ["hoard_settings", "hoard_players", "hoard_stall", "hoard_board"].map((t) => ({
+    ["hoard_players", "hoard_stall", "hoard_board"].map((t) => ({
       sql: `DELETE FROM ${t} WHERE broadcaster_id = ?`,
       args: [broadcasterId],
     })),
   );
-}
-
-// ── On/off ──
-
-export async function isHoardEnabled(broadcasterId: string): Promise<boolean> {
-  const res = await sqlite.execute("SELECT enabled FROM hoard_settings WHERE broadcaster_id = ?", [broadcasterId]);
-  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
-}
-
-export async function setHoardEnabled(broadcasterId: string, enabled: boolean) {
-  await sqlite.execute("INSERT OR REPLACE INTO hoard_settings (broadcaster_id, enabled, updated_at) VALUES (?,?,?)", [
-    broadcasterId,
-    enabled ? 1 : 0,
-    Date.now(),
-  ]);
 }
 
 // ── Players ──
@@ -71,7 +55,6 @@ export async function setHoardEnabled(broadcasterId: string, enabled: boolean) {
 export interface HoardPlayer {
   potions: Record<string, number>;
   progress: Record<string, number>;
-  lastHealAt: number;
 }
 
 function parseJson<T>(raw: unknown, fallback: T): T {
@@ -89,26 +72,19 @@ export async function getPlayer(broadcasterId: string, username: string): Promis
   return {
     potions: parseJson(r?.potions, {}),
     progress: parseJson(r?.progress, {}),
-    lastHealAt: Number(r?.last_heal_at ?? 0),
   };
 }
 
 export async function savePlayer(broadcasterId: string, username: string, p: HoardPlayer) {
   for (const [k, n] of Object.entries(p.potions)) if (!(n > 0)) delete p.potions[k];
   await sqlite.execute(
-    "INSERT OR REPLACE INTO hoard_players (broadcaster_id, username, potions, progress, last_heal_at) VALUES (?,?,?,?,?)",
-    [broadcasterId, username.toLowerCase(), JSON.stringify(p.potions), JSON.stringify(p.progress), p.lastHealAt],
+    "INSERT OR REPLACE INTO hoard_players (broadcaster_id, username, potions, progress) VALUES (?,?,?,?)",
+    [broadcasterId, username.toLowerCase(), JSON.stringify(p.potions), JSON.stringify(p.progress)],
   );
 }
 
-export function findPotion(needle: string): Potion | undefined {
-  const n = needle.trim().toLowerCase();
-  if (!n) return undefined;
-  return POTIONS.find((p) => p.key === n || p.name.toLowerCase() === n) ?? POTIONS.find((p) => p.name.toLowerCase().includes(n));
-}
-
 /** The potion in the pack matching `needle`; a bare "potion" picks the
- * smallest heal the hero carries. */
+ * cheapest one the hero carries. */
 export function findPackPotion(p: HoardPlayer, needle: string): Potion | undefined {
   const owned = POTIONS.filter((x) => (p.potions[x.key] ?? 0) > 0);
   const n = needle.trim().toLowerCase();
@@ -120,24 +96,16 @@ export function findPackPotion(p: HoardPlayer, needle: string): Potion | undefin
 
 // Every ware sells exactly once: buying it marks the slot soldTo (claimOffer,
 // atomic) and the slot stays empty until the whole stall turns over.
-export type StallOffer =
-  | { kind: "potion"; key: string; merchant: string; soldTo?: string }
-  | { kind: "gear"; desc: string; merchant: string; soldTo?: string };
+export type StallOffer = { kind: "gear"; desc: string; merchant: string; soldTo?: string };
 
-const offerId = (o: StallOffer) => (o.kind === "potion" ? `p:${o.key}` : `g:${o.desc}`);
+const offerId = (o: StallOffer) => `g:${o.desc}`;
 
 /** An offer with its catalog entry and price resolved (null if it's sold or
  * the catalog no longer has it). */
-export type ResolvedOffer =
-  | { kind: "potion"; potion: Potion; name: string; price: number; merchant: string; pitch: string }
-  | { kind: "gear"; gear: MerchantItem; name: string; price: number; merchant: string; pitch: string; legendary: boolean };
+export type ResolvedOffer = { kind: "gear"; gear: MerchantItem; name: string; price: number; merchant: string; pitch: string; legendary: boolean };
 
 export function resolveOffer(o: StallOffer): ResolvedOffer | null {
-  if (o.soldTo) return null;
-  if (o.kind === "potion") {
-    const potion = POTIONS.find((p) => p.key === o.key);
-    return potion ? { kind: "potion", potion, name: potion.name, price: potion.price, merchant: o.merchant, pitch: potion.desc } : null;
-  }
+  if (o.soldTo || o.kind !== "gear") return null;
   const gear = findMerchantItem(o.desc);
   if (!gear) return null;
   return {
@@ -152,15 +120,13 @@ export function resolveOffer(o: StallOffer): ResolvedOffer | null {
 }
 
 function rollOffer(exclude: StallOffer[] = []): StallOffer {
-  const taken = new Set(exclude.map((o) => (o.kind === "potion" ? o.key : o.desc)));
+  const taken = new Set(exclude.map((o) => o.desc));
+  let offer: StallOffer = { kind: "gear", desc: pick(MERCHANT_ITEMS).desc, merchant: pick(MERCHANT_NAMES) };
   for (let i = 0; i < 20; i++) {
-    const merchant = pick(MERCHANT_NAMES);
-    const offer: StallOffer = Math.random() < STALL_POTION_SHARE
-      ? { kind: "potion", key: pick(POTIONS).key, merchant }
-      : { kind: "gear", desc: pick(Math.random() < STALL_LEGENDARY_CHANCE ? LEGENDARY_ITEMS : MERCHANT_ITEMS).desc, merchant };
-    if (!taken.has(offer.kind === "potion" ? offer.key : offer.desc)) return offer;
+    offer = { kind: "gear", desc: pick(Math.random() < STALL_LEGENDARY_CHANCE ? LEGENDARY_ITEMS : MERCHANT_ITEMS).desc, merchant: pick(MERCHANT_NAMES) };
+    if (!taken.has(offer.desc)) return offer;
   }
-  return { kind: "potion", key: pick(POTIONS).key, merchant: pick(MERCHANT_NAMES) };
+  return offer;
 }
 
 function rollStall(): StallOffer[] {
@@ -176,7 +142,8 @@ export async function getStallState(broadcasterId: string): Promise<{ offers: St
   const r = res.rows[0];
   const offers = parseJson<StallOffer[]>(r?.offers, []);
   const age = Date.now() - Number(r?.restocked_at ?? 0);
-  if (r && Array.isArray(offers) && offers.length === STALL_SLOTS && age < STALL_REFRESH_MS) {
+  // A stall rolled back when it also sold potions turns over at once.
+  if (r && Array.isArray(offers) && offers.length === STALL_SLOTS && offers.every((o) => o.kind === "gear") && age < STALL_REFRESH_MS) {
     return { offers, turnsOverInMs: STALL_REFRESH_MS - age };
   }
   const fresh = rollStall();
@@ -227,7 +194,6 @@ export interface Bounty {
   target: number;
   /** Copper. */
   reward: number;
-  potion: string | null;
 }
 
 async function bountyPool(broadcasterId: string): Promise<SoloMonster[]> {
@@ -249,7 +215,6 @@ function rollBounty(pool: SoloMonster[], exclude: Bounty[]): Bounty {
     cr: m.cr,
     target,
     reward,
-    potion: Math.random() < BOUNTY_POTION_CHANCE ? pick(POTIONS.slice(0, 4)).key : null,
   };
 }
 

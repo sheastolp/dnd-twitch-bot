@@ -15,7 +15,6 @@ import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, partyLootNote } from "./loot.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
-import { settleWounds, startHp, woundsOn } from "./hoard_combat.ts";
 import { creditBounty } from "./hoard.ts";
 import { withArticle, isChallengeExpired, forfeitIfIdlePartyDuel, forfeitIfIdlePartyHunt, recordDuelNaturals, strikeD20s } from "./combat_shared.ts";
 
@@ -96,9 +95,6 @@ export async function handlePartyDuelCommand(
         "DELETE FROM party_monster_duels WHERE broadcaster_id = ?",
         [broadcasterId],
       );
-      // Retreating keeps the wounds taken so far (Hunt and Hoard).
-      const wounds = await woundsOn(broadcasterId);
-      for (const n of partyHunt.members) await settleWounds(broadcasterId, n, partyHunt.member_hp[n] ?? 0, wounds);
       await sendChatMessage(
         `@${display} party hunt ended. The party retreats.`,
         broadcasterId,
@@ -160,8 +156,6 @@ export async function handlePartyDuelCommand(
         );
         const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), true, attacker.level);
         await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyHunt.party_name), foe: String(partyHunt.monster_name), outcome: "win" });
-        const wounds = await woundsOn(broadcasterId);
-        for (const n of partyHunt.members) await settleWounds(broadcasterId, n, partyHunt.member_hp[n] ?? 0, wounds); // before XP
         const xpNotes: string[] = [];
         for (const n of partyHunt.members) {
           if ((partyHunt.member_hp[n] ?? 0) > 0) {
@@ -187,7 +181,7 @@ export async function handlePartyDuelCommand(
         await sendChatMessages(
           `@${display} ${playerResult} ${partyHunt.monster_name} falls! ${
             duelNarration("victory")
-          } XP: ${xpNotes.join(", ") || "none"}.${lootNote}${bountyNote}${learnNote}${wounds ? " 🩸 Wounds carry over." : ""}`,
+          } XP: ${xpNotes.join(", ") || "none"}.${lootNote}${bountyNote}${learnNote}`,
           broadcasterId,
         );
         return true;
@@ -216,12 +210,10 @@ export async function handlePartyDuelCommand(
         );
         const learnNote = await recordMonsterOutcome(broadcasterId, String(partyHunt.monster_name), false, attacker.level);
         await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyHunt.party_name), foe: String(partyHunt.monster_name), outcome: "loss" });
-        const wounds = await woundsOn(broadcasterId);
-        for (const n of partyHunt.members) await settleWounds(broadcasterId, n, 0, wounds);
         await sendChatMessages(
           `@${display} ${playerResult} ${monsterResult} ${
             duelNarration("defeat")
-          } The party is wiped.${learnNote}${wounds ? " 🩸 Everyone limps away at 1 HP." : ""}`,
+          } The party is wiped.${learnNote}`,
           broadcasterId,
         );
         return true;
@@ -315,31 +307,20 @@ export async function handlePartyDuelCommand(
       return true;
     }
 
-    // Hunt and Hoard wounds (hoard_combat.ts): with the module on, members
-    // start at their current HP and anyone at 1 HP sits this hunt out.
-    const wounds = await woundsOn(broadcasterId);
     const chars: Record<string, any> = {};
     const memberHp: Record<string, number> = {};
-    const benched: string[] = [];
     for (const n of members) {
       const c = await getCharacter(n, broadcasterId);
       if (c) {
         chars[n] = c;
-        memberHp[n] = await startHp(broadcasterId, c, wounds);
-        if (wounds && memberHp[n] <= 1) benched.push(n);
+        memberHp[n] = c.hpMax;
       }
     }
-    const livingMembers = members.filter((n) => chars[n] && !benched.includes(n));
+    const livingMembers = members.filter((n) => chars[n]);
     if (livingMembers.length < 1) {
-      await sendChatMessage(
-        benched.length
-          ? `@${display} every hero in ${partyName} is too wounded to hunt (1 HP) — !rest or drink a potion (!use) first.`
-          : `@${display} at least one party member needs a saved character.`,
-        broadcasterId,
-      );
+      await sendChatMessage(`@${display} at least one party member needs a saved character.`, broadcasterId);
       return true;
     }
-    const benchNote = benched.length ? ` (${benched.join(", ")} too wounded to join.)` : "";
     const levelSum = livingMembers.reduce((t, n) => t + Number(chars[n].level ?? 1), 0);
     const avgLevel = Math.max(1, Math.round(levelSum / livingMembers.length));
     // Scale monster gently for group size (still player-favored). A named
@@ -388,7 +369,6 @@ export async function handlePartyDuelCommand(
       const partyWon = monsterHp <= 0 && livingMembers.some((n) => hp[n] > 0);
       const learnNote = await recordMonsterOutcome(broadcasterId, monster.name, partyWon, avgLevel);
       await recordBattle(broadcasterId, { kind: "partyhunt", side: String(partyName), foe: monster.name, outcome: partyWon ? "win" : "loss" });
-      for (const n of livingMembers) await settleWounds(broadcasterId, n, hp[n], wounds); // before XP
       const xpNotes: string[] = [];
       let lootNote = "";
       let loot = "";
@@ -420,7 +400,7 @@ export async function handlePartyDuelCommand(
           partyWon
             ? `Victory! ${duelNarration("victory")} XP: ${xpNotes.join(", ")}.${lootNote}${bountyNote}`
             : `Defeat. ${duelNarration("defeat")}`
-        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.${learnNote}${wounds ? " 🩸 Wounds carry over (nobody drops below 1 HP)." : ""}${benchNote}`;
+        } Final party HP [${roster}]; monster ${monsterHp}/${monster.hp}.${learnNote}`;
       await sendChatMessages(
         msg,
         broadcasterId,

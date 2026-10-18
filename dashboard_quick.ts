@@ -4,12 +4,12 @@
 // anything, the streamer has to do. Flip any number of them and save once.
 //
 // A bundle is a set of the dashboard's existing switches: COMMAND_GROUPS keys
-// (commandgroups.ts) and the dedicated ones (points, market, hoard, …). It
+// (commandgroups.ts) and the dedicated ones (points, market, npc, …). It
 // reads On when all of them are on, Off when all are off, and Mixed
 // otherwise; a mixed bundle offers "Leave as is" so saving never flattens
 // fine-tuning done in the full switch list further down the page. Only
 // bundles whose choice differs from their current state are written. A
-// bundle with a master switch (Gold, Hunt and Hoard) reads Off while the
+// bundle with a master switch (Gold) reads Off while the
 // master is off, since nothing in it works then.
 
 import { escapeHtml } from "./utils.ts";
@@ -49,7 +49,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "fighting", icon: "⚔️", name: "Fighting & hunts",
-    what: "Viewers duel each other or hunt monsters with !dndduel, form parties, and send heroes on timed !autohunt trips. Fights play out on their own and post one summary.",
+    what: "Viewers duel each other or hunt monsters with !dndduel or !hunt, form parties, and send heroes on timed !autohunt trips. A shared bounty board pays for kills (!bounties), and a stall sells gear (!shop). Fights play out on their own and post one summary.",
     yourPart: "Nothing.",
     switches: ["duels", "hunts", "partyduels", "partyhunts", "party", "autohunt", "huntcooldown", "bestiary", "turn"],
     needs: ["characters"],
@@ -78,14 +78,6 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     what: "Reads your chat out loud to you — handy when streaming straight from a console with no second screen. Skips bots and !commands, drops messages mods delete, and never goes out on stream.",
     yourPart: "Type !chatreader in chat (or open it from !overlays), open the link on your phone or PC near you and tap Start. Pick the voice and speed under Settings.",
     switches: ["chatreader"],
-  },
-  {
-    key: "hoard", icon: "💰", name: "Hunt and Hoard",
-    what: "A deeper hunting game: wounds carry between fights, a shared bounty board, and a potion shop — !hunt, !bounties, !shop.",
-    yourPart: "Nothing.",
-    switches: ["hoard", "hoardhunt", "hoardbounties", "hoardshop"],
-    needs: ["gold", "characters"],
-    master: "hoard",
   },
   {
     key: "merchant", icon: "🛒", name: "Wandering merchant",

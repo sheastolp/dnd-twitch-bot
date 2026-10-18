@@ -25,13 +25,12 @@ export function toggleState(d: DashboardData, key: string): boolean {
     case "points": return d.pointsEnabled;
     case "npc": return d.npcEnabled;
     case "npcchatter": return d.npcChatterEnabled;
-    case "hoard": return d.hoardEnabled;
     case "pokeball": return d.pokeballEnabled;
   }
   return d.groupToggles[key] ?? true;
 }
 
-const ICON: Record<string, string> = { points: "🪙", hoard: "⚔️", npc: "🎭", maps: "🗺️", bot: "⚙" };
+const ICON: Record<string, string> = { points: "🪙", npc: "🎭", maps: "🗺️", bot: "⚙" };
 const icon = (key: string) => ICON[key] ?? "⚙";
 
 /** One gold-bordered link to switch `key`, with its current state. */

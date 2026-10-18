@@ -28,8 +28,6 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 //   - !autoban on/off/status — "ai viewers" spam auto-ban (autoban.ts), own
 //     per-channel toggle; broadcaster-only so it isn't a dashboard group.
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
-//   - !hoard on/off/status — the Hunt and Hoard module's master switch
-//     (hoard.ts), off by default; its own dashboard tile.
 //   - !checklist ... — the streamer's start-of-stream checklist
 //     (checklist.ts), mod/broadcaster only with its own on/off.
 //   - The gold system as a whole (isPointsEnabled in points_db.ts, on by
@@ -98,21 +96,18 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   turn: { section: "Arena, wilds & the company", label: "Initiative tracker (!turn)", commands: ["turn"], parent: "combat" },
   party: { section: "Arena, wilds & the company", label: "Parties (!party)", commands: ["party"], parent: "combat" },
   duels: { section: "Arena, wilds & the company", label: "Player duels (!dndduel @user)", commands: [], parent: "combat" },
-  hunts: { section: "Arena, wilds & the company", label: "Monster hunts (!dndduel [monster])", commands: [], parent: "combat" },
+  // Also switches the Wandering Clerk's words (hoard.ts: !hunt, !ledger,
+  // !bounties, !shop, !buy, !inv, !sell, !purse). They're deliberately
+  // not listed under `commands`: hoard.ts checks this switch itself so that,
+  // when it's off, !shop/!buy/... fall through to a channel's own custom
+  // commands instead of being silently swallowed.
+  hunts: { section: "Arena, wilds & the company", label: "Monster hunts (!dndduel [monster], !hunt, !bounties, !shop)", commands: [], parent: "combat" },
   partyduels: { section: "Arena, wilds & the company", label: "Party duels (!dndduel party)", commands: [], parent: "combat" },
   partyhunts: { section: "Arena, wilds & the company", label: "Party hunts (!dndduel party hunt)", commands: [], parent: "combat" },
   autohunt: { section: "Arena, wilds & the company", label: "Autohunt (!autohunt)", commands: ["autohunt", "autohuntstatus", "autohuntstop"], parent: "combat" },
   huntcooldown: { section: "Arena, wilds & the company", label: "Hunting cooldown (!huntcooldown)", commands: ["huntcooldown", "huntcd"], parent: "combat" },
   raid: { section: "Arena, wilds & the company", label: "Raid quest (!rally)", commands: ["raid"], parent: "combat" },
   bestiary: { section: "Arena, wilds & the company", label: "Bestiary (!bestiary — huntable monsters & what they've learned)", commands: ["bestiary"], parent: "combat" },
-  // Hunt and Hoard (hoard.ts) — the module also has its own master switch
-  // (!hoard on/off, off by default). Its words are deliberately not listed
-  // under `commands`: hoard.ts checks these switches itself so that, when the
-  // module or a switch is off, !shop/!buy/... fall through to a channel's own
-  // custom commands instead of being silently swallowed.
-  hoardhunt: { section: "Hunt and Hoard", label: "Hunting (!hunt, !rest, !ledger)", commands: [] },
-  hoardbounties: { section: "Hunt and Hoard", label: "Bounty board (!bounties)", commands: [] },
-  hoardshop: { section: "Hunt and Hoard", label: "Stall & pack (!shop, !buy, !inv, !use, !sell, !purse)", commands: [] },
   // Chronicle, oracle & NPCs (chronicle and NPCs have their own switches)
   oracle: { section: "Chronicle, oracle & NPCs", label: "Oracle (!oracle)", commands: ["oracle"], parent: "dice" },
   // Gold, leaderboard & giveaways (needs the gold switch on as well)
@@ -165,7 +160,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   showcase: { section: "Onboarding and support", label: "Listed on tavernworks.dev (public channel list)", commands: [] },
   // Stream overlays. Sound Bytes' words (!sound, !sounds) aren't listed:
   // soundbytes.ts checks its switch itself, so a channel's own !sound custom
-  // command still works (same as Hunt and Hoard above).
+  // command still works (same as the hunting words above).
   delve: { section: "Stream overlays", label: "The Endless Delve (idle game overlay, on its own or in the theme; !delve)", commands: ["delve"] },
   soundbytes: { section: "Stream overlays", label: "Sound Bytes (!sound — tavern sound effects on stream)", commands: [] },
   // Chat Reader (chat_reader.ts): reads chat aloud to the streamer on their
@@ -197,7 +192,6 @@ export const DEDICATED_LABELS: Record<string, string> = {
   points: "Gold, leaderboard & giveaways",
   npc: "AI NPCs",
   npcchatter: "AI NPC chatter",
-  hoard: "Hunt and Hoard",
   pokeball: "Pokéball advisor",
   checklist: "Go-live checklist",
   botcheckauto: "Bot list auto-add",
@@ -207,8 +201,7 @@ export const DEDICATED_LABELS: Record<string, string> = {
  * Switch → the other switches it can't work without (besides "Entire bot",
  * which gates everything). Only real code-level gates are listed: e.g. rob.ts,
  * swearjar.ts and points.ts go silent while gold (isPointsEnabled) is off;
- * hoard.ts ignores its words while the module is off and its stall can't sell
- * without gold. The dashboard and the Guild Codex draw their gold-bordered
+ * hoard.ts's stall can't sell without gold. The dashboard and the Guild Codex draw their gold-bordered
  * "Needs …" links from this.
  */
 export const TOGGLE_REQUIRES: Record<string, string[]> = {
@@ -224,9 +217,6 @@ export const TOGGLE_REQUIRES: Record<string, string[]> = {
   jarfine: ["points"],
   jargiveaway: ["points"],
   npcchatter: ["npc"],
-  hoardhunt: ["hoard"],
-  hoardbounties: ["hoard"],
-  hoardshop: ["hoard", "points"],
   maptemplates: ["maps"],
   mapterrain: ["maps"],
   maptokens: ["maps"],
@@ -243,7 +233,7 @@ export function toggleLabel(key: string): string {
 }
 
 /** Short names for the switches others depend on, used on their links. */
-const REQUIRED_SHORT: Record<string, string> = { points: "Gold", hoard: "Hunt and Hoard", npc: "AI NPCs", maps: "Maps", bot: "Entire bot" };
+const REQUIRED_SHORT: Record<string, string> = { points: "Gold", npc: "AI NPCs", maps: "Maps", bot: "Entire bot" };
 export const requiredLabel = (key: string) => REQUIRED_SHORT[key] ?? toggleLabel(key);
 
 /** Switches that need `key` (the reverse of TOGGLE_REQUIRES). */

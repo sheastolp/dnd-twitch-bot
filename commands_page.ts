@@ -16,7 +16,7 @@ export interface ChannelCommandsData {
   timedMessages: Array<{ message: string; intervalMinutes: number }>;
   /** Command-group switches (db.ts getCommandGroupToggles). */
   groups: Record<string, boolean>;
-  /** Dedicated switches, keyed as in DEDICATED_LABELS (points, market, hoard, npc). */
+  /** Dedicated switches, keyed as in DEDICATED_LABELS (points, market, npc). */
   dedicated: Record<string, boolean>;
 }
 

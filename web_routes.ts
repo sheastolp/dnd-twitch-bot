@@ -18,7 +18,6 @@ import { renderBestiaryPage } from "./bestiary_page.ts";
 import { renderGoldPage } from "./gold_page.ts";
 import { renderGearPage } from "./gear_page.ts";
 import { renderChannelCommandsPage } from "./commands_page.ts";
-import { isHoardEnabled } from "./hoard_db.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
@@ -128,14 +127,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
     const broadcaster = await getBroadcaster(channelId);
     if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Command list unavailable for this channel.", { status: 404 });
-    const [commands, triggerRows, timedRows, groups, points, market, hoard, npc] = await Promise.all([
+    const [commands, triggerRows, timedRows, groups, points, market, npc] = await Promise.all([
       listCustomCommandsFull(channelId),
       listCustomTriggers(channelId),
       listTimedMessages(channelId),
       getCommandGroupToggles(channelId),
       isPointsEnabled(channelId),
       isMerchantEnabled(channelId),
-      isHoardEnabled(channelId),
       isNpcEnabled(channelId),
     ]);
     const customCommands = commands
@@ -150,7 +148,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       .filter((m: any) => Number(m.enabled ?? 1) === 1)
       .map((m: any) => ({ message: String(m.message ?? ""), intervalMinutes: Number(m.interval_minutes ?? 0) }));
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
-    return new Response(renderChannelCommandsPage(channelName, { customCommands, triggers, timedMessages, groups, dedicated: { points, market, hoard, npc } }, PUBLIC_BASE_URL), {
+    return new Response(renderChannelCommandsPage(channelName, { customCommands, triggers, timedMessages, groups, dedicated: { points, market, npc } }, PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

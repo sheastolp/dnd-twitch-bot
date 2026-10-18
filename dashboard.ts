@@ -66,7 +66,6 @@ import { applySwearJarForm, renderSwearJarPage } from "./swearjar_page.ts";
 import { applyGameStatsForm, renderGameStatsPage } from "./game_stats_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
-import { isHoardEnabled, setHoardEnabled } from "./hoard_db.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
 import { startNightbotConnect } from "./nightbot_import.ts";
@@ -239,7 +238,7 @@ export async function renderDashboard(
     );
   }
 
-  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, autoModEnabled, pointsEnabled, hoardEnabled, pokeballEnabled, checklistEnabled, botCheckAutoAdd] = await Promise.all([
+  const [commands, triggers, timedMessages, botEnabled, marketEnabled, chronicleEnabled, npcEnabled, npcChatterEnabled, groupToggles, autoBanEnabled, autoBanPermitted, autoModEnabled, pointsEnabled, pokeballEnabled, checklistEnabled, botCheckAutoAdd] = await Promise.all([
     listCustomCommandsFull(channelId),
     listCustomTriggers(channelId),
     listTimedMessages(channelId),
@@ -253,7 +252,6 @@ export async function renderDashboard(
     hasBanPermission(channelId),
     isAutoModEnabled(channelId),
     isPointsEnabled(channelId),
-    isHoardEnabled(channelId),
     isPokeballEnabled(channelId),
     isReminderEnabled(channelId),
     isBotCheckAutoAdd(channelId),
@@ -281,7 +279,6 @@ export async function renderDashboard(
     autoBanPermitted,
     autoModEnabled,
     pointsEnabled,
-    hoardEnabled,
     pokeballEnabled,
     checklistEnabled,
     botCheckAutoAdd,
@@ -657,12 +654,6 @@ export async function handleDashboardFeaturesForm(form: FormData, baseUrl: strin
       await setNpcEnabled(channelId, enabled);
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `AI NPCs turned ${enabled ? "on" : "off"}.` }, "toggle-npc"));
     }
-    case "hoard_on":
-    case "hoard_off": {
-      const enabled = intent === "hoard_on";
-      await setHoardEnabled(channelId, enabled);
-      return redirectTo(dashboardUrl(baseUrl, channelId, key, { notice: `Hunt and Hoard turned ${enabled ? "on" : "off"}.` }, "toggle-hoard"));
-    }
     case "pokeball_on":
     case "pokeball_off": {
       const enabled = intent === "pokeball_on";
@@ -732,12 +723,12 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
 async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
-  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, hoard, pokeball, automod, checklist, botcheckauto] = await Promise.all([
+  const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, pokeball, automod, checklist, botcheckauto] = await Promise.all([
     getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
-    isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId), isHoardEnabled(channelId),
+    isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId),
     isPokeballEnabled(channelId), isAutoModEnabled(channelId), isReminderEnabled(channelId), isBotCheckAutoAdd(channelId),
   ]);
-  return { ...groups, bot, market, chronicle, autoban, automod, points, npc, npcchatter, hoard, pokeball, checklist, botcheckauto };
+  return { ...groups, bot, market, chronicle, autoban, automod, points, npc, npcchatter, pokeball, checklist, botcheckauto };
 }
 
 /** Turns one dashboard switch on or off, dedicated or command group. */
@@ -751,7 +742,6 @@ async function setSwitch(channelId: string, sw: string, on: boolean): Promise<vo
     case "points": return void await setPointsEnabled(channelId, on);
     case "npc": return void await setNpcEnabled(channelId, on);
     case "npcchatter": return void await setNpcChatterEnabled(channelId, on);
-    case "hoard": return void await setHoardEnabled(channelId, on);
     case "pokeball": return void await setPokeballEnabled(channelId, on);
     case "checklist": return void await setReminderEnabled(channelId, on);
     case "botcheckauto": return void await setBotCheckAutoAdd(channelId, on);

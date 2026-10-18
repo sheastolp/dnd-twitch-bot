@@ -35,7 +35,6 @@ export interface DashboardData {
   autoBanPermitted: boolean;
   autoModEnabled: boolean;
   pointsEnabled: boolean;
-  hoardEnabled: boolean;
   pokeballEnabled: boolean;
   /** Go-live checklist reminder (checklist.ts, !checklist on/off). */
   checklistEnabled: boolean;
@@ -52,7 +51,7 @@ export function switchStates(d: DashboardData): Record<string, boolean> {
   return {
     ...d.groupToggles,
     bot: d.botEnabled, market: d.marketEnabled, chronicle: d.chronicleEnabled, autoban: d.autoBanEnabled,
-    automod: d.autoModEnabled, points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled, hoard: d.hoardEnabled,
+    automod: d.autoModEnabled, points: d.pointsEnabled, npc: d.npcEnabled, npcchatter: d.npcChatterEnabled,
     pokeball: d.pokeballEnabled, checklist: d.checklistEnabled, botcheckauto: d.botCheckAutoAdd,
   };
 }
@@ -63,7 +62,7 @@ function dashHidden(broadcasterId: string, key: string): string {
 
 /** Switches with their own dedicated on/off (not COMMAND_GROUPS); each has a
  * #toggle-<key> anchor the guide's /dashboard/go links can land on. */
-export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "hoard", "pokeball", "checklist", "botcheckauto"];
+export const DEDICATED_TOGGLES = ["bot", "market", "chronicle", "autoban", "automod", "points", "npc", "npcchatter", "pokeball", "checklist", "botcheckauto"];
 // Dashboard switches with no Guild Codex card of their own to link back to.
 const NO_GUIDE_CARD = new Set(["automod", "npcchatter", "pokeball", "vars", "timedmsgs", "hug", "lurk", "logs", "connections", "delve", "soundbytes", "chatreader", "quotes", "gamestats", "botcheckauto", "subthanks", "raidthanks", "goodnight"]);
 
@@ -172,14 +171,6 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
     g.rows.push(groupToggleRow(d, key, def.label, enabled));
     if (enabled) g.on++;
     bySection.set(def.section, g);
-  }
-  // Hunt and Hoard's master switch sits in its own folder, ahead of the
-  // per-card switches (which only matter while it's on).
-  const hoard = bySection.get("Hunt and Hoard");
-  if (hoard) {
-    hoard.keys.unshift("hoard");
-    hoard.rows = [featureToggleRow(d, "hoard_on", "hoard_off", "Hunt and Hoard", "The whole module — off by default; same as !hoard on/off. The switches beside it only matter while it's on", d.hoardEnabled), ...hoard.rows];
-    if (d.hoardEnabled) hoard.on++;
   }
   const social = bySection.get("Chronicle, oracle & NPCs");
   if (social) {
