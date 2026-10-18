@@ -29,7 +29,7 @@ export const races: Record<string, Race> = {
     traits: ["Lucky", "Brave", "Halfling Nimbleness"],
   },
   Dragonborn: {
-    subraces: [],
+    subraces: ["Black", "Blue", "Brass", "Bronze", "Copper", "Gold", "Green", "Red", "Silver", "White"],
     bonuses: { STR: 2, CHA: 1 },
     speed: 30,
     traits: ["Draconic Ancestry", "Breath Weapon", "Damage Resistance"],
@@ -58,6 +58,20 @@ export const races: Record<string, Race> = {
     speed: 30,
     traits: ["Darkvision", "Hellish Resistance", "Infernal Legacy"],
   },
+};
+
+/** Dragonborn Draconic Ancestry: the damage type of each ancestry's breath. */
+export const draconicAncestry: Record<string, string> = {
+  Black: "acid",
+  Blue: "lightning",
+  Brass: "fire",
+  Bronze: "lightning",
+  Copper: "acid",
+  Gold: "fire",
+  Green: "poison",
+  Red: "fire",
+  Silver: "cold",
+  White: "cold",
 };
 
 export const subraceBonuses: Record<string, Partial<Record<Ability, number>>> =

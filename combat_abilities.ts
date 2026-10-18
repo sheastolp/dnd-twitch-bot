@@ -50,7 +50,7 @@
 // half their attack bonus.
 
 import type { Ability } from "./types.ts";
-import { classes } from "./data.ts";
+import { classes, draconicAncestry } from "./data.ts";
 import { attackAbility, heroAc, modifier } from "./utils.ts";
 import { type BattleLog, heroAcWhy, type Mods, rollDice, type Strike } from "./battle.ts";
 
@@ -117,6 +117,8 @@ export interface Kit {
   relentless: boolean;
   breathDice: number;
   breathDc: number;
+  /** "fire breath" etc. from the Dragonborn's ancestry, or plain "breath weapon". */
+  breathName: string;
   /** Wizard/Sorcerer leveled spell: Magic Missile (L1–4) or Fireball (L5+). */
   bigSpells: number;
   /** Cleric Spiritual Weapon: a bonus strike every turn, this many d8. */
@@ -177,7 +179,7 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
     smiteDice: 0, smites: 0, improvedSmite: false, layOnHands: 0,
     secondWind: false, actionSurge: false, quickened: 0, shields: 0,
     heals: 0, healDice: 0, inspiration: 0, inspireDie: 0, wildShape: 0,
-    lucky: false, relentless: false, breathDice: 0, breathDc: 0, bigSpells: 0, spiritDice: 0, colossus: false, ki: 0, names,
+    lucky: false, relentless: false, breathDice: 0, breathDc: 0, breathName: "breath weapon", bigSpells: 0, spiritDice: 0, colossus: false, ki: 0, names,
   };
   if (cantrip) names.push(`${cantrip.name} (${cls === "warlock" ? `${cantripDice(level)} beam${cantripDice(level) > 1 ? "s" : ""}` : `${k.dice}d${k.die}`})`);
   const extraAttack = level >= 5 && ["barbarian", "fighter", "paladin", "ranger", "monk"].includes(cls);
@@ -308,7 +310,9 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
   if (has("breath weapon") && !opts.stateless) {
     k.breathDice = level >= 16 ? 5 : level >= 11 ? 4 : level >= 6 ? 3 : 2;
     k.breathDc = 8 + sc("CON") + prof;
-    names.push(`Breath Weapon (${k.breathDice}d6, DC ${k.breathDc}, 1/fight)`);
+    const element = draconicAncestry[String(c.subrace ?? "").trim()];
+    if (element) k.breathName = `${element} breath`;
+    names.push(`Breath Weapon (${element ? `${element}, ` : ""}${k.breathDice}d6, DC ${k.breathDc}, 1/fight)`);
   }
   return k;
 }
@@ -578,7 +582,7 @@ export function heroTurn(me: Fighter, pick: Pick, battle: BattleLog, round: numb
     const t = pick();
     if (!t) break;
     if (i === 0 && round === 1 && k.breathDice) {
-      out.push(blast(me, t, battle, round, "breath weapon", k.breathDice, k.breathDc));
+      out.push(blast(me, t, battle, round, k.breathName, k.breathDice, k.breathDc));
       k.breathDice = 0;
       continue;
     }

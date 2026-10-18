@@ -159,7 +159,7 @@ function fmtStrike(s: Strike, showAc = false): string {
   const tag = s.tag ? ` (${s.tag})` : "";
   if (s.save) {
     const tail = s.targetHp <= 0 ? ` — ${s.target} ${s.target === YOU ? "fall" : "falls"}!` : ` (${s.targetHp}/${s.targetMax})`;
-    const verb = s.save.what === "breath weapon" ? (you ? "breathe on" : "breathes on") : (you ? "fireball" : "fireballs");
+    const verb = s.save.what.endsWith("breath") || s.save.what === "breath weapon" ? (you ? "breathe on" : "breathes on") : (you ? "fireball" : "fireballs");
     return `${actor} ${verb} ${s.target}${showAc ? ` [save ${s.total} vs DC ${s.save.dc}]` : ""} ${s.damage}${tag}${tail}`;
   }
   if (s.auto) {
