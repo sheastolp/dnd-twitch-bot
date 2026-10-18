@@ -69,6 +69,7 @@ import { ensureStreamGuardTables, handleStreamGuardCommand, maybeHateRaid, onStr
 import { ensureFollowBotTables, handleFollowBotCommand, maybeBlockFollowBot, purgeFollowBotData } from "./followbots.ts";
 import { handleClipCommand } from "./clips.ts";
 import { ensureModLogTables, purgeModLogData } from "./mod_log.ts";
+import { ensureMotdTables, onStreamOnlineMotd, purgeMotdData } from "./motd.ts";
 import { handleFunCommand, maybeBotBanter } from "./funstuff.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
@@ -144,6 +145,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureStreamGuardTables,
   ensureFollowBotTables,
   ensureModLogTables,
+  ensureMotdTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -338,6 +340,10 @@ async function handleNotification(body: any): Promise<Response | void> {
       if (subscriptionType === "stream.online") await ensureFollowSubscription(liveBroadcasterId, PUBLIC_ORIGIN);
       // Offline lock + going-live announcement (stream_guard.ts).
       try { await onStreamStatusGuard(liveBroadcasterId, subscriptionType === "stream.online"); } catch (e) { await recordMonitorEvent("stream_guard_error", String(e)); }
+      // The developer's message of the day (motd.ts); says nothing when there isn't one.
+      if (subscriptionType === "stream.online") {
+        try { await onStreamOnlineMotd(liveBroadcasterId); } catch (e) { await recordMonitorEvent("motd_error", String(e)); }
+      }
     }
     return new Response("OK");
   }
@@ -500,6 +506,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     await purgeReplyPages(broadcasterId);
     await purgeSeImportData(broadcasterId);
     await purgeNightbotImportData(broadcasterId);
+    await purgeMotdData(broadcasterId);
     await purgeStreamGuardData(broadcasterId); // the offline lock acts on the channel, so it goes with the bot
     await purgeNowPlayingData(broadcasterId); // Spotify tokens go with the bot, purge or not
     if (purge) {

@@ -32,6 +32,7 @@ import { DISCORD_INVITE_URL, PUBLIC_BASE_URL, PUBLIC_ORIGIN } from "./config.ts"
 import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
+import { handleMotdAdminRoute } from "./motd.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { handleExtensionRoute } from "./extension.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
@@ -645,6 +646,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
+  }
+
+  // The developer's message of the day (motd.ts) — same ADMIN_API_SECRET gate.
+  if (path === "/admin/motd") {
+    const routed = await handleMotdAdminRoute(req, url, path);
+    if (routed) return routed;
   }
 
   // Where Twitch delivers each channel's events (eventsub_admin.ts).
