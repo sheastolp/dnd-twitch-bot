@@ -417,6 +417,43 @@ export async function fetchIsChannelLiveNow(broadcasterId: string): Promise<bool
   }
 }
 
+/** What !so shows about another channel (chat_builtin.ts): their profile,
+ * channel info and, when live, the current stream. Public Helix data, app
+ * token. Null when the login doesn't exist. */
+export async function getShoutoutProfile(login: string): Promise<{
+  displayName: string;
+  broadcasterType: string; // "partner", "affiliate" or ""
+  bio: string;
+  gameName: string;
+  title: string;
+  live: { viewers: number; startedAt: string } | null;
+} | null> {
+  try {
+    const headers = { Authorization: `Bearer ${await getAppToken()}`, "Client-Id": env("TWITCH_CLIENT_ID") };
+    const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, { headers });
+    if (!userRes.ok) return null;
+    const user = (await userRes.json())?.data?.[0];
+    if (!user?.id) return null;
+    const [channelRes, streamRes] = await Promise.all([
+      fetch(`https://api.twitch.tv/helix/channels?broadcaster_id=${user.id}`, { headers }),
+      fetch(`https://api.twitch.tv/helix/streams?user_id=${user.id}`, { headers }),
+    ]);
+    const channel = channelRes.ok ? (await channelRes.json())?.data?.[0] : null;
+    const stream = streamRes.ok ? (await streamRes.json())?.data?.[0] : null;
+    return {
+      displayName: String(user.display_name || login),
+      broadcasterType: String(user.broadcaster_type ?? ""),
+      bio: String(user.description ?? "").replace(/\s+/g, " ").trim(),
+      gameName: String(stream?.game_name || channel?.game_name || ""),
+      title: String(stream?.title || channel?.title || "").trim(),
+      live: stream ? { viewers: Number(stream.viewer_count) || 0, startedAt: String(stream.started_at) } : null,
+    };
+  } catch (err) {
+    console.error("getShoutoutProfile failed", err);
+    return null;
+  }
+}
+
 /** Returns a formatted uptime string ("1h 12m"/"12m"), or null if offline. */
 export async function getStreamUptime(broadcasterId: string): Promise<string | null> {
   try {

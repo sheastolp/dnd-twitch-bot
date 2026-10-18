@@ -11,7 +11,7 @@ import { channelCommandsUrl } from "./commands_page.ts";
 import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
-import { env, sendChatMessage, sendChatMessages, sendSpellSections, getUserIdByLogin, getChannelInfo } from "./twitch.ts";
+import { env, sendChatMessage, sendChatMessages, sendSpellSections, getShoutoutProfile } from "./twitch.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
@@ -626,7 +626,8 @@ async function shoutoutClaims(chatMessage: string, broadcasterId: string): Promi
   return on && !custom;
 }
 
-/** !so @user (mods): a chat shoutout naming the channel's last game. */
+/** !so @user (mods): a chat shoutout with the channel's live status, game,
+ * stream title and a slice of their bio. */
 async function handleShoutout(chatMessage: string, display: string, broadcasterId: string, isModerator: boolean) {
   if (!isModerator) {
     await sendChatMessage(`@${display} only the broadcaster or a moderator can use !so.`, broadcasterId);
@@ -637,17 +638,23 @@ async function handleShoutout(chatMessage: string, display: string, broadcasterI
     await sendChatMessage(`@${display} use !so @username`, broadcasterId);
     return;
   }
-  const targetId = await getUserIdByLogin(target);
-  if (!targetId) {
+  const p = await getShoutoutProfile(target);
+  if (!p) {
     await sendChatMessage(`@${display} couldn't find a Twitch channel called ${target}.`, broadcasterId);
     return;
   }
-  const info = await getChannelInfo(targetId);
-  const game = info?.gameName ? ` They were last seen adventuring in ${info.gameName}.` : "";
-  await sendChatMessage(
-    `📣 Hail, travelers! Go give @${target} a follow at https://twitch.tv/${target}.${game} Tell them the guild sent you!`,
-    broadcasterId,
-    [target],
-    { keepNames: true },
-  );
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+  const badge = p.broadcasterType === "partner" ? " ✅ Twitch Partner" : p.broadcasterType === "affiliate" ? " 💜 Twitch Affiliate" : "";
+  const parts = [`📣 Go show some love to @${target}!${badge}`];
+  if (p.live) {
+    const minutes = Math.max(0, Math.floor((Date.now() - new Date(p.live.startedAt).getTime()) / 60_000));
+    const uptime = minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+    parts.push(`🔴 LIVE now${p.gameName ? ` playing ${p.gameName}` : ""} for ${p.live.viewers} viewer${p.live.viewers === 1 ? "" : "s"} (up ${uptime})`);
+  } else if (p.gameName) {
+    parts.push(`🎮 Last seen streaming ${p.gameName}`);
+  }
+  if (p.title) parts.push(`📺 "${clip(p.title, 100)}"`);
+  if (p.bio) parts.push(`📝 ${clip(p.bio, 120)}`);
+  parts.push(`👉 https://twitch.tv/${target}`);
+  await sendChatMessage(parts.join(" | "), broadcasterId, [target], { keepNames: true });
 }
