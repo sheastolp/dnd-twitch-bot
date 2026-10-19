@@ -329,7 +329,7 @@ export async function handleMonsterDuelCommand(
     const strikeBack = monsterTurn(foe, hero, new BattleLog(), 2);
     const nextPlayerHp = hero.hp;
     active.player_hp = nextPlayerHp;
-    const monsterResult = `${classicText([strikeBack])} ${duelNarration(strikeBack.hit ? "hit" : "miss")}`;
+    const monsterResult = `${classicText([strikeBack])} ${duelNarration(strikeBack?.hit ? "hit" : "miss")}`;
     if (nextPlayerHp <= 0) {
       await sqlite.execute(
         "DELETE FROM monster_duels WHERE broadcaster_id = ?",

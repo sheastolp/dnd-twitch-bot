@@ -48,6 +48,42 @@
 // Casters add their casting modifier to cantrip damage (a house rule, so a
 // level-1 caster isn't out-damaged by every sword). Monsters' DEX save is
 // half their attack bonus.
+//
+// Debuffs: every class also has a way to hinder its foe, chosen and used
+// automatically (chooseHinder) — a rider on a hit, a spell cast in place of
+// the turn's first attack, or a roar as the turn starts. The target saves
+// against DC 8 + proficiency + the hero's fighting stat (monsters save at
+// half their attack bonus, as against a breath weapon):
+//   Barbarian  Intimidating Presence L3 (turn start: WIS save or frightened 2 turns, 1/fight)
+//   Fighter    Battle Master maneuvers L3 (on a hit, +1d8 (1d10 L10): Trip Attack —
+//              STR save or prone 1 turn; Menacing Attack — WIS save or
+//              frightened 1 turn; 2 a fight, 3 L7, 4 L15)
+//   Paladin    Wrathful Smite L2 (on a hit, +1d6: WIS save or frightened, 1–2 a fight)
+//   Ranger     Ensnaring Strike L2 (on a hit: STR save or restrained, 1–2 a fight)
+//   Rogue      Cunning Strike L5 (on a sneak attack, for 1d6 of it: Poison —
+//              CON save or poisoned 2 turns; Trip — DEX save or prone 1 turn)
+//   Monk       Stunning Strike L5 (on a hit, 1 ki: CON save or stunned 1 turn)
+//   Wizard     Ray of Enfeeblement L3 (CON save or deals half damage);
+//              Hold Monster L9 (WIS save or paralyzed); 1–2 a fight between them
+//   Sorcerer   Blindness L3 (CON save or blinded, 1–2 a fight)
+//   Warlock    Cause Fear (WIS save or frightened, 1–2 a fight)
+//   Cleric     Bane (CHA save or −1d4 to its attacks for 10 turns, 1–2 a fight)
+//   Druid      Entangle (STR save or restrained, 1–2 a fight)
+//   Bard       Vicious Mockery (a hit leaves it rattled: disadvantage on its
+//              next attack); Cutting Words L3 (spends an inspiration to take
+//              the die off a foe's attack that would hit)
+// The spells (Wrathful Smite and Ensnaring Strike included) last up to 10
+// of the foe's turns, and it repeats the save at the start of each to shake
+// them off. Frightened, poisoned and rattled foes attack at disadvantage; prone ones
+// are attacked at advantage; restrained and blinded, both; stunned and
+// paralyzed ones lose their turns and are attacked at advantage; enfeebled
+// ones deal half damage. The chooser skips a foe nearly down (under a
+// quarter HP) or already suffering the same thing, casts only at a foe at
+// half HP or more with at least three of the hero's turns of damage left in
+// it, and prefers what helps most: a stun, then fear/Bane/enfeeblement when
+// the hero is hurt, then prone when allies can capitalize. Uses reset each
+// fight; classic turn-by-turn fights get only the free ones (Cunning Strike,
+// Vicious Mockery).
 
 import type { Ability } from "./types.ts";
 import { classes, draconicAncestry } from "./data.ts";
@@ -127,8 +163,68 @@ export interface Kit {
   colossus: boolean;
   /** Monk Flurry of Blows: ki for a second bonus strike, one a turn. */
   ki: number;
+  /** Debuffs this hero can inflict, chosen by chooseHinder. */
+  hinders: Hinder[];
+  /** Uses left of the `cost: "uses"` hinders (superiority dice, spell slots). */
+  hinderUses: number;
+  /** Save DC against this hero's hinders. */
+  hinderDc: number;
+  /** Bard Cutting Words: spends inspiration against a foe's attack roll. */
+  cuttingWords: boolean;
   /** Ability names, for the fight's stat lines. */
   names: string[];
+}
+
+/** What a condition does to the fighter suffering it. */
+export interface DebuffEffect {
+  /** Its attack rolls are at disadvantage. */
+  disadvantage?: boolean;
+  /** Attack rolls against it are at advantage. */
+  exposed?: boolean;
+  /** −1dN on its attack rolls (Bane). */
+  penaltyDie?: number;
+  /** Its attacks deal half damage. */
+  halfDamage?: boolean;
+  /** It loses its turns. */
+  stunned?: boolean;
+  /** Ends after its next attack roll. */
+  once?: boolean;
+}
+
+/** A condition on a fighter, e.g. frightened for 2 of its turns. */
+export interface Debuff extends DebuffEffect {
+  name: string;
+  by: string;
+  /** Its own turns left; counted down from the turn after it first had one. */
+  turns: number;
+  seen?: boolean;
+  /** A save it repeats at the start of each of those later turns to end it. */
+  save?: Ability;
+  dc?: number;
+}
+
+/** One way a hero hinders a foe. */
+export interface Hinder {
+  name: string;
+  /** The condition it leaves, as in "the Goblin is frightened". */
+  cond: string;
+  /** A rider on a hit, a spell in place of the turn's first attack, or at
+   * the start of the turn. */
+  how: "rider" | "cast" | "start";
+  /** What it spends: the kit's hinderUses, a ki point, or nothing. */
+  cost: "uses" | "ki" | "free";
+  /** The save that shakes it off; none: it lands with the hit. */
+  save?: Ability;
+  turns: number;
+  /** Spells that last up to a minute: the target repeats the save each turn. */
+  repeat?: boolean;
+  effect: DebuffEffect;
+  /** Extra damage on the hit: dice of sides (superiority die, Wrathful Smite). */
+  bonus?: [number, number];
+  /** Cunning Strike: rides a sneak attack and costs one of its d6s. */
+  sneak?: boolean;
+  /** Vicious Mockery: only on the cantrip, not a bonus strike. */
+  cantrip?: boolean;
 }
 
 /** One side of a fight: a hero (with `c` and `kit`) or a monster. */
@@ -151,6 +247,10 @@ export interface Fighter {
   fateUsed?: boolean;
   /** The side this fighter is on (for healing and inspiring allies). */
   team?: Fighter[];
+  /** Conditions it suffers (combat_abilities debuffs). */
+  debuffs?: Debuff[];
+  /** The last round it started a turn in (a monster may attack several times a round). */
+  turnRound?: number;
 }
 
 /** Builds a hero's kit. `stateless`: classic turn-by-turn fights, which keep
@@ -179,8 +279,17 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
     smiteDice: 0, smites: 0, improvedSmite: false, layOnHands: 0,
     secondWind: false, actionSurge: false, quickened: 0, shields: 0,
     heals: 0, healDice: 0, inspiration: 0, inspireDie: 0, wildShape: 0,
-    lucky: false, relentless: false, breathDice: 0, breathDc: 0, breathName: "breath weapon", bigSpells: 0, spiritDice: 0, colossus: false, ki: 0, names,
+    lucky: false, relentless: false, breathDice: 0, breathDc: 0, breathName: "breath weapon", bigSpells: 0, spiritDice: 0, colossus: false, ki: 0,
+    hinders: [], hinderUses: 0, hinderDc: 8 + prof + mod, cuttingWords: false, names,
   };
+  const dc = `DC ${k.hinderDc}`;
+  /** A class debuff with `uses` a fight (shared with any others of the class). */
+  const hinder = (h: Hinder, name: string, uses = 0) => {
+    k.hinders.push(h);
+    if (uses) k.hinderUses = limited(uses);
+    names.push(name);
+  };
+  const slots = (level9: number) => (level >= level9 ? 2 : 1);
   if (cantrip) names.push(`${cantrip.name} (${cls === "warlock" ? `${cantripDice(level)} beam${cantripDice(level) > 1 ? "s" : ""}` : `${k.dice}d${k.die}`})`);
   const extraAttack = level >= 5 && ["barbarian", "fighter", "paladin", "ranger", "monk"].includes(cls);
   switch (cls) {
@@ -190,6 +299,12 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       if (level >= 9) {
         k.critDice += level >= 17 ? 3 : level >= 13 ? 2 : 1;
         names.push(`Brutal Critical (+${k.critDice} crit ${k.critDice > 1 ? "dice" : "die"})`);
+      }
+      if (level >= 3) {
+        hinder(
+          { name: "Intimidating Presence", cond: "frightened", how: "start", cost: "uses", save: "WIS", turns: 2, effect: { disadvantage: true } },
+          `Intimidating Presence (frightened, ${dc}, 1/fight)`, 1,
+        );
       }
       break;
     case "fighter":
@@ -202,6 +317,14 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       if (level >= 3) {
         k.critOn = 19;
         names.push("Improved Critical (19–20)");
+        const sup = level >= 10 ? 10 : 8;
+        const dice = level >= 15 ? 4 : level >= 7 ? 3 : 2;
+        k.hinders.push(
+          { name: "Trip Attack", cond: "prone", how: "rider", cost: "uses", save: "STR", turns: 1, effect: { exposed: true }, bonus: [1, sup] },
+          { name: "Menacing Attack", cond: "frightened", how: "rider", cost: "uses", save: "WIS", turns: 1, effect: { disadvantage: true }, bonus: [1, sup] },
+        );
+        k.hinderUses = limited(dice);
+        names.push(`Trip/Menacing Attack (+1d${sup}, prone or frightened, ${dc}, ${dice}/fight)`);
       }
       break;
     case "paladin":
@@ -212,6 +335,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
         const smites = level >= 13 ? 4 : level >= 9 ? 3 : level >= 5 ? 2 : 1;
         k.smites = limited(smites);
         names.push(`Divine Smite (+${k.smiteDice}d8, ${smites}/fight)`);
+        hinder(
+          { name: "Wrathful Smite", cond: "frightened", how: "rider", cost: "uses", save: "WIS", turns: 10, repeat: true, effect: { disadvantage: true }, bonus: [1, 6] },
+          `Wrathful Smite (+1d6, frightened, ${dc}, ${slots(9)}/fight)`, slots(9),
+        );
       }
       if (level >= 11) {
         k.improvedSmite = true;
@@ -222,6 +349,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       if (level >= 2) {
         k.markName = "mark";
         names.push("Hunter's Mark (+1d6)");
+        hinder(
+          { name: "Ensnaring Strike", cond: "restrained", how: "rider", cost: "uses", save: "STR", turns: 10, repeat: true, effect: { disadvantage: true, exposed: true } },
+          `Ensnaring Strike (restrained, ${dc}, ${slots(9)}/fight)`, slots(9),
+        );
       }
       if (level >= 3) {
         k.colossus = true;
@@ -234,6 +365,11 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       if (level >= 5) {
         k.uncanny = limited(prof);
         names.push(`Uncanny Dodge (${prof}/fight)`);
+        k.hinders.push(
+          { name: "Poison", cond: "poisoned", how: "rider", cost: "free", save: "CON", turns: 2, effect: { disadvantage: true }, sneak: true },
+          { name: "Trip", cond: "prone", how: "rider", cost: "free", save: "DEX", turns: 1, effect: { exposed: true }, sneak: true },
+        );
+        names.push(`Cunning Strike (poison or trip for 1d6 of sneak, ${dc})`);
       }
       break;
     case "monk":
@@ -243,12 +379,30 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
         k.ki = limited(level);
         names.push(`Flurry of Blows (${level}/fight)`);
       }
+      if (level >= 5) {
+        hinder(
+          { name: "Stunning Strike", cond: "stunned", how: "rider", cost: "ki", save: "CON", turns: 1, effect: { stunned: true, exposed: true } },
+          `Stunning Strike (1 ki, ${dc})`,
+        );
+      }
       break;
     case "wizard":
       k.shields = limited(level >= 5 ? 3 : 2);
       names.push(`Shield (+5 AC, ${level >= 5 ? 3 : 2}/fight)`);
       k.bigSpells = limited(bigSpellUses(level));
       names.push(bigSpellName(level));
+      if (level >= 3) {
+        hinder(
+          { name: "Ray of Enfeeblement", cond: "enfeebled", how: "cast", cost: "uses", save: "CON", turns: 10, repeat: true, effect: { halfDamage: true } },
+          `Ray of Enfeeblement (half damage, ${dc}, ${slots(9)}/fight)`, slots(9),
+        );
+      }
+      if (level >= 9) {
+        hinder(
+          { name: "Hold Monster", cond: "paralyzed", how: "cast", cost: "uses", save: "WIS", turns: 10, repeat: true, effect: { stunned: true, exposed: true } },
+          "Hold Monster (paralyzed, shares Ray's uses)",
+        );
+      }
       break;
     case "sorcerer":
       k.bigSpells = limited(bigSpellUses(level));
@@ -256,6 +410,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       if (level >= 3) {
         k.quickened = limited(level >= 10 ? 2 : 1);
         names.push(`Quickened Spell (${level >= 10 ? 2 : 1}/fight)`);
+        hinder(
+          { name: "Blindness", cond: "blinded", how: "cast", cost: "uses", save: "CON", turns: 10, repeat: true, effect: { disadvantage: true, exposed: true } },
+          `Blindness (blinded, ${dc}, ${slots(9)}/fight)`, slots(9),
+        );
       }
       break;
     case "warlock":
@@ -263,6 +421,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       k.markName = "hex";
       names.push("Hex (+1d6)");
       if (level >= 2) names.push("Agonizing Blast (+CHA)");
+      hinder(
+        { name: "Cause Fear", cond: "frightened", how: "cast", cost: "uses", save: "WIS", turns: 10, repeat: true, effect: { disadvantage: true } },
+        `Cause Fear (frightened, ${dc}, ${slots(11)}/fight)`, slots(11),
+      );
       break;
     case "cleric":
       k.heals = limited(level >= 9 ? 4 : level >= 3 ? 3 : 2);
@@ -272,6 +434,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
         k.spiritDice = level >= 15 ? 3 : level >= 9 ? 2 : 1;
         names.push(`Spiritual Weapon (${k.spiritDice}d8)`);
       }
+      hinder(
+        { name: "Bane", cond: "baned", how: "cast", cost: "uses", save: "CHA", turns: 10, effect: { penaltyDie: 4 } },
+        `Bane (−1d4 to its attacks, ${dc}, ${slots(9)}/fight)`, slots(9),
+      );
       break;
     case "druid":
       k.heals = limited(level >= 9 ? 3 : 2);
@@ -281,6 +447,10 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
         k.wildShape = limited(5 + 2 * level);
         names.push(`Wild Shape (${5 + 2 * level} HP beast form, 1/fight)`);
       }
+      hinder(
+        { name: "Entangle", cond: "restrained", how: "cast", cost: "uses", save: "STR", turns: 10, repeat: true, effect: { disadvantage: true, exposed: true } },
+        `Entangle (restrained, ${dc}, ${slots(9)}/fight)`, slots(9),
+      );
       break;
     case "bard":
       k.inspiration = limited(Math.max(1, sc("CHA")));
@@ -289,6 +459,13 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       k.heals = limited(level >= 9 ? 2 : 1);
       k.healDice = 1 + Math.floor(level / 4);
       names.push(`Healing Word (${k.healDice}d4 + CHA, ${level >= 9 ? 2 : 1}/fight)`);
+      // The cantrip itself: no name of its own, it's already on the list.
+      k.hinders.push({ name: "Vicious Mockery", cond: "rattled", how: "rider", cost: "free", turns: 1, effect: { disadvantage: true, once: true }, cantrip: true });
+      names[0] = names[0].replace(/\)$/, ", rattles: disadvantage on its next attack)");
+      if (level >= 3) {
+        k.cuttingWords = !opts.stateless;
+        names.push("Cutting Words (inspiration off a foe's attack)");
+      }
       break;
   }
   if (extraAttack) {
@@ -408,23 +585,177 @@ function record(battle: BattleLog, s: Strike, after: string[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Debuffs
+// ---------------------------------------------------------------------------
+
+const signed = (n: number) => `${n < 0 ? "−" : "+"}${Math.abs(n)}`;
+const is = (f: Fighter) => (f.name === "you" ? "are" : "is");
+
+/** A fighter's saving throw bonus: a hero's ability modifier (+ proficiency
+ * in their class's saves); a monster's half its attack bonus for any save. */
+function saveBonus(f: Fighter, ab: Ability): number {
+  if (!f.c) return f.dexSave ?? 0;
+  const saves: string[] = (classes as any)[String(f.c.cls ?? "")]?.savingThrows ?? [];
+  return modifier(Number(f.c.scores?.[ab] ?? 10)) + (saves.includes(ab) ? Number(f.c.proficiency ?? 2) : 0);
+}
+
+/** Start of a fighter's turn — once a round, however many attacks a monster
+ * makes: conditions that have run their course end. Returns true when it is
+ * stunned or paralyzed and loses the turn. */
+function startTurn(f: Fighter, battle: BattleLog, round: number): boolean {
+  if (f.turnRound === round) return !!f.debuffs?.some((x) => x.stunned);
+  f.turnRound = round;
+  const kept: Debuff[] = [];
+  for (const x of f.debuffs ?? []) {
+    if (x.seen && x.save && x.dc) {
+      const roll = d(20), bonus = saveBonus(f, x.save);
+      if (roll + bonus >= x.dc) {
+        battle.explain(`${f.name} ${x.save} save ${roll} ${signed(bonus)} = ${roll + bonus} vs DC ${x.dc} → no longer ${x.name}`);
+        continue;
+      }
+    }
+    if (x.seen && --x.turns <= 0) {
+      battle.explain(`${f.name} ${is(f)} no longer ${x.name}`);
+      continue;
+    }
+    x.seen = true;
+    kept.push(x);
+  }
+  f.debuffs = kept;
+  const stun = kept.find((x) => x.stunned);
+  if (stun) battle.note(`😵 ${f.name} ${is(f)} ${stun.name} and ${f.name === "you" ? "lose" : "loses"} the turn`, false);
+  return !!stun;
+}
+
+/** The d20 for an attack by `me` at `t`: advantage when `t` is prone,
+ * restrained, blinded or stunned, disadvantage when `me` is frightened,
+ * poisoned, rattled, restrained or blinded (the two cancel), and Bane's −1d4
+ * onto `atk`. A rattled attacker's disadvantage is spent by the roll. */
+function attackD20(me: Fighter, t: Fighter, tags: string[], atk: Mods): number {
+  const mine = me.debuffs ?? [];
+  const dis = mine.find((x) => x.disadvantage);
+  const adv = t.debuffs?.find((x) => x.exposed);
+  const a = d(20), b = d(20);
+  let roll = a;
+  if (adv && !dis) {
+    roll = Math.max(a, b);
+    tags.push(`advantage: ${adv.name}`);
+  } else if (dis && !adv) {
+    roll = Math.min(a, b);
+    tags.push(`disadvantage: ${dis.name}`);
+  }
+  for (const x of mine) if (x.penaltyDie) atk.push([x.name, -d(x.penaltyDie)]);
+  if (mine.some((x) => x.once)) me.debuffs = mine.filter((x) => !x.once);
+  return roll;
+}
+
+/** Halves the damage of an enfeebled attacker. */
+function weakened(me: Fighter, raw: number, tags: string[]): number {
+  const x = me.debuffs?.find((y) => y.halfDamage);
+  if (!x) return raw;
+  tags.push(`${x.name}: half`);
+  return Math.max(1, Math.floor(raw / 2));
+}
+
+/** Bard Cutting Words: a bard on `t`'s side spends an inspiration to take
+ * the die off an attack roll that would hit `t`, when that could turn it.
+ * Returns the new total. */
+function cuttingWords(t: Fighter, total: number, atk: Mods, tags: string[]): number {
+  const bard = (t.team ?? [t]).find((f) => f.hp > 0 && f.kit?.cuttingWords && f.kit.inspiration > 0 && total - t.ac < f.kit.inspireDie);
+  if (!bard) return total;
+  bard.kit!.inspiration--;
+  const cut = d(bard.kit!.inspireDie);
+  atk.push([`cutting words by ${bard.name}`, -cut]);
+  tags.push(total - cut >= t.ac ? "cutting words, still" : "cutting words");
+  return total - cut;
+}
+
+const canPay = (k: Kit, h: Hinder) => (h.cost === "uses" ? k.hinderUses > 0 : h.cost === "ki" ? k.ki > 0 : true);
+function pay(k: Kit, h: Hinder, n = 1) {
+  if (h.cost === "uses") k.hinderUses -= n;
+  else if (h.cost === "ki") k.ki -= n;
+}
+
+/**
+ * Picks the debuff `me` should use on `t` right now, of the kind `how`, or
+ * none. Never on a foe under a quarter HP (just finish it) or already
+ * helpless; spells only on a foe at half HP or more. Each option is scored
+ * by what it adds that `t` doesn't already suffer: a stun most, fear,
+ * Bane or enfeeblement more when `me` is hurt, and prone more for every
+ * ally standing to take advantage of it.
+ */
+export function chooseHinder(me: Fighter, t: Fighter, how: Hinder["how"], ok: (h: Hinder) => boolean = () => true): Hinder | undefined {
+  const k = me.kit;
+  if (!k?.hinders.length || t.hp <= 0 || t.hp < t.max / 4) return undefined;
+  // A spell costs an attack: only on a foe fresh and tough enough that the
+  // fight will run long enough to repay it.
+  const turnDamage = k.attacks * (k.dice * (k.die + 1) / 2 + k.dmgMod);
+  if (how === "cast" && (t.hp < t.max / 2 || t.hp < 3 * turnDamage)) return undefined;
+  const on = t.debuffs ?? [];
+  if (on.some((x) => x.stunned)) return undefined;
+  const hurt = me.hp <= me.max / 2;
+  const allies = (me.team ?? [me]).filter((f) => f !== me && f.hp > 0).length;
+  let best: Hinder | undefined;
+  let bestScore = 0;
+  for (const h of k.hinders) {
+    if (h.how !== how || !canPay(k, h) || !ok(h) || on.some((x) => x.name === h.cond)) continue;
+    const e = h.effect;
+    let score = 0;
+    if (e.stunned) score += 5;
+    if (e.disadvantage && !on.some((x) => x.disadvantage)) score += (hurt ? 3 : 2) - (e.once ? 1 : 0);
+    if (e.penaltyDie) score += hurt ? 3 : 2;
+    if (e.halfDamage && !on.some((x) => x.halfDamage)) score += hurt ? 3 : 2;
+    if (e.exposed && !on.some((x) => x.exposed)) score += 1 + allies;
+    if (score > bestScore) [best, bestScore] = [h, score];
+  }
+  return best;
+}
+
+/** `t` saves against `h` from `me`, or suffers it. Returns a short tag
+ * ("prone" / "resisted") and the save's working for the detail page. */
+function inflict(me: Fighter, t: Fighter, h: Hinder): { landed: boolean; tag: string; detail?: string } {
+  let detail: string | undefined;
+  if (h.save) {
+    const roll = d(20), bonus = saveBonus(t, h.save), dc = me.kit!.hinderDc;
+    const saved = roll + bonus >= dc;
+    detail = `${t.name} ${h.save} save vs ${h.name}: ${roll} ${signed(bonus)} = ${roll + bonus} vs DC ${dc} → ${saved ? "resisted" : h.cond}`;
+    if (saved) return { landed: false, tag: `${h.name.toLowerCase()}: resisted`, detail };
+  }
+  const again = h.repeat && h.save ? { save: h.save, dc: me.kit!.hinderDc } : {};
+  t.debuffs = [...(t.debuffs ?? []).filter((x) => x.name !== h.cond), { name: h.cond, by: me.name, turns: h.turns, ...again, ...h.effect }];
+  return { landed: true, tag: `${h.name.toLowerCase()}: ${h.cond}`, detail };
+}
+
+/** A debuff spell or roar (not a rider on a hit), logged as its own line. */
+function useHinder(me: Fighter, t: Fighter, h: Hinder, battle: BattleLog) {
+  pay(me.kit!, h);
+  const r = inflict(me, t, h);
+  const verb = h.how === "cast" ? (me.name === "you" ? "cast" : "casts") : (me.name === "you" ? "use" : "uses");
+  battle.note(`🌀 ${me.name} ${verb} ${h.name} — ${t.name} ${r.landed ? `${is(t)} ${h.cond}` : (t.name === "you" ? "resist" : "resists")}`, false);
+  if (r.detail) battle.explain(r.detail);
+}
+
+// ---------------------------------------------------------------------------
 // Swings
 // ---------------------------------------------------------------------------
 
 /** Picks the next target, or undefined when none is standing. */
 export type Pick = () => Fighter | undefined;
 
+/** What a hero has used up this turn. */
+type Turn = { sneakUsed: boolean; colossusUsed?: boolean; hindered?: boolean };
+
 /** One attack roll by a hero. Returns the strike as logged. */
-function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, turn: { sneakUsed: boolean; colossusUsed?: boolean }, opts: { bonusStrike?: boolean } = {}): Strike {
+function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, turn: Turn, opts: { bonusStrike?: boolean } = {}): Strike {
   const k = me.kit!;
   const tags: string[] = opts.bonusStrike ? [k.martialDie ? "martial arts" : "spiritual weapon"] : [];
-  let roll = d(20);
+  const atk: Mods = [[k.ability, k.mod], ["prof", k.prof]];
+  if (k.edge && t.attack !== undefined) atk.push(["edge", k.edge]);
+  let roll = attackD20(me, t, tags, atk);
   if (roll === 1 && k.lucky) {
     roll = d(20);
     tags.push("lucky reroll");
   }
-  const atk: Mods = [[k.ability, k.mod], ["prof", k.prof]];
-  if (k.edge && t.attack !== undefined) atk.push(["edge", k.edge]);
   let total = roll + sum(atk.map(([, v]) => v));
   const crit = roll >= k.critOn;
   let hit = crit || (roll !== 1 && total >= t.ac);
@@ -439,6 +770,10 @@ function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, tu
       hit = total >= t.ac;
       tags.push(hit ? "inspired" : "inspired, still");
     }
+  }
+  if (hit && !crit) {
+    total = cuttingWords(t, total, atk, tags);
+    hit = total >= t.ac;
   }
   // Wizard's Shield: +5 AC as a reaction against a hit that it turns.
   if (hit && !crit && t.kit?.shields && total < t.ac + 5 && t.hp > 0) {
@@ -465,10 +800,20 @@ function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, tu
     const r = sum(rollDice(crit ? n * 2 : n, sides));
     dmgMods.push([label, r]);
   };
+  // One debuff riding a hit a turn (a maneuver, Stunning Strike, Cunning
+  // Strike...), if the chooser thinks it worth it.
+  const rider = turn.hindered ? undefined : chooseHinder(me, t, "rider", (h) =>
+    (!h.sneak || (k.sneak > 1 && !turn.sneakUsed)) && !(h.cantrip && opts.bonusStrike));
+  if (rider) {
+    turn.hindered = true;
+    pay(k, rider);
+    if (rider.bonus) extra(`${rider.name.toLowerCase()} ${rider.bonus[0]}d${rider.bonus[1]}`, ...rider.bonus);
+  }
   if (k.rage) dmgMods.push(["rage", k.rage]);
   if (k.sneak && !turn.sneakUsed) {
     turn.sneakUsed = true;
-    extra(`sneak ${k.sneak}d6`, k.sneak, 6);
+    const sneak = k.sneak - (rider?.sneak ? 1 : 0);
+    extra(`sneak ${sneak}d6`, sneak, 6);
     tags.push("sneak attack");
   }
   if (k.markName) extra(`${k.markName} 1d6`, 1, 6);
@@ -482,14 +827,23 @@ function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, tu
     tags.push("smite");
   }
   if (k.improvedSmite && !opts.bonusStrike) extra("radiant 1d8", 1, 8);
-  const raw = Math.max(1, sum(rolls) + sum(dmgMods.map(([, v]) => v)));
+  const raw = weakened(me, Math.max(1, sum(rolls) + sum(dmgMods.map(([, v]) => v))), tags);
   const hit2 = takeHit(t, raw, round);
   tags.push(...hit2.tags);
+  let detail: string | undefined;
+  if (rider && t.hp > 0) {
+    const r = inflict(me, t, rider);
+    tags.push(r.tag);
+    detail = r.detail;
+  } else if (rider && !rider.bonus) {
+    pay(k, rider, -1); // the blow dropped it: nothing spent
+  }
   const s: Strike = {
     ...base, damage: hit2.taken, targetHp: hit2.shownHp, dmgDice: rolls, dmgDie: die, dmgMods,
     tag: tags.join(", ") || undefined,
   };
   record(battle, s, hit2.after);
+  if (detail) battle.explain(detail);
   return s;
 }
 
@@ -564,9 +918,12 @@ function heal(me: Fighter, battle: BattleLog) {
 export function heroTurn(me: Fighter, pick: Pick, battle: BattleLog, round: number): Strike[] {
   const k = me.kit!;
   const out: Strike[] = [];
-  if (me.hp <= 0) return out;
+  if (me.hp <= 0 || startTurn(me, battle, round)) return out;
   heal(me, battle);
-  const turn = { sneakUsed: false };
+  const turn: Turn = { sneakUsed: false };
+  const first = pick();
+  const roar = first && chooseHinder(me, first, "start");
+  if (roar) useHinder(me, first, roar, battle);
   let swings = k.attacks;
   if (round === 1 && k.actionSurge) {
     k.actionSurge = false;
@@ -595,6 +952,12 @@ export function heroTurn(me: Fighter, pick: Pick, battle: BattleLog, round: numb
       );
       continue;
     }
+    // A debuff spell takes the place of the turn's first attack.
+    const spell = i === 0 ? chooseHinder(me, t, "cast") : undefined;
+    if (spell) {
+      useHinder(me, t, spell, battle);
+      continue;
+    }
     out.push(heroSwing(me, t, battle, round, turn));
   }
   if (k.martialDie || k.spiritDice) {
@@ -611,14 +974,21 @@ export function heroTurn(me: Fighter, pick: Pick, battle: BattleLog, round: numb
   return out;
 }
 
-/** One monster attack at `t` (crits double the dice). */
-export function monsterTurn(m: Fighter, t: Fighter, battle: BattleLog, round: number): Strike {
-  const roll = d(20);
+/** One monster attack at `t` (crits double the dice). Undefined when the
+ * monster is stunned or paralyzed and loses its turn. */
+export function monsterTurn(m: Fighter, t: Fighter, battle: BattleLog, round: number): Strike | undefined {
+  if (startTurn(m, battle, round)) return undefined;
+  const tags: string[] = [];
   const attack = Number(m.attack ?? 0);
-  const total = roll + attack;
+  const atk: Mods = [["atk", attack]];
+  const roll = attackD20(m, t, tags, atk);
+  let total = roll + sum(atk.map(([, v]) => v));
   const crit = roll === 20;
   let hit = crit || (roll !== 1 && total >= t.ac);
-  const tags: string[] = [];
+  if (hit && !crit) {
+    total = cuttingWords(t, total, atk, tags);
+    hit = total >= t.ac;
+  }
   if (hit && !crit && t.kit?.shields && total < t.ac + 5) {
     t.kit.shields--;
     hit = false;
@@ -627,7 +997,7 @@ export function monsterTurn(m: Fighter, t: Fighter, battle: BattleLog, round: nu
   const hpBefore = t.hp;
   const base: Strike = {
     actor: m.name, target: t.name, hit, crit, fumble: roll === 1, roll, total, ac: t.ac,
-    damage: 0, targetHp: t.hp, targetMax: t.max, acWhy: t.acWhy, atk: [["atk", attack]], hpBefore,
+    damage: 0, targetHp: t.hp, targetMax: t.max, acWhy: t.acWhy, atk, hpBefore,
     tag: tags.join(", ") || undefined,
   };
   if (!hit) {
@@ -635,7 +1005,7 @@ export function monsterTurn(m: Fighter, t: Fighter, battle: BattleLog, round: nu
     return base;
   }
   const rolls = rollDice(crit ? 2 : 1, Number(m.die ?? 6));
-  const raw = Math.max(1, sum(rolls) + Number(m.bonus ?? 0));
+  const raw = weakened(m, Math.max(1, sum(rolls) + Number(m.bonus ?? 0)), tags);
   const h = takeHit(t, raw, round);
   const s: Strike = {
     ...base, damage: h.taken, targetHp: h.shownHp, dmgDice: rolls, dmgDie: Number(m.die ?? 6),
@@ -650,8 +1020,8 @@ export const firstStanding = (fs: Fighter[]): Pick => () => fs.find((f) => f.hp 
 
 /** Classic turn-by-turn text for a set of strikes: "Bob attacks Goblin:
  * d20 14 + 5 = 19 vs AC 13 → hit for 9 (sneak attack) (Goblin 11/20 HP)". */
-export function classicText(strikes: Strike[]): string {
-  return strikes.map((s) => {
+export function classicText(strikes: (Strike | undefined)[]): string {
+  return strikes.filter((s): s is Strike => !!s).map((s) => {
     if (s.save) {
       return `${s.actor} uses ${s.save.what} on ${s.target}: DEX save ${s.total} vs DC ${s.save.dc} → ${s.save.saved ? "half" : "full"} ${s.damage} damage (${s.target} ${s.targetHp}/${s.targetMax} HP)`;
     }
