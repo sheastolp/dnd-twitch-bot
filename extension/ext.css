@@ -101,6 +101,12 @@ code { font: 12px/1 Consolas, monospace; background: var(--parch-3); padding: 1p
 .combatant { display: grid; grid-template-columns: 1fr 100px; gap: 6px; align-items: center; }
 .combatant.down { opacity: .5; text-decoration: line-through; }
 .combatant .turn::before { content: "▶ "; color: var(--seal); }
+.delve-mon { display: flex; align-items: center; gap: 8px; }
+.delve-mon .icon { font-size: 34px; line-height: 1; width: 40px; text-align: center; flex: none; }
+.delve-mon .grow { flex: 1; min-width: 0; }
+.delve-mon.boss b { color: var(--bad); }
+.chip.you { border-color: var(--seal); color: var(--seal); font-weight: 700; }
+.chip.blessed { background: #c9d6f0; border-color: var(--xp); }
 .outcome-win { color: var(--ok); font-weight: 700; }
 .outcome-loss { color: var(--bad); font-weight: 700; }
 

@@ -2,8 +2,8 @@
 // config views: talks to the Twitch helper, polls the bot's /ext/state with the
 // extension JWT, and renders the parchment sections each view stacks up.
 //
-// Open any view with ?demo=1 (or ?demo=noshare / ?demo=nohero / ?demo=off)
-// outside Twitch to see it with sample data.
+// Open any view with ?demo=1 (or ?demo=noshare / ?demo=nohero / ?demo=off /
+// ?demo=nodelve) outside Twitch to see it with sample data.
 (function () {
   "use strict";
 
@@ -152,6 +152,59 @@
     return sec("Guild roll", top ? '<ul class="rows">' + top + "</ul>" : '<div class="empty">No heroes yet.</div>', g.characters + " heroes · " + g.parties + " parties");
   };
 
+  // Big numbers as the Delve shows them on stream: 1.25K, 3.4M, …
+  var SUF = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+  function fmt(n) {
+    n = Number(n) || 0;
+    if (n < 1000) return String(Math.floor(n));
+    var e = Math.floor(Math.log10(n) / 3);
+    if (e >= SUF.length) return n.toExponential(2).replace("+", "");
+    var v = n / Math.pow(1000, e);
+    return (v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : Math.floor(v)) + SUF[e];
+  }
+  var UPGRADES = [["sword", "Sellswords"], ["banner", "War banner"], ["whet", "Whetstones"], ["map", "Treasure maps"]];
+
+  R.delveHow = function (d) {
+    return sec("How to play", '<div class="small">Say anything in chat to join the party for 10 minutes — every message lands a strike. ' +
+      "<code>" + esc(d.words.big) + "</code> anywhere in a message is a big hit; <code>" + esc(d.words.buff) + "</code> doubles everyone's damage for 20 s. " +
+      'A saved hero (<code>!createchar</code>) hits harder.</div>');
+  };
+
+  /** The Endless Delve: compact (the video overlay's Live tab) or the full panel tab. */
+  R.delve = function (d, you, compact) {
+    if (!d) return "";
+    if (!d.running) {
+      return compact ? "" : '<div class="cta"><p><b>The Endless Delve isn\'t on screen right now.</b></p>' +
+        '<p class="muted small">It plays in the stream\'s be-right-back and just-chatting scenes. Check back when it\'s up.</p></div>' + R.delveHow(d);
+    }
+    var me = String(you || "").toLowerCase();
+    var progress = d.boss ? "Boss! " + Math.ceil(d.bossLeft) + " s left" : d.farm ? "Regrouping before another try" : "Kills " + d.kills + " / " + d.killsPerFloor;
+    var chips = '<span class="chip">Gold <b>' + fmt(d.gold) + '</b></span><span class="chip">Party <b>' + fmt(d.dps) + "</b> dmg/s</span>" +
+      (d.renown ? '<span class="chip">Renown <b>×' + (1 + 0.2 * d.renown).toFixed(1) + "</b></span>" : "") +
+      (d.blessLeft > 0 ? '<span class="chip blessed">Blessed <b>×2</b></span>' : "");
+    var out = sec("The Endless Delve",
+      '<div class="delve-mon' + (d.boss ? " boss" : "") + '"><span class="icon">' + esc(d.monster.icon) + '</span><div class="grow"><b>' + esc(d.monster.name) + "</b>" +
+      bar(d.hp, d.hpMax, "", fmt(Math.ceil(d.hp)) + " / " + fmt(d.hpMax)) + '<div class="small muted">' + esc(progress) + "</div></div></div>" +
+      '<div class="chips">' + chips + "</div>",
+      "Floor " + d.floor + " · record " + d.best);
+    var party = d.party.map(function (p) {
+      return '<span class="chip' + (p.name.toLowerCase() === me ? " you" : "") + '">' + esc(p.name) + (p.level ? " <b>L" + p.level + "</b>" : "") + "</span>";
+    }).join("") + (d.partySize > d.party.length ? '<span class="chip">+' + (d.partySize - d.party.length) + " more</span>" : "");
+    out += sec("The party", d.partySize ? '<div class="chips">' + party + "</div>" : '<div class="empty">The party marches alone. Say anything in chat to join!</div>',
+      d.partySize ? d.partySize + " delving · +" + d.partySize * 20 + "% damage" : "");
+    if (compact) return out;
+    if (d.mvp.length) {
+      out += sec("Top delvers", '<ul class="rows">' + d.mvp.map(function (m, i) {
+        return '<li><span class="n">' + (i + 1) + '</span><span class="who' + (m.name.toLowerCase() === me ? " you" : "") + '">' + esc(m.name) +
+          '</span><span class="val">' + fmt(m.damage) + " dmg</span></li>";
+      }).join("") + "</ul>");
+    }
+    out += sec("Quartermaster", '<div class="chips">' + UPGRADES.map(function (u) {
+      return '<span class="chip">' + u[1] + " <b>Lv " + (d.upgrades[u[0]] || 0) + "</b></span>";
+    }).join("") + "</div>", d.runs ? d.runs + (d.runs === 1 ? " retreat" : " retreats") + " to the tavern" : "");
+    return out + R.delveHow(d);
+  };
+
   R.notConnected = function () {
     return '<div class="cta"><p><b>GuildScribe isn\'t connected to this channel yet.</b></p>' +
       '<p class="muted small">The streamer can raise the guild banner at <b>guildscribe.tavernworks.dev</b>.</p></div>';
@@ -182,6 +235,7 @@
   var GS = {
     esc: esc,
     cap: cap,
+    fmt: fmt,
     R: R,
     demo: demo,
     /** Calls fn(state, error) on every update. */
@@ -215,6 +269,7 @@
 
   function demoState(kind) {
     if (kind === "off") return { ok: true, connected: false };
+    if (kind === "nodelve") { var s = demoState("1"); s.delve = { running: false, words: s.delve.words }; return s; }
     var viewer = kind === "noshare" ? { shared: false } : kind === "nohero"
       ? { shared: true, name: "NewAdventurer", character: null, gold: { text: "4 cp", rank: 31 }, party: null }
       : {
@@ -253,6 +308,16 @@
         { name: "Mirelle", level: 4, race: "Wood Elf", cls: "ranger" },
         { name: "Quillon", level: 4, race: "Tiefling", cls: "warlock" },
       ] },
+      delve: {
+        running: true, words: { big: "fireball", buff: "bless" },
+        floor: 37, best: 42, kills: 3, killsPerFloor: 5, boss: false, farm: 0,
+        monster: { icon: "🧛", name: "Vampire Spawn" }, hp: 18420, hpMax: 52310, bossLeft: 0,
+        gold: 128400, dps: 2310, renown: 2, runs: 2, blessLeft: 12,
+        upgrades: { sword: 31, banner: 18, whet: 9, map: 11 },
+        party: [{ name: "Mirelle", cls: "Ranger", level: 4 }, { name: "Brannoc", cls: "Fighter", level: 5 }, { name: "Pipkin", cls: "", level: 0 }],
+        partySize: 3,
+        mvp: [{ name: "Brannoc", damage: 912000 }, { name: "Mirelle", damage: 455300 }, { name: "Pipkin", damage: 81200 }],
+      },
     };
   }
 

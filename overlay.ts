@@ -12,6 +12,7 @@
 //                                                    subtitle and live gem poll it; &title=0 skips the title)
 //   GET /overlay?channel=<id|login>&panel=idle       The Endless Delve, the idle game chat plays (idle.ts)
 //   GET /overlay/idle?channel=<id|login>             its list of the channel's heroes (class, level)
+//   POST /overlay/idle?channel=<id|login>            its snapshot for the Twitch Extension (idle.ts)
 //   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
 //   GET /overlay?channel=<id|login>&panel=reader     Chat Reader: reads chat aloud on the streamer's own device (chat_reader.ts)
@@ -35,7 +36,7 @@ import { formatRaceName } from "./utils.ts";
 import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { SCENES } from "./overlay_scenes.ts";
-import { getDelveOptions, getIdleHeroes, renderIdlePage } from "./idle.ts";
+import { getDelveOptions, getIdleHeroes, renderIdlePage, saveDelveSnapshot } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
@@ -379,6 +380,17 @@ const json = (body: unknown, status = 200) =>
 
 /** Overlay routes; null when the path isn't one of them. */
 export async function handleOverlayRoute(req: Request, url: URL, path: string): Promise<Response | null> {
+  if (req.method === "POST" && path === "/overlay/idle") {
+    // The Endless Delve's leading copy reporting what's on screen (idle.ts).
+    const channel = await resolveChannel(url.searchParams.get("channel"));
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    if (!(await isCommandGroupEnabled(channel.id, "delve"))) return json({ ok: false, error: "The Endless Delve is switched off." }, 403);
+    const text = await req.text().catch(() => "");
+    if (text.length > 8000) return json({ ok: false, error: "Too large." }, 413);
+    let body: unknown = null;
+    try { body = JSON.parse(text); } catch (_) { /* not JSON: dropped below */ }
+    return json({ ok: await saveDelveSnapshot(channel.id, body) });
+  }
   if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
 

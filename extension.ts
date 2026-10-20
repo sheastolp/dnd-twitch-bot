@@ -9,12 +9,12 @@
 // Secrets). It names the channel, so a viewer can only ever see the channel
 // they're watching. When the viewer has shared their identity (user_id in the
 // JWT) the reply also carries their own hero, gold and party; otherwise just
-// the channel's live state (raid boss, fights, leaderboards) — the same
-// things /overlay/data already serves publicly. Switched-off features come
-// back null, as on the OBS overlays.
+// the channel's live state (raid boss, fights, leaderboards, The Endless
+// Delve) — the same things the OBS overlays already show publicly.
+// Switched-off features come back null, as on the OBS overlays.
 
 import { sqlite } from "./sqlite.ts";
-import { getBroadcaster, getCommandGroupToggles, rowToCharacter } from "./db.ts";
+import { getBroadcaster, getCommandGroupToggles, isCommandGroupEnabled, rowToCharacter } from "./db.ts";
 import { getBalance, isPointsEnabled } from "./points_db.ts";
 import { getOverlayData, type OverlayData } from "./overlay.ts";
 import { lookupViewerNames } from "./mentions.ts";
@@ -22,6 +22,7 @@ import { formatCoins } from "./coins.ts";
 import { formatRaceName, heroAc, modifier } from "./utils.ts";
 import { XP_THRESHOLDS } from "./characters.ts";
 import { env, getAppToken } from "./twitch.ts";
+import { getDelveOptions, getDelveSnapshot } from "./idle.ts";
 
 type ExtClaims = { channel_id: string; opaque_user_id: string; user_id?: string; role: string; exp: number };
 
@@ -157,16 +158,29 @@ async function loadViewer(channelId: string, userId: string) {
 // Every viewer polls; one shared channel snapshot per few seconds (and one
 // in-flight load) keeps a busy channel to a handful of SQLite reads.
 const CHANNEL_CACHE_MS = 5_000;
-const channelCache = new Map<string, { at: number; data: OverlayData }>();
-const channelInflight = new Map<string, Promise<OverlayData>>();
+type ChannelState = OverlayData & { delve: Awaited<ReturnType<typeof loadDelve>> };
+const channelCache = new Map<string, { at: number; data: ChannelState }>();
+const channelInflight = new Map<string, Promise<ChannelState>>();
 
-function channelState(channel: { id: string; name: string; live: boolean }): Promise<OverlayData> {
+/** The Endless Delve: null when switched off; running false when no source is playing it right now. */
+async function loadDelve(channelId: string) {
+  if (!(await isCommandGroupEnabled(channelId, "delve"))) return null;
+  const [snap, opts] = await Promise.all([getDelveSnapshot(channelId), getDelveOptions(channelId)]);
+  const words = { big: opts.bigWord, buff: opts.buffWord };
+  return snap ? { running: true, words, ...snap } : { running: false, words };
+}
+
+function channelState(channel: { id: string; name: string; live: boolean }): Promise<ChannelState> {
   const hit = channelCache.get(channel.id);
   if (hit && Date.now() - hit.at < CHANNEL_CACHE_MS) return Promise.resolve(hit.data);
   let load = channelInflight.get(channel.id);
   if (!load) {
-    load = getOverlayData(channel, new Set(["raid", "battle", "giveaway", "gold", "guild"] as const), { window: "day", limit: 5 })
-      .then((data) => {
+    load = Promise.all([
+      getOverlayData(channel, new Set(["raid", "battle", "giveaway", "gold", "guild"] as const), { window: "day", limit: 5 }),
+      loadDelve(channel.id),
+    ])
+      .then(([overlay, delve]) => {
+        const data = { ...overlay, delve };
         channelCache.set(channel.id, { at: Date.now(), data });
         if (channelCache.size > 500) channelCache.delete(channelCache.keys().next().value!);
         return data;
@@ -222,6 +236,7 @@ export async function handleExtensionRoute(req: Request, path: string): Promise<
       giveaway: state.giveaway ?? null,
       gold: state.gold ?? null,
       guild: state.guild ?? null,
+      delve: state.delve,
     });
   } catch (e) {
     console.error("ext state", e);

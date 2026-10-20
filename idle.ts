@@ -7,6 +7,8 @@
 //                                                and chat windows. Every open copy plays one shared game.
 //   GET /overlay/idle?channel=<id|login>         the channel's GuildScribe heroes (class, level),
 //                                                so chatters with a saved hero show up as one
+//   POST /overlay/idle?channel=<id|login>        the leading copy's snapshot of the game (every 15 s),
+//                                                for the Twitch Extension's Delve tab (extension.ts)
 //
 // How it plays:
 //   • The party fights on its own (party DPS); every 5 kills it goes down a
@@ -28,8 +30,10 @@
 //   • Mods: "!delve reset" in chat starts the game over from floor 1.
 //
 // Like the theme, chat comes straight from Twitch's IRC websocket as an
-// anonymous read-only guest; nothing is written server-side. Viewer text only
-// ever goes in through textContent.
+// anonymous read-only guest. The game itself lives in the browser source; all
+// the server keeps is the latest snapshot the leading copy reports (floor,
+// monster, party, top delvers), so the Twitch Extension can show the Delve
+// too. Viewer text only ever goes in through textContent.
 //
 // URL extras: &hide=<login,login> chatters who don't play (bots — the
 // GuildScribe bot, logins ending in "bot", every account listed in
@@ -41,6 +45,7 @@ import { escapeHtml } from "./utils.ts";
 import { listChannelCharacters } from "./db.ts";
 import { listedBotAccounts } from "./bot_accounts.ts";
 import { optNum, optWord } from "./channel_options.ts";
+import { sqlite } from "./sqlite.ts";
 
 const HERO_TTL_MS = 60_000;
 const heroCache = new Map<string, { at: number; heroes: Record<string, [string, number]> }>();
@@ -56,6 +61,104 @@ export async function getIdleHeroes(channelId: string): Promise<Record<string, [
   heroCache.set(channelId, { at: Date.now(), heroes });
   if (heroCache.size > 200) heroCache.delete(heroCache.keys().next().value!);
   return heroes;
+}
+
+// ── Snapshots for the Twitch Extension ──
+// The leading copy POSTs what's on screen every 15 s. Overlay links are
+// public, so anyone could post one: everything is clamped and names must look
+// like Twitch names (no free text reaches the extension), and a channel takes
+// at most one write per 10 s. Only a fresh snapshot (the source is open — the
+// theme parks it while its scene is off-air) is shown.
+
+export type DelveSnapshot = {
+  floor: number; best: number; kills: number; killsPerFloor: number; boss: boolean; farm: number;
+  monster: { icon: string; name: string }; hp: number; hpMax: number; bossLeft: number;
+  gold: number; dps: number; renown: number; runs: number; blessLeft: number;
+  upgrades: { sword: number; banner: number; whet: number; map: number };
+  party: Array<{ name: string; cls: string; level: number }>; partySize: number;
+  mvp: Array<{ name: string; damage: number }>;
+};
+
+const SNAPSHOT_FRESH_MS = 90_000;
+const SNAPSHOT_MIN_GAP_MS = 10_000;
+const lastWrite = new Map<string, number>();
+
+export async function ensureDelveTables() {
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS delve_snapshots (
+      broadcaster_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL
+    )`,
+  );
+}
+
+/** Wipes the channel's Delve snapshot — !dndbot leave purge. */
+export async function purgeDelveData(broadcasterId: string) {
+  await sqlite.execute("DELETE FROM delve_snapshots WHERE broadcaster_id = ?", [broadcasterId]);
+}
+
+const num = (v: unknown, max = 1e300) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0;
+};
+const int = (v: unknown, max: number) => Math.floor(num(v, max));
+// A Twitch display name (localized ones included) or login; anything else is dropped.
+const twitchName = (v: unknown) => {
+  const s = String(v ?? "").trim();
+  return /^[\p{L}\p{N}_]{1,25}$/u.test(s) ? s : "";
+};
+const CLASSES = new Set(["Barbarian", "Bard", "Cleric", "Druid", "Fighter", "Monk", "Paladin", "Ranger", "Rogue", "Sorcerer", "Warlock", "Wizard"]);
+
+/** A clean snapshot from what a browser source posted, or null when it's not one. */
+export function cleanDelveSnapshot(raw: any): DelveSnapshot | null {
+  if (!raw || typeof raw !== "object" || !raw.monster) return null;
+  const name = String(raw.monster.name ?? "");
+  const icon = String(raw.monster.icon ?? "");
+  if (!/^[A-Za-z' ]{1,30}( \+{1,3})?$/.test(name) || icon.length > 8 || /[<>&"'\w\s]/.test(icon)) return null;
+  const up = raw.upgrades ?? {};
+  const party = (Array.isArray(raw.party) ? raw.party : []).slice(0, 20)
+    .map((p: any) => ({ name: twitchName(p?.name), cls: CLASSES.has(String(p?.cls)) ? String(p.cls) : "", level: int(p?.level, 20) }))
+    .filter((p: { name: string }) => p.name);
+  const mvp = (Array.isArray(raw.mvp) ? raw.mvp : []).slice(0, 5)
+    .map((m: any) => ({ name: twitchName(m?.name), damage: num(m?.damage) }))
+    .filter((m: { name: string }) => m.name);
+  const hpMax = Math.max(1, num(raw.hpMax));
+  return {
+    floor: Math.max(1, int(raw.floor, 1e9)), best: Math.max(1, int(raw.best, 1e9)),
+    kills: int(raw.kills, 100), killsPerFloor: Math.max(1, int(raw.killsPerFloor, 100)),
+    boss: raw.boss === true, farm: int(raw.farm, 100),
+    monster: { icon, name }, hp: Math.min(hpMax, num(raw.hp)), hpMax, bossLeft: num(raw.bossLeft, 600),
+    gold: num(raw.gold), dps: num(raw.dps), renown: int(raw.renown, 1e6), runs: int(raw.runs, 1e6), blessLeft: num(raw.blessLeft, 600),
+    upgrades: { sword: int(up.sword, 1e6), banner: int(up.banner, 1e6), whet: int(up.whet, 1e6), map: int(up.map, 1e6) },
+    party, partySize: Math.max(party.length, int(raw.partySize, 10000)), mvp,
+  };
+}
+
+/** Saves a snapshot posted by the channel's leading browser source; false when it's dropped. */
+export async function saveDelveSnapshot(channelId: string, raw: unknown): Promise<boolean> {
+  const now = Date.now();
+  if (now - (lastWrite.get(channelId) ?? 0) < SNAPSHOT_MIN_GAP_MS) return false;
+  const snap = cleanDelveSnapshot(raw);
+  if (!snap) return false;
+  lastWrite.set(channelId, now);
+  if (lastWrite.size > 1000) lastWrite.delete(lastWrite.keys().next().value!);
+  await sqlite.execute(
+    `INSERT INTO delve_snapshots (broadcaster_id, data, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(broadcaster_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+    [channelId, JSON.stringify(snap), now],
+  );
+  return true;
+}
+
+/** The channel's latest snapshot if the game is running right now (reported in the last 90 s), else null. */
+export async function getDelveSnapshot(channelId: string): Promise<(DelveSnapshot & { at: number }) | null> {
+  const res = await sqlite.execute("SELECT data, updated_at FROM delve_snapshots WHERE broadcaster_id = ?", [channelId]);
+  const row: any = res.rows[0];
+  if (!row || Date.now() - Number(row.updated_at) > SNAPSHOT_FRESH_MS) return null;
+  try {
+    return { ...JSON.parse(String(row.data)), at: Number(row.updated_at) };
+  } catch (_) {
+    return null;
+  }
 }
 
 /** `!delve` in chat: how to play. */
@@ -392,6 +495,14 @@ draw(true);setInterval(step,100);
 if(!preview){setInterval(heartbeat,1000);setInterval(()=>{if(amLeader)publish();else follow()},250);
   addEventListener("storage",e=>{if(e.key===LIVE&&!amLeader)follow()});publish()}
 loadHeroes();setInterval(loadHeroes,5*60000);
+// The leading copy tells GuildScribe what's on screen, for the Twitch Extension's Delve tab.
+function report(){if(preview||!amLeader)return;const now=Date.now(),f=S.floor,m=monsterFor(f,S.n),act=active().sort((a,b)=>b.last-a.last);
+  const body={floor:f,best:S.best,kills:S.kills,killsPerFloor:KILLS_PER_FLOOR,boss:isBoss(f),farm:S.farm,monster:m,hp:Math.max(0,S.hp),hpMax:hpFor(f),
+    bossLeft:bossEnds?Math.max(0,(bossEnds-now)/1000):0,gold:S.gold,dps:partyDps(),renown:S.renown,runs:S.runs,blessLeft:Math.max(0,(blessUntil-now)/1000),upgrades:S.up,
+    party:act.slice(0,20).map(x=>{const g=gsHeroes[x.login];return {name:x.name,cls:g?g[0]:"",level:g?g[1]:0}}),partySize:act.length,
+    mvp:Object.values(S.mvp).sort((a,b)=>b.d-a.d).slice(0,5).map(x=>({name:x.n,damage:x.d}))};
+  fetch("/overlay/idle?channel="+encodeURIComponent(CFG.channel),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),keepalive:true}).catch(()=>{})}
+if(!preview){setTimeout(report,3000);setInterval(report,15000)}
 connect();
 `;
 

@@ -1,6 +1,6 @@
 // GuildScribe video overlay: a small pill on the right of the player (raid
-// boss HP or the fight under way at a glance) that opens a card with the live
-// state, the viewer's own hero and the leaderboards. Follows Twitch's player
+// boss HP, the fight under way or The Endless Delve's floor at a glance) that
+// opens a card with the live state, the viewer's own hero and the leaderboards. Follows Twitch's player
 // controls: it fades out with them unless the card is open.
 (function () {
   "use strict";
@@ -36,6 +36,7 @@
         sub = "⚔ " + fight.title;
         if (foe) hp = foe.hp / foe.hpMax;
       } else if (s.giveaway && s.giveaway.open) sub = "Giveaway: " + s.giveaway.prize;
+      else if (s.delve && s.delve.running) { sub = "Delve: floor " + s.delve.floor; hp = s.delve.hp / s.delve.hpMax; }
       else if (s.viewer && s.viewer.character) sub = "Lv " + s.viewer.character.level + " " + GS.cap(s.viewer.character.cls);
     }
     $("pill-sub").textContent = sub;
@@ -44,7 +45,7 @@
   }
 
   function liveTab(s) {
-    var out = R.raid(s.raid) + R.fights(s.battle) + R.giveaway(s.giveaway) + R.recent(s.recent);
+    var out = R.raid(s.raid) + R.fights(s.battle) + R.delve(s.delve, s.viewer && s.viewer.name, true) + R.giveaway(s.giveaway) + R.recent(s.recent);
     return out || '<div class="cta muted">No raid or fight under way. Type <code>!hunt</code> in chat to start one.</div>';
   }
   function heroTab(s) {

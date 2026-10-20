@@ -39,6 +39,7 @@ import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from
 import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
+import { ensureDelveTables, purgeDelveData } from "./idle.ts";
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
@@ -118,6 +119,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureChannelBotTables,
   ensureNowPlayingTables,
   ensureChannelOptionTables,
+  ensureDelveTables,
   ensureAdAlertTables,
   ensureFollowThanksTables,
   ensureSocialTables,
@@ -517,6 +519,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeBotDetectData(broadcasterId);
       await purgeChannelBotData(broadcasterId);
       await purgeChannelOptions(broadcasterId);
+      await purgeDelveData(broadcasterId);
       await purgeAdAlertData(broadcasterId);
       await purgeFollowThanksData(broadcasterId);
       await purgeFollowBotData(broadcasterId);
