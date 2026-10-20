@@ -30,7 +30,7 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 //   - !npc ... — AI NPC chatter, own dashboard toggle.
 //   - !checklist ... — the streamer's start-of-stream checklist
 //     (checklist.ts), mod/broadcaster only with its own on/off.
-//   - The gold system as a whole (isPointsEnabled in points_db.ts, on by
+//   - The gold system as a whole (isPointsEnabled in points_db.ts, off by
 //     default) is its own switch; !gold on/off/status and the mod balance
 //     tools (!gold add/remove/set) are never grouped so they stay reachable.
 //     The individual gold cards (purse, gifting, leaderboard, giveaways,
@@ -42,6 +42,9 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 // !dndbot's *management* subcommands (add/edit/remove/list/cooldown) share
 // the "dndbot" word with the master switch, but only reach the "customcmds"
 // group check below because on/off/status are matched and returned first.
+//
+// Every group starts OFF in a channel until a steward switches it on (from
+// the dashboard or chat), so the bot stays quiet when it first joins.
 //
 // One group per Guild Codex card (pages.ts renderGuidePage), so every card
 // links to exactly one switch (#toggle-<key> on the dashboard, reached from
@@ -57,8 +60,6 @@ export interface CommandGroup {
   section: string;
   commands: string[];
   parent?: string;
-  /** Off until a steward switches it on (every other group starts on). */
-  defaultOff?: boolean;
 }
 
 /** Groups in this section are shown with the dedicated switches, not as a folder. */
@@ -84,7 +85,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   bg3companion: { section: "Baldur's Gate 3", label: "Companion & origin (!bg3companion, !bg3origin)", commands: ["bg3companion", "bg3origin"], parent: "bg3flavor" },
   bg3loot: { section: "Baldur's Gate 3", label: "Loot & camp (!bg3loot, !bg3camp)", commands: ["bg3loot", "bg3camp"], parent: "bg3flavor" },
   bg3lookup: { section: "Baldur's Gate 3", label: "Knowledgebase (!bg3lookup)", commands: ["bg3lookup"], parent: "bg3flavor" },
-  // The Division 2 (division2.ts) — on by default like the BG3 flavor rolls.
+  // The Division 2 (division2.ts).
   div2build: { section: "The Division 2", label: "Random agent build (!div2build)", commands: ["div2build"] },
   div2loot: { section: "The Division 2", label: "Loot drop & tonight's op (!div2loot, !div2mission)", commands: ["div2loot", "div2mission"] },
   div2lookup: { section: "The Division 2", label: "Knowledgebase (!div2lookup, !div2)", commands: ["div2lookup", "div2"] },
@@ -150,12 +151,12 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   subthanks: { section: FEATURE_SECTION, label: "Sub thank-yous (new subs, resubs and gift subs)", commands: [] },
   raidthanks: { section: FEATURE_SECTION, label: "Raid thank-yous (welcomes an incoming raid)", commands: [] },
   goodnight: { section: FEATURE_SECTION, label: "Goodnight send-offs (replies when chat says goodnight)", commands: [] },
-  // Stream protection (stream_guard.ts / followbots.ts), off until switched on.
-  hateraid: { section: FEATURE_SECTION, label: "Hate-raid shield (bans waves of new accounts posting the same thing, turns on Shield Mode; !hateraid)", commands: [], defaultOff: true },
-  followbots: { section: FEATURE_SECTION, label: "Block follow bots (removes bot-looking new followers; !followbots, !removebots)", commands: [], defaultOff: true },
-  golive: { section: FEATURE_SECTION, label: "Going-live announcement (title, game, and a warning if chat is locked down; !onlinenotif)", commands: [], defaultOff: true },
+  // Stream protection (stream_guard.ts / followbots.ts).
+  hateraid: { section: FEATURE_SECTION, label: "Hate-raid shield (bans waves of new accounts posting the same thing, turns on Shield Mode; !hateraid)", commands: [] },
+  followbots: { section: FEATURE_SECTION, label: "Block follow bots (removes bot-looking new followers; !followbots, !removebots)", commands: [] },
+  golive: { section: FEATURE_SECTION, label: "Going-live announcement (title, game, and a warning if chat is locked down; !onlinenotif)", commands: [] },
   // Not a chat feature: whether this channel appears on tavernworks.dev's
-  // public channel list (GET /api/channels in web_routes.ts). On by default;
+  // public channel list (GET /api/channels in web_routes.ts). Off by default;
   // also switched from chat with !dndbot showcase on/off (main.ts).
   showcase: { section: "Onboarding and support", label: "Listed on tavernworks.dev (public channel list)", commands: [] },
   // Stream overlays. Sound Bytes' words (!sound, !sounds) aren't listed:
@@ -164,18 +165,18 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   delve: { section: "Stream overlays", label: "The Endless Delve (idle game overlay, on its own or in the theme; !delve)", commands: ["delve"] },
   soundbytes: { section: "Stream overlays", label: "Sound Bytes (!sound — tavern sound effects on stream)", commands: [] },
   // Chat Reader (chat_reader.ts): reads chat aloud to the streamer on their
-  // phone/PC, for console streams. Off by default; !chatreader (mods) posts
+  // phone/PC, for console streams. !chatreader (mods) posts
   // the link and says when it's off, so it isn't listed under `commands`.
-  chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [], defaultOff: true },
+  chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   clips: { section: "Other", label: "Clips (!clip [title], !clip45, !clip60)", commands: ["clip", "clip15", "clip20", "clip30", "clip45", "clip60"] },
   // funstuff.ts FUN_WORDS; "good bot" / "bad bot" replies check this switch too.
   funstuff: { section: "Other", label: "Fun stuff (!coinflip, !flip, !jumble, !tempc/!tempf, !dadjoke, !catfact, !dogpic, …)", commands: ["coinflip",  "flip",  "angryflip",  "unflip",  "jumble",  "tempc",  "tempf",  "dadjoke",  "animalfact",  "catfact",  "dogfact",  "otterfact",  "penguinfact",  "slothfact",  "owlfact",  "sharkfact",  "frogfact",  "cowfact",  "duckfact",  "foxfact",  "pandafact",  "capybarafact",  "axolotlfact",  "beefact",  "dolphinfact",  "wolffact",  "raccoonfact",  "octopusfact",  "kittyfact",  "puppyfact",  "doggofact",  "seaotterfact",  "capyfact",  "beesfact",  "honeybeefact",  "redfoxfact",  "catpic",  "dogpic",  "foxpic",  "duckpic",  "capybarapic",  "kittypic",  "puppypic",  "doggopic",  "capypic",  "redfoxpic"] },
-  lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"], defaultOff: true },
+  lurk: { section: "Other", label: "Lurk (!lurk)", commands: ["lurk"] },
   // chat_builtin.ts checks this switch itself and yields to a channel's own
   // !so custom command (often imported from Nightbot/StreamElements).
-  shoutout: { section: "Other", label: "Shoutouts (!so @user — mods)", commands: [], defaultOff: true },
+  shoutout: { section: "Other", label: "Shoutouts (!so @user — mods)", commands: [] },
   logs: { section: "Other", label: "Activity log (!logs)", commands: ["logs"], parent: "misc" },
   connections: { section: "Other", label: "Connections (!connections)", commands: ["connections"], parent: "misc" },
   // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka

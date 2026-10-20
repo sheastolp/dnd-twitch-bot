@@ -12,7 +12,7 @@
 //   GET /quotes?channel=<id>     public list (read-only)
 //   GET /dashboard/quotes        mod page: add, edit, delete, search (dashboard.ts does the auth)
 //
-// Dashboard switch "quotes" (on by default). Like Sound Bytes, the words are
+// Dashboard switch "quotes" (off by default). Like Sound Bytes, the words are
 // checked here rather than listed in COMMAND_GROUPS, so a channel's own
 // !quote custom command (or an imported one) keeps working instead.
 

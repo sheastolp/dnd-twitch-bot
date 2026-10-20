@@ -27,7 +27,7 @@ export function toggleState(d: DashboardData, key: string): boolean {
     case "npcchatter": return d.npcChatterEnabled;
     case "pokeball": return d.pokeballEnabled;
   }
-  return d.groupToggles[key] ?? true;
+  return d.groupToggles[key] ?? false;
 }
 
 const ICON: Record<string, string> = { points: "🪙", npc: "🎭", maps: "🗺️", bot: "⚙" };

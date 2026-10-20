@@ -39,7 +39,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
     ],
     tips: [
       `Coins follow 5e rates: 10 cp = 1 sp, 10 sp = 1 gp. Amounts can be typed as <code>50</code>, <code>5sp</code>, <code>1gp</code> or <code>1gp 2sp</code>.`,
-      `Mods: <code>!gold on</code>/<code>off</code> switches the whole coin system (on by default); <code>!gold add</code>/<code>remove</code>/<code>set @user &lt;amount&gt;</code> fix balances.`,
+      `Mods: <code>!gold on</code>/<code>off</code> switches the whole coin system (off by default); <code>!gold add</code>/<code>remove</code>/<code>set @user &lt;amount&gt;</code> fix balances.`,
     ],
     codex: "gold",
   },

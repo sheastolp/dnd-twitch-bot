@@ -25,7 +25,7 @@ const ALWAYS_ON = "Help & guides (!help, !start, !guide, !commands, !dndbothelp)
 
 export function renderChannelCommandsPage(channelName: string, data: ChannelCommandsData, baseUrl: string): string {
   const name = escapeHtml(channelName);
-  const isOn = (key: string) => data.groups[key] ?? data.dedicated[key] ?? true;
+  const isOn = (key: string) => data.groups[key] ?? data.dedicated[key] ?? false;
 
   const custom = data.customCommands.map((c) => {
     const search = `${c.name} ${c.response}`.toLowerCase();

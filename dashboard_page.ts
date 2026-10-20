@@ -160,14 +160,14 @@ function renderFeaturesSection(d: DashboardData): { switches: string; groups: st
   for (const [key, def] of Object.entries(COMMAND_GROUPS)) {
     // Chat-event replies sit with the dedicated switches up top.
     if (def.section === FEATURE_SECTION) {
-      const enabled = d.groupToggles[key] ?? !def.defaultOff;
+      const enabled = d.groupToggles[key] ?? false;
       dedicated.push(groupToggleRow(d, key, def.label, enabled));
       featureFlags.push(enabled);
       continue;
     }
     const g = bySection.get(def.section) ?? { rows: [], on: 0, keys: [] };
     g.keys.push(key);
-    const enabled = d.groupToggles[key] ?? true;
+    const enabled = d.groupToggles[key] ?? false;
     g.rows.push(groupToggleRow(d, key, def.label, enabled));
     if (enabled) g.on++;
     bySection.set(def.section, g);

@@ -12,7 +12,7 @@
 //   !rob @player
 //
 // Rules:
-//   - Needs coin switched on (!gold on, the default) — silent otherwise, like
+//   - Needs coin switched on (!gold on) — silent otherwise, like
 //     the rest of the coin commands. Also part of the dashboard's "Arena &
 //     company" command group (see COMMAND_GROUPS in utils.ts), so it can be
 //     switched off there without touching coin.

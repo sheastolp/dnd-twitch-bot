@@ -5,7 +5,7 @@
 //
 //   - Only plain chat (not "!commands") that tags the bot's own login
 //     (TWITCH_BOT_LOGIN, default guildscribebot — see botLogin in rob.ts).
-//   - Dashboard switch "mentionreply" (on by default, "Other" section).
+//   - Dashboard switch "mentionreply" (off by default, "Other" section).
 //   - Per-chatter cooldown (MENTION_REPLY_USER_COOLDOWN_S, default 5 s) and a
 //     channel-wide one (MENTION_REPLY_CHANNEL_COOLDOWN_S, default 1 s) so a
 //     chat full of tags can't run up the AI bill; mods skip the per-chatter one.

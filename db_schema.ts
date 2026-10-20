@@ -266,8 +266,8 @@ export async function ensureTables() {
     )`,
   );
   // Granular per-channel command-group toggles for the dashboard (see
-  // COMMAND_GROUPS in utils.ts). Missing row = enabled, same "absence means
-  // default" pattern as channel_settings above.
+  // COMMAND_GROUPS in commandgroups.ts). Missing row = off, so a channel the
+  // bot has just joined stays quiet until a steward switches features on.
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS command_toggles (
       broadcaster_id TEXT, group_name TEXT, enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER,

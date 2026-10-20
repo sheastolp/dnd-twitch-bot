@@ -18,7 +18,7 @@
 // commands and triggers whose response starts with "🔊 <sound>" play too
 // (e.g. !dndbot add crit 🔊 nat20 CRITICAL HIT from {user}!), which keeps the
 // Tavernworks page's setup working unchanged. Dashboard switch "soundbytes"
-// (on by default): off silences !sound and turns the overlay into an empty
+// (off by default): off silences !sound and turns the overlay into an empty
 // source that checks back every minute.
 
 import { sqlite } from "./sqlite.ts";

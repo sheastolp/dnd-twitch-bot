@@ -37,6 +37,7 @@ import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanDa
 import { ensureAutoModTables, handleAutoModCommand, maybeAutoMod, purgeAutoModData } from "./automod.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
+import { migrateQuietDefaults } from "./quiet_defaults.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
 import { ensureDelveTables, purgeDelveData } from "./idle.ts";
@@ -151,7 +152,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
 ];
 
 async function schemaFingerprint(): Promise<string> {
-  const source = [ensureTables, ...SCHEMA_HELPERS, migrateToCopper, ...SCHEMA_FUNCTIONS].map((f) => f.toString()).join("\n");
+  const source = [ensureTables, ...SCHEMA_HELPERS, migrateToCopper, ...SCHEMA_FUNCTIONS, migrateQuietDefaults].map((f) => f.toString()).join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -169,6 +170,8 @@ function ensureSchema(): Promise<void> {
       // migrations are the slow/ordered part); the rest are independent.
       await ensureTables();
       await Promise.all(SCHEMA_FUNCTIONS.map((ensure) => ensure()));
+      // Needs command_toggles, points_settings and channel_bot_settings to exist.
+      await migrateQuietDefaults();
       await sqlite.execute(
         "CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL, updated_at INTEGER)",
       );

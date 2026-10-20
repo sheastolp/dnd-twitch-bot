@@ -9,8 +9,8 @@ import { sqlite } from "./sqlite.ts";
 
 export async function ensurePointsTables() {
   // Per-channel on/off switch for the whole points + giveaway system.
-  // ON by default (no row = enabled, same "absence means default" pattern as
-  // command_toggles); a mod turns it off with !gold off or the dashboard.
+  // OFF by default (no row = off, same as command_toggles); a mod turns it on
+  // with !gold on or the dashboard.
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS points_settings (
       broadcaster_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER
@@ -134,7 +134,7 @@ export async function migrateToCopper() {
 
 export async function isPointsEnabled(broadcasterId: string): Promise<boolean> {
   const res = await sqlite.execute("SELECT enabled FROM points_settings WHERE broadcaster_id = ?", [broadcasterId]);
-  return !res.rows.length || Number(res.rows[0].enabled) === 1;
+  return res.rows.length > 0 && Number(res.rows[0].enabled) === 1;
 }
 
 /** True when coin can be EARNED right now: gold is on for the channel AND the

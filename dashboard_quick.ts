@@ -29,7 +29,7 @@ export type QuickBundle = {
   /** Other bundles it can't work without (shown, and checked on save). */
   needs?: string[];
   /** The module's own master switch: while it's off the whole bundle is off,
-   * whatever its sub-switches say (they default on, the module defaults off). */
+   * whatever its sub-switches say (the module and its sub-switches all start off). */
   master?: string;
 };
 

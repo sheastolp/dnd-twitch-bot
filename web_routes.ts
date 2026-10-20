@@ -67,8 +67,8 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // broadcaster/moderators of that specific channel (see below).
   // Public channel list for tavernworks.dev (fetched cross-origin by its home
   // page). Only Twitch names and live status, the same thing anyone sees in
-  // these channels' chat; a channel leaves the list with !dndbot showcase off
-  // or the dashboard's "Listed on tavernworks.dev" switch.
+  // these channels' chat; a channel joins the list (off by default) with
+  // !dndbot showcase on or the dashboard's "Listed on tavernworks.dev" switch.
   // Tab icon: the bot's Twitch avatar (favicon.ts).
   if (req.method === "GET" && FAVICON_PATHS.has(path)) return await handleFavicon();
   if (req.method === "GET" && path === "/api/channels") {

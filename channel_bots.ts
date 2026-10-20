@@ -149,10 +149,10 @@ export async function removeChannelBot(broadcasterId: string, login: string): Pr
   return true;
 }
 
-/** Whether the bot viewer check adds likely bots to the list by itself (on unless switched off). */
+/** Whether the bot viewer check adds likely bots to the list by itself (off until switched on). */
 export async function isBotCheckAutoAdd(broadcasterId: string): Promise<boolean> {
   const row = (await sqlite.execute("SELECT botcheck_auto FROM channel_bot_settings WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
-  return !row || Number(row.botcheck_auto) === 1;
+  return !!row && Number(row.botcheck_auto) === 1;
 }
 
 export async function setBotCheckAutoAdd(broadcasterId: string, on: boolean) {

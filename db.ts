@@ -263,9 +263,9 @@ export async function getBroadcaster(broadcasterId: string) {
   return res.rows.length ? res.rows[0] : null;
 }
 
-/** Connected, unblocked channels that haven't switched the "showcase" group
- * off — the public channel list on tavernworks.dev (GET /api/channels).
- * No toggle row means listed, same as every other command group.
+/** Connected, unblocked channels that have switched the "showcase" group
+ * on — the public channel list on tavernworks.dev (GET /api/channels).
+ * No toggle row means unlisted, same as every other command group.
  * `excludeId` drops the bot's own account (connected for testing), which
  * isn't a guild. */
 export async function listShowcaseChannels(excludeId = ""): Promise<Array<{ login: string; display_name: string; is_live: boolean }>> {
@@ -273,7 +273,7 @@ export async function listShowcaseChannels(excludeId = ""): Promise<Array<{ logi
     `SELECT b.login, b.display_name, b.is_live FROM broadcasters b
      WHERE b.connected = 1 AND b.broadcaster_id != ?
        AND NOT EXISTS (SELECT 1 FROM channel_blocks k WHERE k.broadcaster_id = b.broadcaster_id)
-       AND NOT EXISTS (SELECT 1 FROM command_toggles t WHERE t.broadcaster_id = b.broadcaster_id AND t.group_name = 'showcase' AND t.enabled = 0)
+       AND EXISTS (SELECT 1 FROM command_toggles t WHERE t.broadcaster_id = b.broadcaster_id AND t.group_name = 'showcase' AND t.enabled = 1)
      ORDER BY b.display_name COLLATE NOCASE`,
     [excludeId],
   );
@@ -390,14 +390,14 @@ export async function setChannelEnabled(broadcasterId: string, enabled: boolean)
 }
 
 /** All command-group states for the dashboard's toggle list, defaulting any
- * group with no row (never touched) to enabled. */
+ * group with no row (never touched) to off. */
 export async function getCommandGroupToggles(broadcasterId: string): Promise<Record<string, boolean>> {
   const res = await sqlite.execute("SELECT group_name, enabled FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
   const overrides = new Map<string, boolean>(res.rows.map((r: any) => [String(r.group_name), Number(r.enabled) === 1]));
   const out: Record<string, boolean> = {};
   for (const [group, def] of Object.entries(COMMAND_GROUPS)) {
     // Never switched since the split? Inherit the older group it came from.
-    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? !def.defaultOff;
+    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? false;
   }
   return out;
 }
@@ -413,7 +413,7 @@ export async function isCommandGroupEnabled(broadcasterId: string, group: string
   );
   const row = res.rows.find((r: any) => String(r.group_name) === group) ??
     res.rows.find((r: any) => String(r.group_name) === parent);
-  return row ? Number(row.enabled) === 1 : !COMMAND_GROUPS[group]?.defaultOff;
+  return row ? Number(row.enabled) === 1 : false;
 }
 
 export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {

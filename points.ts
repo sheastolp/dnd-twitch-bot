@@ -2,8 +2,8 @@
 //
 // Viewers earn COPPER just by chatting while the stream is live, spend coin
 // on tickets in mod-run giveaways and on wares haggled from the market
-// peddler (haggle.ts), and can gift coin to each other. ON by default per
-// channel; a mod can switch it off with !gold off or the web dashboard.
+// peddler (haggle.ts), and can gift coin to each other. OFF by default per
+// channel; a mod switches it on with !gold on or the web dashboard.
 //
 // Balances are one integer of copper (see coins.ts): 10 cp = 1 sp, 10 sp =
 // 1 gp. Everything is shown as "1 gp 2 sp 3 cp". Amounts you type accept

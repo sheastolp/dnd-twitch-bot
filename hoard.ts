@@ -26,7 +26,7 @@
 //     paid and the posting is replaced.
 //   - A "Next:" hint on most replies saying what to do next.
 //
-// Switched by "Monster hunts" (on by default). While it's off, or if the
+// Switched by "Monster hunts" (off by default). While it's off, or if the
 // channel has a custom command with the same name (e.g. its own !shop),
 // these words fall through untouched.
 //
