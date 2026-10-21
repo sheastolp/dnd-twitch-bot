@@ -43,12 +43,13 @@ import { renderSoundBytesOverlay } from "./soundbytes.ts";
 import { renderChatReaderOff, renderChatReaderPage } from "./chat_reader.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
+import { getShotCount } from "./shots.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { env, getAppToken, getChannelInfo } from "./twitch.ts";
 
 /** Panels that fetch their own slice of data; "status", "all" and "rotate" combine these. */
-export const DATA_PANELS = ["raid", "battle", "giveaway", "merchant", "jar", "gold", "dice", "guild", "saves"] as const;
+export const DATA_PANELS = ["raid", "battle", "giveaway", "merchant", "jar", "gold", "dice", "guild", "saves", "shots"] as const;
 type DataPanel = typeof DATA_PANELS[number];
 
 const DICE_WINDOWS: Record<string, number> = { hour: 3_600_000, day: 86_400_000, week: 7 * 86_400_000 };
@@ -73,6 +74,8 @@ export type OverlayData = {
   guild?: { characters: number; parties: number; top: Array<{ name: string; level: number; race: string; cls: string; hp: number; hpMax: number }> } | null;
   /** This stream's saving throws tally (savingthrows.ts), drawn by the theme's brb and chat scenes. */
   saves?: SaveTally | null;
+  /** This stream's shot counter (shots.ts), drawn by the Shots panel. */
+  shots?: number;
 };
 
 async function resolveChannel(param: string | null) {
@@ -343,6 +346,7 @@ export async function getOverlayData(
   });
   job("guild", async () => { out.guild = await loadGuild(id, opts.limit); });
   job("saves", async () => { out.saves = on("rollchecks") ? await getSavingThrowTally(id) : null; });
+  job("shots", async () => { out.shots = await getShotCount(id); });
 
   await Promise.all(jobs);
   return out;
@@ -354,8 +358,9 @@ export function dataPanelsFor(panel: string): DataPanel[] {
   if (panel === "battle") return ["battle", "raid"];
   if ((DATA_PANELS as readonly string[]).includes(panel)) return [panel as DataPanel];
   if (panel === "status") return ["raid", "battle", "giveaway", "merchant", "jar"];
-  // all, rotate — the saving throws tally is only drawn by the theme.
-  return DATA_PANELS.filter((p) => p !== "saves");
+  // all, rotate — the saving throws tally is only drawn by the theme, and the
+  // shot counter only by its own panel.
+  return DATA_PANELS.filter((p) => p !== "saves" && p !== "shots");
 }
 
 // Several OBS sources (one per panel, plus the theme's embedded status strip

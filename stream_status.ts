@@ -19,6 +19,7 @@ import { getBroadcaster, isChannelBlocked, recordMonitorEvent, setBroadcasterLiv
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { onRaidStreamStatus } from "./raid.ts";
 import { resetSavingThrowTally } from "./savingthrows.ts";
+import { resetShotsForNewStream } from "./shots.ts";
 import { onChecklistStreamOnline } from "./checklist.ts";
 import { ensureFollowSubscription } from "./follow_thanks.ts";
 import { onStreamStatusGuard } from "./stream_guard.ts";
@@ -59,6 +60,8 @@ export async function onStreamOnline(broadcasterId: string, startedAt: unknown, 
   await onRaidStreamStatus(broadcasterId, true, startedAt);
   // A new stream starts a fresh saving throws tally (savingthrows.ts).
   await resetSavingThrowTally(broadcasterId);
+  // ...and a fresh shot counter (shots.ts).
+  await resetShotsForNewStream(broadcasterId);
   // Start-of-stream checklist for the streamer (checklist.ts).
   if (!(await isChannelBlocked(broadcasterId))) await onChecklistStreamOnline(broadcasterId);
   // Channels connected before follow thank-yous existed (follow_thanks.ts).

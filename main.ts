@@ -61,6 +61,7 @@ import { handleBg3Command } from "./bg3.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } from "./checklist.ts";
+import { ensureShotTables, handleShotCommand, purgeShotData } from "./shots.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
@@ -137,6 +138,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureWatchtimeTables,
   ensureBestiaryTables,
   ensureChecklistTables,
+  ensureShotTables,
   ensureSoundByteTables,
   ensureHoardTables,
   ensurePokeballTables,
@@ -521,6 +523,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeWatchtimeData(broadcasterId);
       await purgeBestiaryData(broadcasterId);
       await purgeChecklistData(broadcasterId);
+      await purgeShotData(broadcasterId);
       await purgeSoundByteData(broadcasterId);
       await purgeHoardData(broadcasterId);
       await purgePokeballData(broadcasterId);
@@ -700,6 +703,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleTimedMessageCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleDashboardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (await handleChecklistCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+  if (await handleShotCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleMerchantCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleHaggleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleChronicleCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");

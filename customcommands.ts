@@ -237,7 +237,7 @@ export const RESERVED_NAMES = new Set([
   "cmd", "trigger", "command", "commands", "hug", "map", "roster", "mod", "admin", "bot",
   "timedmsg", "timedmessage", "timer", "dashboard", "autoban", "whispertest", "gold", "goldboard", "treasury", "giveaway", "rob",
   "stall", "autohunt", "autohuntstatus", "autohuntstop", "huntcooldown", "huntcd", "watchtime", "followage", "nick",
-  "var", "vars", "variable", "checklist", "save", "lurk",
+  "var", "vars", "variable", "checklist", "save", "lurk", "shot", "shots",
 ]);
 
 const NAME_RE = /^[a-z0-9_-]{2,25}$/;
