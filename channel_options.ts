@@ -16,6 +16,7 @@
 // or a bare number in the option's own unit; "off" means 0 where 0 is allowed.
 
 import { sqlite } from "./sqlite.ts";
+import { shotWordProblem } from "./shots.ts";
 
 const OPTIONS_CACHE_MS = 30_000;
 
@@ -38,6 +39,8 @@ export type OptionDef = {
   int?: boolean;
   /** Word kinds: the only words accepted (otherwise any 2–20 letters or numbers). */
   choices?: string[];
+  /** Word kinds: an extra check on a typed word; returns why it's refused, or null. */
+  validate?: (word: string) => string | null;
   /** Values offered in the input's suggestion list, as the streamer would type them. */
   suggest: string[];
   /** Kept in another module's table instead of channel_options. */
@@ -104,8 +107,8 @@ export const OPTIONS: OptionDef[] = [
   { key: "jar.cost", bundle: "jar", label: "Fine per swear (copper)", kind: "number", int: true,
     def: env("SWEAR_COST_COPPER", 2, 1, 1_000_000), min: 1, max: 1000, suggest: ["1", "2", "5", "10"] },
   // Shot counter (shots.ts) — dashboard only, no chat command changes it.
-  { key: "shots.word", bundle: "shots", label: "What's being counted", help: "One word, singular — chat and the overlay say e.g. \"3 drinks\". The commands stay !shot / !shots.", kind: "word",
-    def: "shot", suggest: ["shot", "drink", "sip", "beer", "chug"] },
+  { key: "shots.word", bundle: "shots", label: "What's being counted", help: "One word, singular. The commands follow it (drink → !drink adds one, !drinks shows the count), and chat and the overlay say e.g. \"3 drinks\".", kind: "word",
+    def: "shot", validate: (w) => shotWordProblem(w), suggest: ["shot", "drink", "sip", "beer", "chug"] },
   // AI characters
   { key: "npc.chatterChance", bundle: "npcs", label: "NPCs chime in on a chat message", kind: "percent",
     def: env("NPC_CHATTER_CHANCE_PERCENT", 4, 0, 100), min: 0, max: 100, suggest: ["1%", "4%", "10%"] },
@@ -224,7 +227,9 @@ export function parseOptionInput(o: OptionDef, raw: string): { ok: true; value: 
   if (o.kind === "word") {
     const w = t.replace(/^!/, "");
     if (o.choices) return o.choices.includes(w) ? { ok: true, value: w } : { ok: false, error: `${o.label}: choose ${o.choices.join(" or ")}.` };
-    return /^[a-z0-9]{2,20}$/.test(w) ? { ok: true, value: w } : { ok: false, error: `${o.label}: one word, 2–20 letters or numbers (like "${o.def}").` };
+    if (!/^[a-z0-9]{2,20}$/.test(w)) return { ok: false, error: `${o.label}: one word, 2–20 letters or numbers (like "${o.def}").` };
+    const problem = o.validate?.(w);
+    return problem ? { ok: false, error: `${o.label}: ${problem}` } : { ok: true, value: w };
   }
   let n: number;
   if (o.kind === "duration") {

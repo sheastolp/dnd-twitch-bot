@@ -13,15 +13,23 @@
 // The count starts over at 0 whenever a new stream goes live
 // (stream_status.ts), but not on a reconnect inside the grace period.
 // Off until the "shots" switch is turned on (dashboard Quick setup or
-// Command groups; main.ts gates the words). What's counted — "shot" by
-// default, or e.g. "drink" or "sip" — is the shots.word option, set only on
-// the dashboard (Quick setup → Shot counter → ⚙ Options); the commands stay
-// !shot / !shots whatever it is.
+// Command groups). What's counted — "shot" by default, or e.g. "drink" or
+// "sip" — is the shots.word option, set only on the dashboard (Quick setup →
+// Shot counter → ⚙ Options), and the commands follow it: "drink" makes them
+// !drink / !drinks, and !shot / !shots then fall through like any unknown
+// word. Because the words can change, this module checks its own switch
+// (the group lists no command words), and a channel's own custom command of
+// the same name wins, as with !sound. The dashboard refuses a word that
+// would clash with a built-in command (shotWordProblem).
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 import { optWord } from "./channel_options.ts";
+import { getCustomCommand } from "./db_custom.ts";
+import { isCommandGroupEnabled } from "./db.ts";
+import { COMMAND_GROUPS } from "./commandgroups.ts";
+import { RESERVED_NAMES } from "./customcommands.ts";
 
 export const MAX_SHOTS = 999;
 
@@ -79,6 +87,26 @@ export function pluralWord(word: string): string {
   return `${word}s`;
 }
 
+// Built-in command words not already in RESERVED_NAMES or a COMMAND_GROUPS
+// entry (modules that check their own switch, steward tools, …). A counted
+// word or its plural can't be any of these.
+const OTHER_BUILT_INS = [
+  "jar", "fine", "hunt", "ledger", "bounties", "quests", "shop", "merchant", "buy", "inv", "sell", "drop", "purse", "hoard",
+  "sound", "sounds", "quote", "quotes", "so", "shoutout", "chatreader", "overlays", "rally", "npc", "chronicle", "market",
+  "haggle", "gear", "ball", "pokecatch", "automod", "permit", "boon", "botcheck", "hateraid", "followbots", "removebots",
+  "onlinenotif", "onlinecheck", "offlinelock", "raidguard", "shield", "monster", "clip", "stats", "delve", "dndbot",
+];
+
+/** Why a word can't be the counted word (dashboard check), or null if it's fine. */
+export function shotWordProblem(word: string): string | null {
+  for (const w of [word, pluralWord(word)]) {
+    if (RESERVED_NAMES.has(w) || OTHER_BUILT_INS.includes(w) || Object.values(COMMAND_GROUPS).some((g) => g.commands.includes(w))) {
+      return `!${w} is already a GuildScribe command — pick another word.`;
+    }
+  }
+  return null;
+}
+
 /** The channel's counted word (shots.word), singular and plural. */
 export async function shotWords(broadcasterId: string): Promise<{ one: string; many: string }> {
   const one = await optWord(broadcasterId, "shots.word");
@@ -103,15 +131,22 @@ export async function handleShotCommand(
   broadcasterId: string,
   isModerator: boolean,
 ): Promise<boolean> {
-  const m = chatMessage.trim().match(/^!(shots?)(?:\s+(.*))?$/i);
+  const m = chatMessage.trim().match(/^!([a-z0-9]{2,25})(?:\s+(.*))?$/i);
   if (!m) return false;
   const word = m[1].toLowerCase();
-  const arg = (m[2] ?? "").trim().toLowerCase();
   const w = await shotWords(broadcasterId);
+  if (word !== w.one && word !== w.many) return false;
+  // Switched off, or the channel has its own command of that name: fall through to it.
+  const [on, custom] = await Promise.all([
+    isCommandGroupEnabled(broadcasterId, "shots"),
+    getCustomCommand(broadcasterId, word),
+  ]);
+  if (!on || custom) return false;
+  const arg = (m[2] ?? "").trim().toLowerCase();
 
-  if (word === "shots" || !isModerator) {
+  if (word === w.many || !isModerator) {
     const n = await getShotCount(broadcasterId);
-    const tail = word === "shot" && !isModerator ? ` (only the broadcaster or a moderator can add a ${w.one})` : "";
+    const tail = word === w.one && !isModerator ? ` (only the broadcaster or a moderator can add a ${w.one})` : "";
     await sendChatMessage(`@${display} 🥃 ${count(n, w)} taken this stream.${tail}`, broadcasterId);
     return true;
   }
@@ -142,6 +177,7 @@ export async function handleShotCommand(
     await sendChatMessage(`@${display} 🥃 ${capital(w.one)} counter set to ${n}.`, broadcasterId);
     return true;
   }
-  await sendChatMessage(`@${display} usage: !shot | !shot +N / -N | !shot undo | !shot set N | !shot reset | !shots`, broadcasterId);
+  const c = `!${w.one}`;
+  await sendChatMessage(`@${display} usage: ${c} | ${c} +N / -N | ${c} undo | ${c} set N | ${c} reset | !${w.many}`, broadcasterId);
   return true;
 }

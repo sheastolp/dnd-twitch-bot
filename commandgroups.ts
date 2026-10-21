@@ -168,8 +168,9 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // phone/PC, for console streams. !chatreader (mods) posts
   // the link and says when it's off, so it isn't listed under `commands`.
   chatreader: { section: "Stream overlays", label: "Chat Reader (reads chat aloud to you — for console streams; !chatreader)", commands: [] },
-  // shots.ts; what's counted is the shots.word option (dashboard only).
-  shots: { section: "Stream overlays", label: "Shot counter (!shot — mods add one, !shots shows the count; Shots taken overlay)", commands: ["shot", "shots"] },
+  // shots.ts checks this switch itself: its words follow the shots.word
+  // option (dashboard only), so they can't be listed here.
+  shots: { section: "Stream overlays", label: "Shot counter (!shot — mods add one, !shots shows the count; Shots taken overlay)", commands: [] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
   clips: { section: "Other", label: "Clips (!clip [title], !clip45, !clip60)", commands: ["clip", "clip15", "clip20", "clip30", "clip45", "clip60"] },

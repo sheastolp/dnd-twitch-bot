@@ -82,7 +82,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   {
     key: "shots", icon: "🥃", name: "Shot counter",
     what: "Counts the shots you take on stream. Mods add one with !shot (!shot undo, !shot +2, !shot set 5, !shot reset) and anyone can check with !shots. Starts over at 0 each time you go live.",
-    yourPart: "Add the \"Shots taken\" overlay from !overlays if you want it on screen. Counting something else? Change the word under ⚙ Options.",
+    yourPart: "Add the \"Shots taken\" overlay from !overlays if you want it on screen. Counting something else? Change the word under ⚙ Options — the commands change with it (drink → !drink, !drinks).",
     switches: ["shots"],
   },
   {
