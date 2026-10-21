@@ -177,6 +177,9 @@ export async function ensureTables() {
   // crons. Defaults to 0 until the first event (or the one-time connect-time
   // seed) sets it.
   try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN is_live INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+  // When stream.offline arrived, while the 5-minute reconnect grace runs
+  // (stream_status.ts); 0 when no stream is waiting to be ended.
+  try { await sqlite.execute(`ALTER TABLE broadcasters ADD COLUMN offline_pending_at INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
   // Tracks whether this channel has stream.online/offline EventSub
   // subscriptions yet. New connects get them immediately (see the OAuth
   // callback in main.ts); channels connected before this feature existed

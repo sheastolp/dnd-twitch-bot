@@ -1,7 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Val Town / Deno HTTP handler
 
-import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
+import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
@@ -21,13 +21,13 @@ import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
-import { ensureSavingThrowTables, purgeSavingThrowData, resetSavingThrowTally } from "./savingthrows.ts";
+import { ensureSavingThrowTables, purgeSavingThrowData } from "./savingthrows.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
 import { handleAutohuntCommand } from "./autohunt.ts";
 import { ensureBestiaryTables, getChannelRoster, handleBestiaryCommand, purgeBestiaryData } from "./bestiary.ts";
-import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, onRaidStreamStatus, purgeRaidData } from "./raid.ts";
+import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureNickname, ensureViewerNameTables, getChannelNicknames, purgeViewerNames, recordViewerName, resolveNicknameTargets } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
@@ -44,7 +44,7 @@ import { ensureDelveTables, purgeDelveData } from "./idle.ts";
 import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
-import { ensureFollowSubscription, ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
+import { ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
@@ -60,18 +60,19 @@ import { page } from "./pages.ts";
 import { handleBg3Command } from "./bg3.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
-import { ensureChecklistTables, handleChecklistCommand, onChecklistStreamOnline, purgeChecklistData } from "./checklist.ts";
+import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } from "./checklist.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
 import { ensureGameStatsTables, handleGameStatsCommand, purgeGameStatsData } from "./game_stats.ts";
 import { ensureSeImportTables, purgeSeImportData } from "./se_import.ts";
 import { ensureNightbotImportTables, purgeNightbotImportData } from "./nightbot_import.ts";
-import { ensureStreamGuardTables, handleStreamGuardCommand, maybeHateRaid, onStreamStatusGuard, purgeStreamGuardData } from "./stream_guard.ts";
+import { ensureStreamGuardTables, handleStreamGuardCommand, maybeHateRaid, purgeStreamGuardData } from "./stream_guard.ts";
 import { ensureFollowBotTables, handleFollowBotCommand, maybeBlockFollowBot, purgeFollowBotData } from "./followbots.ts";
 import { handleClipCommand } from "./clips.ts";
 import { ensureModLogTables, purgeModLogData } from "./mod_log.ts";
-import { ensureMotdTables, onStreamOnlineMotd, purgeMotdData } from "./motd.ts";
+import { ensureMotdTables, purgeMotdData } from "./motd.ts";
+import { onStreamOffline, onStreamOnline } from "./stream_status.ts";
 import { handleFunCommand, maybeBotBanter } from "./funstuff.ts";
 
 // Public HTTP trigger URL for this val (used for guide links in chat).
@@ -326,29 +327,16 @@ async function handleNotification(body: any): Promise<Response | void> {
     return new Response("OK");
   }
 
-  // Stream going live/offline — just keeps broadcasters.is_live current so
-  // every other check above/below (and the merchant/timed-message crons)
-  // can read it as a plain column instead of calling Twitch on every
-  // message. No chat reply of its own.
+  // Stream going live/offline (stream_status.ts). Keeps broadcasters.is_live
+  // current so every other check above/below (and the merchant/timed-message
+  // crons) can read it as a plain column instead of calling Twitch on every
+  // message, and runs the start/end-of-stream hooks. A drop that comes back
+  // within 5 minutes counts as the same stream and resets nothing.
   if (subscriptionType === "stream.online" || subscriptionType === "stream.offline") {
     const liveBroadcasterId: string = body.event?.broadcaster_user_id ?? "";
     if (liveBroadcasterId) {
-      await setBroadcasterLiveStatus(liveBroadcasterId, subscriptionType === "stream.online");
-      await onRaidStreamStatus(liveBroadcasterId, subscriptionType === "stream.online", body.event?.started_at);
-      // A new stream starts a fresh saving throws tally (savingthrows.ts).
-      if (subscriptionType === "stream.online") await resetSavingThrowTally(liveBroadcasterId);
-      // Start-of-stream checklist for the streamer (checklist.ts).
-      if (subscriptionType === "stream.online" && !(await isChannelBlocked(liveBroadcasterId))) {
-        await onChecklistStreamOnline(liveBroadcasterId);
-      }
-      // Channels connected before follow thank-yous existed (follow_thanks.ts).
-      if (subscriptionType === "stream.online") await ensureFollowSubscription(liveBroadcasterId, PUBLIC_ORIGIN);
-      // Offline lock + going-live announcement (stream_guard.ts).
-      try { await onStreamStatusGuard(liveBroadcasterId, subscriptionType === "stream.online"); } catch (e) { await recordMonitorEvent("stream_guard_error", String(e)); }
-      // The developer's message of the day (motd.ts); says nothing when there isn't one.
-      if (subscriptionType === "stream.online") {
-        try { await onStreamOnlineMotd(liveBroadcasterId); } catch (e) { await recordMonitorEvent("motd_error", String(e)); }
-      }
+      if (subscriptionType === "stream.online") await onStreamOnline(liveBroadcasterId, body.event?.started_at);
+      else await onStreamOffline(liveBroadcasterId);
     }
     return new Response("OK");
   }

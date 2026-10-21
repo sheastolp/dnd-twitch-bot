@@ -21,9 +21,9 @@ export default async function () {
   const channels = await getWatchtimePollChannels();
   const counts: Record<string, number> = { polled: 0, closed: 0, idle: 0, no_permission: 0, error: 0 };
 
-  for (const { broadcasterId, isLive } of channels) {
+  for (const { broadcasterId, isLive, reconnecting } of channels) {
     try {
-      counts[await pollWatchtime(broadcasterId, isLive)]++;
+      counts[await pollWatchtime(broadcasterId, isLive, reconnecting)]++;
     } catch (e) {
       counts.error++;
       await recordMonitorEvent("watchtime_poll_error", `${broadcasterId}: ${String(e)}`);

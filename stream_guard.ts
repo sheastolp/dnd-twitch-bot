@@ -313,8 +313,10 @@ export async function setOfflineLock(broadcasterId: string, mode: LockMode | nul
   if (b && Number(b.is_live) !== 1) await sqlite.execute("UPDATE offline_lock SET due_at = ? WHERE broadcaster_id = ? AND applied = ''", [Date.now() + OFFLINE_LOCK_DELAY_MS, broadcasterId]);
 }
 
-/** stream.online / stream.offline (main.ts). */
-export async function onStreamStatusGuard(broadcasterId: string, online: boolean) {
+/** stream.online / stream.offline (stream_status.ts). `offlineAt` is when the
+ * stream dropped, so the lock delay counts from then, not from the end of the
+ * reconnect grace. */
+export async function onStreamStatusGuard(broadcasterId: string, online: boolean, offlineAt = Date.now()) {
   const lock = await getLock(broadcasterId);
   if (online) {
     if (lock?.applied) {
@@ -324,7 +326,7 @@ export async function onStreamStatusGuard(broadcasterId: string, online: boolean
     if (lock) await sqlite.execute("UPDATE offline_lock SET due_at = 0, applied = '', updated_at = ? WHERE broadcaster_id = ?", [Date.now(), broadcasterId]);
     await announceLive(broadcasterId);
   } else if (lock?.enabled) {
-    await sqlite.execute("UPDATE offline_lock SET due_at = ?, updated_at = ? WHERE broadcaster_id = ?", [Date.now() + OFFLINE_LOCK_DELAY_MS, Date.now(), broadcasterId]);
+    await sqlite.execute("UPDATE offline_lock SET due_at = ?, updated_at = ? WHERE broadcaster_id = ?", [offlineAt + OFFLINE_LOCK_DELAY_MS, Date.now(), broadcasterId]);
   }
 }
 

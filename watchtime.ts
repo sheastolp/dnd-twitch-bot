@@ -339,9 +339,9 @@ export async function fetchChatters(broadcasterId: string): Promise<Chatter[] | 
 
 /** Connected, enabled channels that are live, or still hold a poll the last
  * tick left open (so the first offline tick can close it out). */
-export async function getWatchtimePollChannels(): Promise<Array<{ broadcasterId: string; isLive: boolean }>> {
+export async function getWatchtimePollChannels(): Promise<Array<{ broadcasterId: string; isLive: boolean; reconnecting: boolean }>> {
   const res = await sqlite.execute(
-    `SELECT b.broadcaster_id AS broadcaster_id, b.is_live AS is_live
+    `SELECT b.broadcaster_id AS broadcaster_id, b.is_live AS is_live, b.offline_pending_at AS offline_pending_at
      FROM broadcasters b
      LEFT JOIN channel_settings cs ON cs.broadcaster_id = b.broadcaster_id
      LEFT JOIN channel_blocks cb ON cb.broadcaster_id = b.broadcaster_id
@@ -351,13 +351,19 @@ export async function getWatchtimePollChannels(): Promise<Array<{ broadcasterId:
        AND (cs.enabled IS NULL OR cs.enabled = 1)
        AND (b.is_live = 1 OR p.active = 1)`,
   );
-  return res.rows.map((r: any) => ({ broadcasterId: String(r.broadcaster_id), isLive: Number(r.is_live) === 1 }));
+  return res.rows.map((r: any) => ({
+    broadcasterId: String(r.broadcaster_id),
+    isLive: Number(r.is_live) === 1,
+    reconnecting: Number(r.offline_pending_at ?? 0) > 0,
+  }));
 }
 
 export type PollResult = "polled" | "closed" | "idle" | "no_permission";
 
-/** One chatters-poll tick for a channel. See the header comment for the model. */
-export async function pollWatchtime(broadcasterId: string, isLiveDb: boolean): Promise<PollResult> {
+/** One chatters-poll tick for a channel. See the header comment for the model.
+ * `reconnecting`: the stream dropped and is inside its reconnect grace
+ * (stream_status.ts), so an offline reading doesn't close anyone out yet. */
+export async function pollWatchtime(broadcasterId: string, isLiveDb: boolean, reconnecting = false): Promise<PollResult> {
   const now = Date.now();
   const pollRes = await sqlite.execute("SELECT last_poll_at, active FROM watchtime_polls WHERE broadcaster_id = ?", [broadcasterId]);
   const lastPollAt = Number(pollRes.rows[0]?.last_poll_at ?? 0);
@@ -367,7 +373,7 @@ export async function pollWatchtime(broadcasterId: string, isLiveDb: boolean): P
   const live = stream ? stream.live : isLiveDb;
 
   if (!live) {
-    if (!active) return "idle";
+    if (!active || reconnecting) return "idle";
     // Stream ended somewhere since the last tick: credit half the window to
     // everyone still marked present, then close the poll.
     await sqlite.execute(

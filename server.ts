@@ -13,6 +13,7 @@ import runTimedMessages from "./timedmessages_cron.ts";
 import runAutohunt from "./autohunt_cron.ts";
 import runWatchtime from "./watchtime_cron.ts";
 import runOfflineLock from "./stream_guard.ts";
+import { runStreamOfflineGrace } from "./stream_status.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { warmFivetools } from "./fivetools.ts";
 
@@ -44,6 +45,8 @@ every("autohunt_cron", cronMinutes("AUTOHUNT_CRON_MINUTES", 5), () => runAutohun
 every("watchtime_cron", cronMinutes("WATCHTIME_CRON_MINUTES", 5), () => runWatchtime());
 // Offline lock (stream_guard.ts) turns on 5 minutes after a stream ends, so it is checked every minute.
 every("offlinelock_cron", 1, () => runOfflineLock());
+// A dropped stream is only treated as ended once its 5-minute reconnect grace runs out (stream_status.ts).
+every("stream_offline_cron", 1, () => runStreamOfflineGrace());
 
 // Download the 5e.tools archive (fivetools.ts) in the background so the first
 // !monster / !spell lookup that needs it doesn't wait on GitHub.
