@@ -43,7 +43,7 @@ import { renderSoundBytesOverlay } from "./soundbytes.ts";
 import { renderChatReaderOff, renderChatReaderPage } from "./chat_reader.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
-import { getShotCount } from "./shots.ts";
+import { getShotCount, shotWords } from "./shots.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { env, getAppToken, getChannelInfo } from "./twitch.ts";
@@ -74,8 +74,8 @@ export type OverlayData = {
   guild?: { characters: number; parties: number; top: Array<{ name: string; level: number; race: string; cls: string; hp: number; hpMax: number }> } | null;
   /** This stream's saving throws tally (savingthrows.ts), drawn by the theme's brb and chat scenes. */
   saves?: SaveTally | null;
-  /** This stream's shot counter (shots.ts), drawn by the Shots panel. */
-  shots?: number;
+  /** This stream's shot counter (shots.ts) and the word it counts, drawn by the Shots panel. */
+  shots?: { count: number; one: string; many: string } | null;
 };
 
 async function resolveChannel(param: string | null) {
@@ -346,7 +346,11 @@ export async function getOverlayData(
   });
   job("guild", async () => { out.guild = await loadGuild(id, opts.limit); });
   job("saves", async () => { out.saves = on("rollchecks") ? await getSavingThrowTally(id) : null; });
-  job("shots", async () => { out.shots = await getShotCount(id); });
+  job("shots", async () => {
+    if (!on("shots")) { out.shots = null; return; }
+    const [count, words] = await Promise.all([getShotCount(id), shotWords(id)]);
+    out.shots = { count, ...words };
+  });
 
   await Promise.all(jobs);
   return out;

@@ -1,5 +1,5 @@
 // The shot counter — how many shots (the drinking kind) the streamer has
-// taken this stream. Mods pour, everyone can look, and the OBS "Shots"
+// taken this stream. Mods pour, everyone can look, and the OBS "Shots taken"
 // overlay (overlay.ts, panel=shots) shows the running count.
 //
 //   !shot                 add one shot (mod/broadcaster)
@@ -12,11 +12,16 @@
 // A non-mod's !shot just answers with the count, so viewers can't pad it.
 // The count starts over at 0 whenever a new stream goes live
 // (stream_status.ts), but not on a reconnect inside the grace period.
-// Mod-only with no dashboard switch, like !checklist.
+// Off until the "shots" switch is turned on (dashboard Quick setup or
+// Command groups; main.ts gates the words). What's counted — "shot" by
+// default, or e.g. "drink" or "sip" — is the shots.word option, set only on
+// the dashboard (Quick setup → Shot counter → ⚙ Options); the commands stay
+// !shot / !shots whatever it is.
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
+import { optWord } from "./channel_options.ts";
 
 export const MAX_SHOTS = 999;
 
@@ -67,13 +72,28 @@ export async function purgeShotData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM shot_counter WHERE broadcaster_id = ?", [broadcasterId]);
 }
 
-const plural = (n: number) => `${n} shot${n === 1 ? "" : "s"}`;
+/** "shot" → "shots", "glass" → "glasses", "whiskey" → "whiskeys", "brandy" → "brandies". */
+export function pluralWord(word: string): string {
+  if (/(?:s|x|z|ch|sh)$/.test(word)) return `${word}es`;
+  if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
+  return `${word}s`;
+}
+
+/** The channel's counted word (shots.word), singular and plural. */
+export async function shotWords(broadcasterId: string): Promise<{ one: string; many: string }> {
+  const one = await optWord(broadcasterId, "shots.word");
+  return { one, many: pluralWord(one) };
+}
+
+type Words = { one: string; many: string };
+const count = (n: number, w: Words) => `${n} ${n === 1 ? w.one : w.many}`;
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const POUR_LINES = [
-  (n: number) => `🥃 Down the hatch! That's ${plural(n)} this stream.`,
-  (n: number) => `🥃 The barkeep pours another — ${plural(n)} and counting.`,
-  (n: number) => `🥃 Bottoms up! Shot #${n} of the night.`,
-  (n: number) => `🥃 A toast to the guild! ${plural(n)} so far.`,
+  (n: number, w: Words) => `🥃 Down the hatch! That's ${count(n, w)} this stream.`,
+  (n: number, w: Words) => `🥃 The barkeep pours another — ${count(n, w)} and counting.`,
+  (n: number, w: Words) => `🥃 Bottoms up! ${capital(w.one)} #${n} of the night.`,
+  (n: number, w: Words) => `🥃 A toast to the guild! ${count(n, w)} so far.`,
 ];
 
 /** Handles !shot / !shots; returns true when the message was one of them. */
@@ -87,38 +107,39 @@ export async function handleShotCommand(
   if (!m) return false;
   const word = m[1].toLowerCase();
   const arg = (m[2] ?? "").trim().toLowerCase();
+  const w = await shotWords(broadcasterId);
 
   if (word === "shots" || !isModerator) {
     const n = await getShotCount(broadcasterId);
-    const tail = word === "shot" && !isModerator ? " (only the broadcaster or a moderator can pour one)" : "";
-    await sendChatMessage(`@${display} 🥃 ${plural(n)} taken this stream.${tail}`, broadcasterId);
+    const tail = word === "shot" && !isModerator ? ` (only the broadcaster or a moderator can add a ${w.one})` : "";
+    await sendChatMessage(`@${display} 🥃 ${count(n, w)} taken this stream.${tail}`, broadcasterId);
     return true;
   }
 
   if (!arg) {
-    await sendChatMessage(pick(POUR_LINES)(await adjustShots(broadcasterId, 1)), broadcasterId);
+    await sendChatMessage(pick(POUR_LINES)(await adjustShots(broadcasterId, 1), w), broadcasterId);
     return true;
   }
   if (arg === "undo") {
     const n = await adjustShots(broadcasterId, -1);
-    await sendChatMessage(`@${display} 🥃 Took one back — ${plural(n)} this stream.`, broadcasterId);
+    await sendChatMessage(`@${display} 🥃 Took one back — ${count(n, w)} this stream.`, broadcasterId);
     return true;
   }
   if (arg === "reset") {
     await setShots(broadcasterId, 0);
-    await sendChatMessage(`@${display} 🥃 Shot counter reset to 0.`, broadcasterId);
+    await sendChatMessage(`@${display} 🥃 ${capital(w.one)} counter reset to 0.`, broadcasterId);
     return true;
   }
   const delta = arg.match(/^([+-])\s*(\d{1,3})$/);
   if (delta) {
     const n = await adjustShots(broadcasterId, (delta[1] === "-" ? -1 : 1) * Number(delta[2]));
-    await sendChatMessage(`@${display} 🥃 ${plural(n)} this stream.`, broadcasterId);
+    await sendChatMessage(`@${display} 🥃 ${count(n, w)} this stream.`, broadcasterId);
     return true;
   }
   const set = arg.match(/^set\s+(\d{1,3})$/);
   if (set) {
     const n = await setShots(broadcasterId, Number(set[1]));
-    await sendChatMessage(`@${display} 🥃 Shot counter set to ${n}.`, broadcasterId);
+    await sendChatMessage(`@${display} 🥃 ${capital(w.one)} counter set to ${n}.`, broadcasterId);
     return true;
   }
   await sendChatMessage(`@${display} usage: !shot | !shot +N / -N | !shot undo | !shot set N | !shot reset | !shots`, broadcasterId);

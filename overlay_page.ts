@@ -17,7 +17,7 @@ export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; widt
   giveaway: { label: "Giveaway", blurb: "The open giveaway's prize, entrants and tickets, then the winners for ten minutes after the draw. Hidden otherwise.", width: 520, height: 200 },
   merchant: { label: "Peddler's stall", blurb: "The ware the open-stall merchant is currently hawking and its price (needs !market on).", width: 520, height: 180 },
   jar: { label: "Swear jar", blurb: "The swear jar's running total; it bounces whenever someone pays in.", width: 360, height: 110 },
-  shots: { label: "Shots taken", blurb: "A small counter of the shots you've taken this stream — mods add one with !shot (!shot undo, !shot +N / -N, !shot set N, !shot reset); chat checks it with !shots. It pops whenever the count goes up and starts over at 0 when you go live. Change the heading with &label=<text>.", width: 340, height: 130 },
+  shots: { label: "Shots taken", blurb: "A small counter of the shots you've taken this stream — mods add one with !shot (!shot undo, !shot +N / -N, !shot set N, !shot reset); chat checks it with !shots. It pops whenever the count goes up and starts over at 0 when you go live. Needs the Shot counter switched on; counting drinks or sips instead? Change the word in Quick setup on your dashboard and the heading follows.", width: 340, height: 130 },
   gold: { label: "Coin leaderboard", blurb: "The channel's richest adventurers (needs gold on).", width: 400, height: 300 },
   dice: { label: "Roll call", blurb: "Natural 20 and natural 1 leaders. Add &window=hour or &window=week (default: day).", width: 520, height: 260 },
   guild: { label: "Guild summary", blurb: "How many adventurers and parties the guild has, plus its highest-level heroes.", width: 460, height: 320 },
@@ -142,8 +142,8 @@ const R={
     return add(c,h("div","big",m.item),h("div",null,m.price),h("div","hint","!haggle <your pitch> · !stall"))},
   jar(d){const j=d.jar;if(!j)return null;const c=card("🫙 Swear jar");const v=h("div","big",j.text);
     if(lastJar!=null&&j.total>lastJar)v.classList.add("bump");lastJar=j.total;return add(c,v)},
-  shots(d){if(d.shots==null)return null;const c=card(Q.get("label")||"🥃 Shots taken");const v=h("div","big shots",d.shots);
-    if(lastShots!=null&&d.shots>lastShots)v.classList.add("bump");lastShots=d.shots;return add(c,v)},
+  shots(d){const s=d.shots;if(!s)return null;const c=card("🥃 "+s.many.charAt(0).toUpperCase()+s.many.slice(1)+" taken");const v=h("div","big shots",s.count);
+    if(lastShots!=null&&s.count>lastShots)v.classList.add("bump");lastShots=s.count;return add(c,v)},
   gold(d){const g=d.gold;if(!g||!g.length)return null;const c=card("💰 Richest adventurers");const ol=h("ol");
     for(const x of g)add(ol,add(h("li"),add(h("div","row"),h("span",null,x.name),h("span",null,x.text))));return add(c,ol)},
   dice(d){const x=d.dice;if(!x||(!x.nat20.length&&!x.nat1.length))return null;
@@ -202,7 +202,7 @@ if(showNext)setInterval(()=>{if(!nextEl||!nextEl.isConnected||nextList.length<2)
 const ORDER=["raid","battle","giveaway","merchant","jar","gold","dice","guild"];
 const LABELS=CFG.labels;
 // Cheap "does this panel have anything to show" check (no DOM, no side effects).
-const HAS={raid:d=>!!d.raid,battle:d=>!!((d.battle&&d.battle.length)||(d.recent&&d.recent.length)||(panel==="battle"&&d.raid)),giveaway:d=>!!d.giveaway,merchant:d=>!!d.merchant,jar:d=>!!d.jar,shots:d=>d.shots!=null,
+const HAS={raid:d=>!!d.raid,battle:d=>!!((d.battle&&d.battle.length)||(d.recent&&d.recent.length)||(panel==="battle"&&d.raid)),giveaway:d=>!!d.giveaway,merchant:d=>!!d.merchant,jar:d=>!!d.jar,shots:d=>!!d.shots,
   gold:d=>!!(d.gold&&d.gold.length),dice:d=>!!(d.dice&&(d.dice.nat20.length||d.dice.nat1.length)),guild:d=>!!(d.guild&&d.guild.characters)};
 let rotIdx=-1, rotAt=0, lastSig="", prevShown=new Set();
 

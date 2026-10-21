@@ -15,7 +15,7 @@ import { COMMAND_GROUPS } from "./commandgroups.ts";
 import type { InStatement } from "./local_sqlite.ts";
 
 /** Groups that were already off by default before the switch-over. */
-const WERE_DEFAULT_OFF = new Set(["hateraid", "followbots", "golive", "chatreader", "lurk", "shoutout"]);
+const WERE_DEFAULT_OFF = new Set(["hateraid", "followbots", "golive", "chatreader", "lurk", "shoutout", "shots"]);
 
 export async function migrateQuietDefaults() {
   await sqlite.execute("CREATE TABLE IF NOT EXISTS quiet_defaults_migrations (name TEXT PRIMARY KEY, ran_at INTEGER)");

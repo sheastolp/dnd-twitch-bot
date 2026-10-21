@@ -103,6 +103,9 @@ export const OPTIONS: OptionDef[] = [
   // Swear jar
   { key: "jar.cost", bundle: "jar", label: "Fine per swear (copper)", kind: "number", int: true,
     def: env("SWEAR_COST_COPPER", 2, 1, 1_000_000), min: 1, max: 1000, suggest: ["1", "2", "5", "10"] },
+  // Shot counter (shots.ts) — dashboard only, no chat command changes it.
+  { key: "shots.word", bundle: "shots", label: "What's being counted", help: "One word, singular — chat and the overlay say e.g. \"3 drinks\". The commands stay !shot / !shots.", kind: "word",
+    def: "shot", suggest: ["shot", "drink", "sip", "beer", "chug"] },
   // AI characters
   { key: "npc.chatterChance", bundle: "npcs", label: "NPCs chime in on a chat message", kind: "percent",
     def: env("NPC_CHATTER_CHANCE_PERCENT", 4, 0, 100), min: 0, max: 100, suggest: ["1%", "4%", "10%"] },
