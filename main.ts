@@ -1,7 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Val Town / Deno HTTP handler
 
-import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
+import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { handleMapCommand } from "./maps.ts";
@@ -102,6 +102,25 @@ async function backfillStreamStatusSubscription(broadcasterId: string, baseUrl: 
     // Leave stream_status_subscribed at 0 so this is retried on the next
     // otherwise-silenced message rather than getting stuck failed forever.
   }
+}
+
+/** When was Twitch last asked whether a channel stored as offline is live. */
+const lastLiveRecheckAt = new Map<string, number>();
+const LIVE_RECHECK_MS = 60_000;
+
+/** broadcasters.is_live only moves on stream.online/offline notifications;
+ * if Twitch never delivered one (subscription lapsed, callback moved) it
+ * stays 0 while the stream is live and every non-mod message is silenced.
+ * Before silencing, ask Twitch directly — at most once a minute per channel
+ * — and heal the column when it says live (same heal as merchant_cron.ts). */
+async function recheckLiveStatus(broadcasterId: string): Promise<boolean> {
+  const now = Date.now();
+  if (now - (lastLiveRecheckAt.get(broadcasterId) ?? 0) < LIVE_RECHECK_MS) return false;
+  lastLiveRecheckAt.set(broadcasterId, now);
+  if (!(await fetchIsChannelLiveNow(broadcasterId))) return false;
+  await setBroadcasterLiveStatus(broadcasterId, true);
+  await recordMonitorEvent("chat_live_healed", `${broadcasterId}: is_live was 0 but Twitch says live`);
+  return true;
 }
 
 // Schema setup is ~90 sequential SQLite round-trips (CREATE TABLE IF NOT
@@ -460,7 +479,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await backfillStreamStatusSubscription(broadcasterId, PUBLIC_ORIGIN);
       const refreshed = await getBroadcaster(broadcasterId);
       if (!refreshed || Number(refreshed.is_live) !== 1) return new Response("OK");
-    } else {
+    } else if (!(await recheckLiveStatus(broadcasterId))) {
       return new Response("OK");
     }
   }
