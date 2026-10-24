@@ -21,11 +21,11 @@ export type HowtoTopic = {
 export const HOWTO_SETUP: HowtoTopic[] = [
   {
     slug: "connect",
-    title: "Connect GuildScribe to your channel",
+    title: "How to add a chat bot to your Twitch channel",
     audience: "Streamers",
     summary: "Raise the guild banner in your channel, give the bot a voice, and reconnect when new features arrive.",
     steps: [
-      `Open the <a href="/">GuildScribe home page</a> and click <strong>Raise the Guild Banner in My Channel</strong> (or go straight to <a href="/connect">/connect</a>).`,
+      `Open the <a href="/">GuildScribe home page</a> and click <strong>Add GuildScribe to your channel</strong> (or go straight to <a href="/connect">/connect</a>).`,
       `Log in to Twitch <strong>as the broadcaster</strong> and approve the permissions. They cover chat, sub and raid thank-yous, ad-break checks, channel-point rewards, the auto-ban, followage and the chat list for watch time.`,
       `In your Twitch chat, type <code>/mod GuildScribeBot</code> so the bot can hear and answer reliably.`,
       `Type <code>!help</code> in chat to check the bot answers, then <code>!guide</code> to post the Codex link for your viewers.`,
@@ -57,7 +57,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
   },
   {
     slug: "overlays",
-    title: "Add OBS overlays",
+    title: "How to add chat bot overlays to OBS",
     audience: "Streamers",
     summary: "Put the raid boss, live battles, the giveaway, leaderboards and more on stream as transparent browser sources.",
     steps: [
@@ -93,7 +93,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
   },
   {
     slug: "custom-commands",
-    title: "Make custom commands & chat triggers",
+    title: "How to make custom commands on Twitch",
     audience: "Mods+",
     summary: "Add your own !commands and keyword auto-replies, with placeholders for names, dice and live channel info.",
     steps: [
@@ -111,7 +111,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
   },
   {
     slug: "timed-messages",
-    title: "Schedule timed messages",
+    title: "How to set up timed messages (timers) on Twitch",
     audience: "Mods+",
     summary: "Recurring announcements that post themselves on their own schedule while you're live.",
     steps: [
@@ -127,7 +127,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
   },
   {
     slug: "channel-points",
-    title: "Link channel-point rewards",
+    title: "How to use channel point rewards with a chat bot",
     audience: "Streamers",
     summary: "Let viewers spend channel points on a robbery shield or to hex someone out of a feature.",
     steps: [
@@ -145,7 +145,7 @@ export const HOWTO_SETUP: HowtoTopic[] = [
   },
   {
     slug: "giveaways",
-    title: "Run a giveaway",
+    title: "How to run a giveaway in Twitch chat",
     audience: "Mods+",
     summary: "Open a free or ticketed giveaway, draw a weighted winner, and reroll or refund if needed.",
     steps: [

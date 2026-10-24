@@ -14,6 +14,7 @@ import { escapeHtml } from "./utils.ts";
 import { HOWTO_CSS, SCROLL_CSS, SCROLL_HEAD, scrollClose, scrollOpen } from "./scroll_theme.ts";
 import { HOWTO_SETUP, type HowtoTopic } from "./howto_pages.ts";
 import { HOWTO_PLAY } from "./howto_pages2.ts";
+import { seoHead, SWITCH_PATH } from "./seo_pages.ts";
 
 export const HOWTO_TOPICS: HowtoTopic[] = [...HOWTO_SETUP, ...HOWTO_PLAY];
 
@@ -27,9 +28,9 @@ const GO_PAGES: Record<string, { label: string; path: string }> = {
   maps: { label: "Battle maps", path: "/maps" },
 };
 
-function shell(title: string, body: string, status = 200): Response {
+function shell(title: string, body: string, status = 200, head = ""): Response {
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(title)}</title><style>${SCROLL_CSS}${HOWTO_CSS}</style></head><body>${scrollOpen()}${body}${scrollClose}</body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}${head}<title>${escapeHtml(title)}</title><style>${SCROLL_CSS}${HOWTO_CSS}</style></head><body>${scrollOpen()}${body}${scrollClose}</body></html>`,
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -43,22 +44,27 @@ function renderTopicPage(t: HowtoTopic): Response {
   const next = HOWTO_TOPICS[i + 1];
   const pages = (t.pages ?? []).map(([label, href]) => `<a class="btn" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`).join("");
   return shell(
-    `${t.title} · GuildScribe how-to`,
+    `${t.title} | GuildScribe`,
     `<div class="crumbs"><a href="/guide">Guild Codex</a> › <a href="/howto">How-to guides</a></div>
 <h1>${escapeHtml(t.title)}</h1><span class="pill">For ${escapeHtml(t.audience)}</span><p>${escapeHtml(t.summary)}</p>
 <h2>Steps</h2><ol class="steps">${t.steps.map((s) => `<li>${s}</li>`).join("")}</ol>
 ${t.tips?.length ? `<h2>Good to know</h2><ul class="tips">${t.tips.map((s) => `<li>${s}</li>`).join("")}</ul>` : ""}
 ${pages ? `<h2>Related pages</h2><p>${pages}</p>` : ""}
 <h2>More</h2><p>${t.codex ? `<a class="btn" href="/guide#${t.codex}">Full command reference</a>` : ""}<a class="btn" href="/howto">All how-to guides</a>${next ? `<a class="btn" href="/howto/${next.slug}">Next: ${escapeHtml(next.title)}</a>` : ""}</p>`,
+    200,
+    seoHead(`${t.title} | GuildScribe`, `${t.summary} A step-by-step guide for GuildScribe, the free Twitch chat bot.`, `/howto/${t.slug}`),
   );
 }
 
 function renderHowtoIndex(): Response {
   return shell(
-    "How-to guides · GuildScribe",
+    "Twitch Chat Bot How-to Guides | GuildScribe",
     `<div class="crumbs"><a href="/guide">Guild Codex</a></div><h1>How-to guides</h1><p>Step-by-step walkthroughs for the guild's features. The <a href="/guide">Guild Codex</a> has the full command reference.</p>
 <h2>Setting up &amp; running your channel</h2><div class="grid">${HOWTO_SETUP.map((t) => topicCard(t)).join("")}</div>
-<h2>Playing &amp; community</h2><div class="grid">${HOWTO_PLAY.map((t) => topicCard(t)).join("")}</div>`,
+<h2>Playing &amp; community</h2><div class="grid">${HOWTO_PLAY.map((t) => topicCard(t)).join("")}</div>
+<h2>Switching bots</h2><p><a href="${SWITCH_PATH}">Switching from StreamElements or Nightbot</a>: import your commands, timers and quotes and run both bots during the move.</p>`,
+    200,
+    seoHead("Twitch Chat Bot How-to Guides | GuildScribe", "Step-by-step guides for GuildScribe, the free Twitch chat bot: custom commands, timed messages, giveaways, loyalty points, OBS overlays and spam moderation.", "/howto"),
   );
 }
 

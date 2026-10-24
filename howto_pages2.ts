@@ -114,7 +114,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
   },
   {
     slug: "moderation",
-    title: "Keep chat tidy: swear jar, auto-ban & nicknames",
+    title: "How to stop spam bots in Twitch chat (auto-ban & swear jar)",
     audience: "Mods+",
     summary: "Fine swearing into a jar, ban fake-viewer spam automatically, and give viewers short battle-log names.",
     steps: [

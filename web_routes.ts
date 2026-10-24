@@ -37,6 +37,7 @@ import { handleExtensionRoute } from "./extension.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
 import { handleHowtoRoute } from "./howto.ts";
 import { FAVICON_PATHS, handleFavicon } from "./favicon.ts";
+import { handleSeoRoute, renderHomePage, seoHead } from "./seo_pages.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -71,6 +72,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // !dndbot showcase on or the dashboard's "Listed on tavernworks.dev" switch.
   // Tab icon: the bot's Twitch avatar (favicon.ts).
   if (req.method === "GET" && FAVICON_PATHS.has(path)) return await handleFavicon();
+  // Home page extras for search engines: the switching guide, robots.txt, sitemap.xml.
+  const seo = handleSeoRoute(req, path);
+  if (seo) return seo;
   if (req.method === "GET" && path === "/api/channels") {
     try {
       return new Response(JSON.stringify({ channels: await listShowcaseChannels(Deno.env.get("TWITCH_BOT_ID") ?? "") }), {
@@ -154,8 +158,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "GET" && (path === "/guide" || path === "/commands")) {
     return page(
-      "GuildScribe Codex",
+      "GuildScribe Commands: Full Twitch Chat Bot Command List (Guild Codex)",
       renderGuidePage(),
+      seoHead("GuildScribe Commands: Full Twitch Chat Bot Command List (Guild Codex)", "Every GuildScribe chat command: custom commands, timers, quotes, loyalty gold, giveaways, watch time, moderation, overlays and the built-in D&D RPG.", "/guide"),
     );
   }
   if (req.method === "GET" && (path === "/donate" || path === "/donations")) {
@@ -738,10 +743,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const username = url.searchParams.get("user");
     const channelId = url.searchParams.get("channel");
     if (!username && !channelId) {
-      return page(
-        "D&D Twitch Bot",
-        `<h1>GuildScribe</h1><p>A D&amp;D guild hall for Twitch — characters, dice, duels, and the codex of rules.</p><p><a class="btn ember" href="/connect">Raise the Guild Banner in My Channel</a></p><p><strong>After joining:</strong> mod the bot with <code>/mod GuildScribeBot</code> so the scribes can speak.</p><p class="muted" style="font-size:.92rem;opacity:.85"><strong>Already connected?</strong> If GuildScribe has gained new features since you joined, <a href="/connect">reconnect your channel</a> to grant any newly requested permissions. This is safe to do any time and won't duplicate or lose your existing data.</p><h2>Visit a guild</h2><form action="/find" method="get" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><input name="channel" placeholder="Twitch channel name" aria-label="Twitch channel name" required autocomplete="off"><button type="submit" name="page" value="roster">Roster</button><button type="submit" name="page" value="gold">Gold</button><button type="submit" name="page" value="bestiary">Bestiary</button><button type="submit" name="page" value="gear">Gear</button><button type="submit" name="page" value="commands">Commands</button></form><p><a class="btn ghost" href="/dashboard/start">Mod Dashboard</a> <span class="muted" style="font-size:.92rem;opacity:.85">Log in with Twitch to manage a channel you own or moderate.</span></p><p><a href="${PUBLIC_BASE_URL}/guide">Open the Guild Codex</a> · <a href="/donate">Support the Guild</a> · <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>${Deno.env.get("SUPPORT_URL") ? ` · <a href="${escapeHtml(Deno.env.get("SUPPORT_URL")!)}">Support / Contact</a>` : ""} · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p>`,
-      );
+      return renderHomePage();
     }
     if (!username) return new Response("Missing character user.", { status: 400 });
     if (!channelId || !/^\d+$/.test(channelId)) return new Response("Missing or invalid channel.", { status: 400 });
