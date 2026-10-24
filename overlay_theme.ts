@@ -38,7 +38,7 @@
 // and &micpeak=<dB> for the quiet/loud ends of the range (default -55/-18).
 //
 // Now playing: &music=1 adds the song you're playing (Spotify, or Apple Music
-// through Last.fm — set up on the dashboard's 🎵 Now playing page): top-left
+// or YouTube through Last.fm — set up on the dashboard's 🎵 Now playing page): top-left
 // in gameplay, under the Battle Tracker in "Be right back", and above the
 // emblem, left of the card, in "Just chatting"; fully transparent while
 // nothing plays (nowplaying.ts).

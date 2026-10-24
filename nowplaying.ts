@@ -13,6 +13,9 @@
 //   • Apple Music — Apple has no live "now playing" API, so it goes through
 //     Last.fm: a scrobbler app reports the song, and the streamer enters their
 //     own free Last.fm API key and username (checked with Last.fm on save).
+//   • YouTube / YouTube Music — YouTube has no "now playing" API either, so
+//     it's Last.fm too: the free Web Scrobbler browser extension reports
+//     what plays in the streamer's browser tab.
 //   • Spotify via Last.fm — the same Last.fm route with Spotify's built-in
 //     scrobbling, for streamers who'd rather not make a Spotify app.
 // With Spotify and Last.fm both set up, Spotify wins while it's playing.
@@ -93,8 +96,8 @@ export async function purgeNowPlayingData(broadcasterId: string) {
   cache.delete(broadcasterId);
 }
 
-type SetupPath = "spotify" | "apple" | "spotifylastfm";
-const PATHS: SetupPath[] = ["spotify", "apple", "spotifylastfm"];
+type SetupPath = "spotify" | "apple" | "youtube" | "spotifylastfm";
+const PATHS: SetupPath[] = ["spotify", "apple", "youtube", "spotifylastfm"];
 
 type Settings = {
   lastfmUser: string;
@@ -254,7 +257,7 @@ export async function spotifyFetch(broadcasterId: string, path: string, init: Re
   return res;
 }
 
-// ── Last.fm (Apple Music and anything else that scrobbles) ──
+// ── Last.fm (Apple Music, YouTube and anything else that scrobbles) ──
 
 /** Checks a Last.fm API key and username together (user.getinfo). */
 async function checkLastfm(key: string, user: string): Promise<"ok" | "bad_key" | "no_user" | "unreachable"> {
@@ -456,11 +459,12 @@ export async function renderNowPlayingPage(d: { broadcasterId: string; broadcast
   const chooser = `<div class="paths">${[
     ["spotify", "🟢 Spotify", "Connect your Spotify directly. Instant, with a progress bar. About 10 minutes, one time."],
     ["apple", "🍎 Apple Music", "Through Last.fm (Apple doesn't share what's playing live). Needs a small free scrobbler app on your computer."],
+    ["youtube", "▶️ YouTube / YouTube Music", "Through Last.fm (YouTube doesn't share what's playing). Needs a free browser extension in the browser you play music in."],
     ["spotifylastfm", "🎧 Spotify via Last.fm", "No Spotify app to make — Last.fm reads Spotify for you. Can lag a little, no progress bar."],
   ].map(([k, t, b]) => `<a class="path${path === k ? " on" : ""}" href="/dashboard/music?${qs}&path=${k}"><b>${t}</b><span>${b}</span></a>`).join("")}</div>`;
 
   const testStep = (n: number, done: boolean) => stepHtml(n, "test", "Test it", false,
-    `<p>Play a song${path === "apple" ? " in Apple Music" : " on Spotify"}. It shows up here within a few seconds${path === "spotify" ? "" : " (Last.fm can take up to half a minute)"}:</p>
+    `<p>Play a song${path === "apple" ? " in Apple Music" : path === "youtube" ? " on YouTube Music (or a music video on YouTube)" : " on Spotify"}. It shows up here within a few seconds${path === "spotify" ? "" : " (Last.fm can take up to half a minute)"}:</p>
 <div class="live" id="live"><div class="noart">♪</div><div><b id="lt">Checking…</b><br><span id="la" class="muted"></span></div></div>
 ${done ? "" : `<p class="muted small">Finish the steps above first.</p>`}`);
   const streamStep = (n: number) => stepHtml(n, "stream", "Put it on stream", false,
@@ -525,6 +529,23 @@ ${!keysSaved && creds && !creds.own ? `<p class="muted small">This GuildScribe s
       testStep(5, lastfmReady),
       streamStep(6),
     ].join("");
+  } else if (path === "youtube") {
+    guide = [
+      stepHtml(1, "account", "Make a free Last.fm account", lastfmReady,
+        `<p>Sign up at <a href="https://www.last.fm/join" target="_blank" rel="noopener">last.fm/join</a> (skip if you have one). Your username is the name in your profile link, <code>last.fm/user/&lt;name&gt;</code>.</p>`),
+      stepHtml(2, "scrobbler", "Add Web Scrobbler to your browser", lastfmReady,
+        `<p>Web Scrobbler is a free, open-source browser extension that tells Last.fm what YouTube is playing. Install it in the browser you play music in:</p>
+<ul><li><a href="https://chromewebstore.google.com/detail/web-scrobbler/hhinaapppaileiechjoiifaancjggfjm" target="_blank" rel="noopener">Chrome, Edge, Brave or Opera</a></li>
+<li><a href="https://addons.mozilla.org/firefox/addon/web-scrobbler/" target="_blank" rel="noopener">Firefox</a></li>
+<li>Safari: <em>Web Scrobbler</em> on the Mac App Store</li></ul>
+<ol><li>Open the extension's settings (click its icon → the gear) and under <strong>Accounts</strong>, sign in to <strong>Last.fm</strong>.</li>
+<li><strong>YouTube Music</strong> works straight away. For plain <strong>YouTube</strong>, check under <strong>Connectors</strong> that YouTube is ticked; songs whose title isn't "Artist - Song" may need fixing once in the extension's popup, and it remembers the fix.</li></ol>
+<p class="muted small">Check it works: play a song, then open your Last.fm profile — it should say <em>Scrobbling now</em> at the top of your recent tracks. Keep that browser tab playing while you stream; the YouTube app on a phone or TV can't report to Last.fm.</p>`),
+      lastfmKeyStep(3),
+      stepHtml(4, "lfm", "Enter your Last.fm details", lastfmReady, lastfmForm("youtube")),
+      testStep(5, lastfmReady),
+      streamStep(6),
+    ].join("");
   } else if (path === "spotifylastfm") {
     guide = [
       stepHtml(1, "account", "Make a free Last.fm account", lastfmReady,
@@ -547,7 +568,7 @@ ${!keysSaved && creds && !creds.own ? `<p class="muted small">This GuildScribe s
 
   const body = `<header class="dash-top"><div><span class="pill">Stream · Now playing</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>Show the song you're playing on stream. Pick what you listen with and follow the steps — everything is set up right here, no help needed. Each step ticks off once it's done.</p>
+<p>Show the song you're playing on stream (Spotify, Apple Music or YouTube). Pick what you listen with and follow the steps — everything is set up right here, no help needed. Each step ticks off once it's done.</p>
 <h2>1 · What do you listen with?</h2>${chooser}
 ${path ? `<h2>2 · Set it up</h2>${otherSetup}${guide}` : `<p class="note">Pick one above to see its steps.</p>`}
 <script>
