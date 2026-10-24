@@ -27,6 +27,11 @@
 // it must compile, must not match an empty or everyday message, and must not
 // nest repeats like (a+)+ or use back-references, which could stall the bot.
 //
+// Built-in pitch. Besides the list, every channel with auto-ban on catches
+// the domain-less "want to try 20 extra viewers? Search <brand>" sellers
+// (isViewerPitch) — it has no list entry, so it can't be switched off there;
+// the ignore list still applies.
+//
 // Learning. Spam bots rotate their wording and usernames but keep their
 // domain and their pitch, so two signals feed the list:
 //   1. When a message is banned, any domain in it (minus common real sites)
@@ -290,7 +295,9 @@ const matcherCache = new Map<string, Matcher | null>();
 function matcherFor(phrase: string): Matcher | null {
   let m = matcherCache.get(phrase);
   if (m !== undefined) return m;
-  if (isRegexEntry(phrase)) {
+  if (phrase === BUILTIN_PITCH) {
+    m = (n) => isViewerPitch(n);
+  } else if (isRegexEntry(phrase)) {
     const re = compileRegexEntry(phrase);
     m = typeof re === "string" ? null : (n, f) => re.test(n) || re.test(f);
   } else {
@@ -340,6 +347,36 @@ export function spamScore(normalized: string): { score: number; domains: string[
   return { score, domains };
 }
 const LEARN_THRESHOLD = 3;
+
+// ── Built-in pitch (always on, no list entry needed) ──
+//
+// The newer viewer-sellers name no domain and skip "ai viewers": "want to try
+// 20 extra viewers for an hour? Search streamerbeat". Both halves are needed
+// — an offer of N viewers *and* a call to action — so a chatter talking about
+// their own numbers ("I had 20 viewers last night") is left alone.
+export const BUILTIN_PITCH = "viewer-selling pitch";
+const PITCH_OFFER = String.raw`\b\d[\do]*\s*\+?\s*(?:extra|more|free|real|live|active|organic|new|human)?\s*(?:viewers|followers|chatters|viewbots)\b`;
+// "want to try 20 extra viewers": the ask runs straight into the offer, and
+// is put to the streamer — "i want to try…" / "we'd like…" is a chatter
+// talking about themselves.
+const PITCH_ASK_RE = new RegExp(
+  String.raw`(?<!\b(?:i|we|i'd|we'd|i'm|they)\s+(?:\w+\s+)?)\b(?:want|wanna|care)\s+(?:to\s+)?(?:try|test)\s+(?:some\s+|about\s+)?` + PITCH_OFFER,
+);
+const PITCH_OFFER_RE = new RegExp(PITCH_OFFER);
+// Calls to action that only a seller makes, anywhere in the message.
+const PITCH_CTA_RE = /\b(?:search|google|look up)\s+(?:for\s+)?(?:us\s+)?[a-z]{2,}[a-z0-9]*[a-z]\b|\bfree (?:trial|test)\b|\bdm me\b/;
+
+// Folds look-alike letters but leaves numbers readable ("2O" stays a number
+// instead of becoming "2o" → no digits for the offer to find).
+const pitchFold = (normalized: string) =>
+  normalized.replace(/[^\s?.,;:'"()]+/g, (t) => (/^\d[\do]*$/.test(t) ? t.replace(/o/g, "0") : fold(t)));
+
+/** Whether the (normalized) message is a viewer-selling pitch. */
+export function isViewerPitch(normalized: string): boolean {
+  const t = pitchFold(normalized);
+  if (PITCH_ASK_RE.test(t)) return true;
+  return PITCH_OFFER_RE.test(t) && (PITCH_CTA_RE.test(t) || extractDomains(normalized).length > 0);
+}
 
 // ── Persistence ──
 
@@ -539,13 +576,15 @@ export async function isUserIgnored(broadcasterId: string, login: string): Promi
   return (await loadState(broadcasterId)).ignored.has(login.toLowerCase());
 }
 
-/** The active phrase this message trips, if any. */
+/** The active phrase this message trips, if any — or the built-in viewer
+ * pitch (id 0, so recordHit touches no row). */
 export async function findMatch(broadcasterId: string, chatMessage: string): Promise<{ id: number; phrase: string } | null> {
   const state = await loadState(broadcasterId);
-  if (!state.active.length) return null;
   const normalized = normalizeText(chatMessage);
   const folded = fold(normalized);
-  return state.active.find((w) => phraseMatches(normalized, w.phrase, folded)) ?? null;
+  const hit = state.active.find((w) => phraseMatches(normalized, w.phrase, folded));
+  if (hit) return hit;
+  return isViewerPitch(normalized) ? { id: 0, phrase: BUILTIN_PITCH } : null;
 }
 
 export async function recordHit(broadcasterId: string, id: number) {
