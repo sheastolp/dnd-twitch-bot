@@ -1,5 +1,5 @@
-// !askme <question> — a straight, factual answer from an AI that searches the
-// web first, with a link to the source it used.
+// !askme <question> — a straight, factual answer from an AI, based on
+// Wikipedia, with a link to the article it used.
 //
 //   !askme <question>         anyone — e.g. !askme how far away is the moon?
 //   !askme on|off|status      on/off: broadcaster or mods; status: anyone
@@ -9,98 +9,136 @@
 //     gated by COMMAND_GROUPS' word list), so on/off/status work while it's
 //     off and, when off, questions fall through to a channel's own !askme
 //     custom command.
-//   - Needs OpenAI (OPENAI_API_KEY): it uses the Responses API's web_search
-//     tool, which Ollama doesn't have (see openai.ts responses.create).
-//     ASKME_MODEL picks the model (default gpt-4.1-mini).
+//   - No paid search: looks the question up on Wikipedia (search + intros, no
+//     key), then the AI in openai.ts — Ollama or OpenAI, whichever the bot
+//     uses — answers from those intros only and names the one it used, which
+//     becomes the source link. If the AI call fails, the best article's
+//     opening sentence is posted instead. ASKME_MODEL picks the model when
+//     OPENAI_MODEL doesn't override it (default gpt-4o-mini).
 //   - Per-chatter cooldown (ASKME_USER_COOLDOWN_S, default 30 s, mods skip it)
-//     and a channel-wide one (ASKME_CHANNEL_COOLDOWN_S, default 5 s), since
-//     every question is a paid web search.
-//   - The answer and source fit one chat message; inline citations the model
-//     writes into its text are stripped and the first cited URL is shown.
+//     and a channel-wide one (ASKME_CHANNEL_COOLDOWN_S, default 5 s).
 
-import { OpenAI, supportsWebSearch } from "./openai.ts";
+import { OpenAI } from "./openai.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { compactText } from "./utils.ts";
 import { isCommandGroupEnabled, recordMonitorEvent, setCommandGroupEnabled } from "./db.ts";
 
 const openai = new OpenAI();
 
-const MODEL = Deno.env.get("ASKME_MODEL") ?? "gpt-4.1-mini";
+const MODEL = Deno.env.get("ASKME_MODEL") ?? "gpt-4o-mini";
+const WIKI_API = "https://en.wikipedia.org/w/api.php";
+// Wikimedia asks API clients to identify themselves.
+const USER_AGENT = `GuildScribe/1.0 (${Deno.env.get("PUBLIC_BASE_URL") || "https://guildscribe.tavernworks.dev"})`;
 const MIN_QUESTION_LEN = 3;
 const MAX_QUESTION_LEN = 300;
 const MAX_ANSWER_LEN = 300;
 const MAX_URL_LEN = 120;
-const ANSWER_MAX_TOKENS = 400;
-const TIMEOUT_MS = 45_000;
+const ARTICLES = 3;
+const MAX_EXTRACT_LEN = 1500;
+// Roomy so "thinking" models (qwen3, gpt-5…) have budget left to answer;
+// llama3.2 and the like stop after a sentence or two anyway.
+const ANSWER_MAX_TOKENS = 1000;
+const WIKI_TIMEOUT_MS = 8_000;
+const AI_TIMEOUT_MS = 45_000;
 const USER_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_USER_COOLDOWN_S") ?? "30")) * 1000;
 const CHANNEL_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_CHANNEL_COOLDOWN_S") ?? "5")) * 1000;
 
-const INSTRUCTIONS = [
-  `You answer questions from viewers in a Twitch chat. Search the web, then give an accurate, factual answer based on reliable sources.`,
-  `Reply in plain text, at most two short sentences (under ${MAX_ANSWER_LEN} characters). No markdown, no lists, no links or citations in the text itself — the source is attached separately.`,
-  `Lead with the direct answer. If sources disagree or the answer is uncertain, say so briefly. Never invent facts.`,
+const SYSTEM_PROMPT = [
+  `You answer questions from viewers in a Twitch chat, using ONLY the numbered Wikipedia excerpts you are given.`,
+  `Reply in plain text, at most two short sentences (under ${MAX_ANSWER_LEN} characters), then the number of the excerpt you used in brackets, e.g. "The Moon is about 384,400 km from Earth. [2]". No markdown, no links.`,
+  `Lead with the direct answer. If the excerpts don't answer the question, say you couldn't find it — never guess or add facts that aren't in them.`,
   `Keep it family-friendly. If a question asks for something harmful, hateful, sexual, or someone's private personal information, politely decline in one sentence.`,
 ].join(" ");
 
 const lastUserAsk = new Map<string, number>();
 const lastChannelAsk = new Map<string, number>();
 
+interface Article {
+  title: string;
+  url: string;
+  extract: string;
+}
+
 interface Answer {
   text: string;
-  source?: { url: string; title: string };
+  source: { url: string; title: string };
 }
 
-/** Drops OpenAI's "?utm_source=openai" tag so the link is clean. */
-function cleanUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    u.searchParams.delete("utm_source");
-    return u.toString().replace(/\?$/, "");
-  } catch {
-    return url;
+async function wikiQuery(params: Record<string, string>): Promise<any> {
+  const url = `${WIKI_API}?${new URLSearchParams({ action: "query", format: "json", formatversion: "2", ...params })}`;
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(WIKI_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`Wikipedia request failed: HTTP ${res.status}`);
+  return await res.json();
+}
+
+/** The top Wikipedia articles for `question`, best match first, with their
+ * plain-text intros. */
+async function searchWikipedia(question: string): Promise<Article[]> {
+  const search = await wikiQuery({ list: "search", srsearch: question, srlimit: String(ARTICLES), srprop: "" });
+  const titles: string[] = (search.query?.search ?? []).map((r: any) => r.title);
+  if (!titles.length) return [];
+  const pages = await wikiQuery({ prop: "extracts|info", exintro: "1", explaintext: "1", inprop: "url", titles: titles.join("|") });
+  const byTitle = new Map<string, any>((pages.query?.pages ?? []).map((p: any) => [p.title, p]));
+  return titles
+    .map((t) => byTitle.get(t))
+    .filter((p) => p?.extract?.trim())
+    .map((p) => ({ title: p.title, url: p.fullurl, extract: compactText(p.extract, MAX_EXTRACT_LEN) }));
+}
+
+/** An article's first sentence or two, for when the AI can't answer. */
+function openingSentences(extract: string): string {
+  // A sentence ends at ". " before a capital, but not after an initial
+  // ("J. R. R. Tolkien") — decimals ("1.6") have no space, so never split.
+  const sentences = extract.split(/(?<=[a-z0-9)\]"'][.!?])\s+(?=[A-Z"'(])/);
+  let text = "";
+  for (const s of sentences) {
+    if ((text + " " + s).length > MAX_ANSWER_LEN) break;
+    text = text ? `${text} ${s}` : s;
   }
+  if (text) return text;
+  // One very long first sentence: cut it at a word.
+  return extract.slice(0, MAX_ANSWER_LEN - 1).replace(/\s+\S*$/, "") + "…";
 }
 
-/** Removes markdown links/citations the model sometimes writes into its text
- * despite being asked not to: "([site](url))", "[site](url)", bare URLs. */
-function stripCitations(text: string): string {
-  return text
-    .replace(/\s*\(\s*\[[^\]]*\]\([^)]*\)\s*\)/g, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\s*https?:\/\/\S+/g, "")
-    .replace(/[*_`#]/g, "")
-    .replace(/\s+([.,;!?])/g, "$1");
-}
-
-/** Asks the model, with web search, to answer `question`. */
+/** Looks `question` up on Wikipedia and has the AI answer from what it finds. */
 async function answerQuestion(broadcasterId: string, question: string): Promise<Answer | null> {
+  let articles: Article[];
   try {
-    const response = await openai.responses.create({
-      model: MODEL,
-      instructions: INSTRUCTIONS,
-      input: question,
-      tools: [{ type: "web_search" }],
-      max_output_tokens: ANSWER_MAX_TOKENS,
-    }, { timeoutMs: TIMEOUT_MS });
-
-    let text = "";
-    let source: Answer["source"];
-    for (const item of response.output ?? []) {
-      if (item.type !== "message") continue;
-      for (const part of item.content ?? []) {
-        if (part.type !== "output_text") continue;
-        text += part.text ?? "";
-        const cite = (part.annotations ?? []).find((a: any) => a.type === "url_citation" && a.url);
-        if (cite && !source) source = { url: cleanUrl(cite.url), title: String(cite.title ?? "").trim() };
-      }
-    }
-    text = compactText(stripCitations(text), MAX_ANSWER_LEN);
-    return text ? { text, source } : null;
+    articles = await searchWikipedia(question);
   } catch (e) {
-    console.error("askme failed", e);
+    console.error("askme Wikipedia lookup failed", e);
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
     return null;
   }
+  if (!articles.length) return null;
+
+  try {
+    const excerpts = articles.map((a, i) => `[${i + 1}] ${a.title}: ${a.extract}`).join("\n\n");
+    // No `temperature` override: some OpenAI models only accept the default.
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      max_completion_tokens: ANSWER_MAX_TOKENS,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: `Excerpts:\n\n${excerpts}\n\nQuestion: ${question}` },
+      ],
+    }, { timeoutMs: AI_TIMEOUT_MS });
+    const raw = String(completion.choices?.[0]?.message?.content ?? "");
+    // The excerpt it cited; the top search result if it didn't say.
+    const cited = Number(raw.match(/\[(\d)\]/)?.[1] ?? 0);
+    const article = articles[cited - 1] ?? articles[0];
+    const text = compactText(
+      raw.replace(/\s*\[\d\]/g, "").replace(/\s*https?:\/\/\S+/g, "").replace(/[*_`#]/g, "").replace(/^["']|["']$/g, ""),
+      MAX_ANSWER_LEN,
+    );
+    if (text) return { text, source: { url: article.url, title: article.title } };
+  } catch (e) {
+    console.error("askme AI answer failed", e);
+    await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
+  }
+  // The AI is down or said nothing: let Wikipedia speak for itself.
+  const top = articles[0];
+  return { text: openingSentences(top.extract), source: { url: top.url, title: top.title } };
 }
 
 export async function handleAskMeCommand(
@@ -126,18 +164,13 @@ export async function handleAskMeCommand(
       return true;
     }
     await setCommandGroupEnabled(broadcasterId, "askme", toggle === "on");
-    const note = toggle === "on" && !supportsWebSearch() ? " (heads up: it needs an OpenAI key on the bot before it can answer)" : "";
-    await sendChatMessage(`@${display} !askme is ${toggle}${note}.`, broadcasterId);
+    await sendChatMessage(`@${display} !askme is ${toggle}.`, broadcasterId);
     return true;
   }
   if (!await isCommandGroupEnabled(broadcasterId, "askme")) return false;
 
   if (question.length < MIN_QUESTION_LEN) {
     await sendChatMessage(`@${display} ask me anything, e.g. !askme how far away is the moon?`, broadcasterId);
-    return true;
-  }
-  if (!supportsWebSearch()) {
-    await sendChatMessage(`@${display} !askme isn't set up on this bot yet (it needs an OpenAI key).`, broadcasterId);
     return true;
   }
 
@@ -151,18 +184,15 @@ export async function handleAskMeCommand(
 
   const answer = await answerQuestion(broadcasterId, compactText(question, MAX_QUESTION_LEN));
   if (!answer) {
-    await sendChatMessage(`@${display} I couldn't find a good answer to that right now — try again in a bit.`, broadcasterId);
+    await sendChatMessage(`@${display} I couldn't find anything on Wikipedia for that — try wording it differently.`, broadcasterId);
     return true;
   }
 
   // "@name " (≤27) + answer (≤300) + source (≤~165) stays under Twitch's 500-character limit.
-  let reply = `@${display} ${answer.text}`;
-  if (answer.source && answer.source.url.length <= MAX_URL_LEN) {
-    const title = compactText(answer.source.title, 30);
-    reply += ` 📚 Source: ${title ? `${title} — ` : ""}${answer.source.url}`;
-  } else {
-    reply += " (no source found — take this with a grain of salt)";
-  }
+  // A very long article URL is left off rather than cut mid-link.
+  const title = compactText(answer.source.title, 30);
+  const link = answer.source.url.length <= MAX_URL_LEN ? ` — ${answer.source.url}` : "";
+  const reply = `@${display} ${answer.text} 📚 Source: Wikipedia, ${title}${link}`;
   await sendChatMessage(reply, broadcasterId, [], { keepNames: true });
   return true;
 }

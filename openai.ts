@@ -54,27 +54,4 @@ export class OpenAI {
       },
     },
   };
-
-  // OpenAI's Responses API, for its built-in tools (e.g. `web_search`, which
-  // !askme uses for sourced answers). Ollama has no equivalent, so this is
-  // OpenAI-only; check supportsWebSearch() first.
-  responses = {
-    create: async (body: Record<string, any>, opts: { timeoutMs?: number } = {}): Promise<any> => {
-      if (!IS_OPENAI) throw new Error("Web-search answers need OpenAI (OPENAI_BASE_URL points elsewhere)");
-      if (!API_KEY) throw new Error("Web-search answers need OPENAI_API_KEY");
-      const res = await fetch(`${BASE_URL}/responses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
-        body: JSON.stringify({ ...body, stream: false }),
-        signal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`AI request failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-      return await res.json();
-    },
-  };
-}
-
-/** True if responses.create (and its web_search tool) can be used. */
-export function supportsWebSearch(): boolean {
-  return IS_OPENAI && !!API_KEY;
 }
