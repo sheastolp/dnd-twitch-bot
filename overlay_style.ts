@@ -13,9 +13,11 @@
 //   &rollers=0         drop the scroll rollers top and bottom
 //   &card=<hex>        the panels' card colour (#rrggbb, or #rrggbbaa for see-through)
 //   &cardimg=<URL>     an image behind the panels' cards
+//   &font=<name>       headings, names and plaques (HEADING_FONTS — Cinzel by default)
+//   &bodyfont=<name>   chat, lines and panel text (BODY_FONTS — EB Garamond on the theme)
 //
 // Colours are hex only and images http(s) only, so nothing a link carries can
-// break out of the CSS. Everything is resolved here, server-side, into plain
+// break out of the CSS, and fonts come from a fixed list of Google Fonts. Everything is resolved here, server-side, into plain
 // hex values (no color-mix(): OBS's browser is too old for it on many PCs).
 // With no look extras the overlays come out exactly as they always have.
 
@@ -112,9 +114,53 @@ export const LOOK_PRESETS: Record<string, LookPreset> = {
 export const DEFAULT_PRESET = "parchment";
 
 /** Every look extra a link may carry, in the order the setup page writes them. */
-export const LOOK_PARAMS = ["preset", ...THEME_KEYS, "bg", "bgfit", "rollers", "card", "cardimg"] as const;
+export const LOOK_PARAMS = ["preset", ...THEME_KEYS, "bg", "bgfit", "rollers", "card", "cardimg", "font", "bodyfont"] as const;
 /** The ones the theme passes on to the panels it embeds (status strip, goldboard, Battle Tracker). */
-const PANEL_PARAMS = ["preset", "accent", "card", "cardimg"] as const;
+const PANEL_PARAMS = ["preset", "accent", "card", "cardimg", "font", "bodyfont"] as const;
+
+// ── Fonts ────────────────────────────────────────────────────────────────────
+
+/** A Google Font: its family, the css2 axis spec to load, the fallback stack,
+ * and whether it has a real bold (without one the theme turns off faux bold). */
+export type LookFont = { label: string; family: string; axes: string; fallback: string; bold: boolean };
+const font = (label: string, family: string, axes: string, fallback: string, bold = true): LookFont => ({ label, family, axes, fallback, bold });
+export const HEADING_FONTS: Record<string, LookFont> = {
+  cinzel: font("Cinzel (GuildScribe)", "Cinzel", "wght@500;700", "Georgia,serif"),
+  cinzeldeco: font("Cinzel Decorative", "Cinzel Decorative", "wght@400;700", "Georgia,serif"),
+  marcellus: font("Marcellus SC (carved)", "Marcellus SC", "", "Georgia,serif", false),
+  fell: font("IM Fell English SC (old print)", "IM Fell English SC", "", "Georgia,serif", false),
+  almendra: font("Almendra (elven)", "Almendra", "wght@400;700", "Georgia,serif"),
+  medieval: font("MedievalSharp (blackletter-ish)", "MedievalSharp", "", "Georgia,serif", false),
+  uncial: font("Uncial Antiqua (Celtic)", "Uncial Antiqua", "", "Georgia,serif", false),
+  pirata: font("Pirata One (gothic)", "Pirata One", "", "Georgia,serif", false),
+  metamorphous: font("Metamorphous (arcane)", "Metamorphous", "", "Georgia,serif", false),
+  creepster: font("Creepster (horror)", "Creepster", "", "Impact,sans-serif", false),
+  bebas: font("Bebas Neue (bold sans)", "Bebas Neue", "", "Impact,sans-serif", false),
+  orbitron: font("Orbitron (sci-fi)", "Orbitron", "wght@500;700", "Verdana,sans-serif"),
+};
+export const BODY_FONTS: Record<string, LookFont> = {
+  garamond: font("EB Garamond (GuildScribe)", "EB Garamond", "ital,wght@0,400;0,600;1,400", "Georgia,serif"),
+  crimson: font("Crimson Text", "Crimson Text", "ital,wght@0,400;0,600;1,400", "Georgia,serif"),
+  lora: font("Lora", "Lora", "ital,wght@0,400;0,600;1,400", "Georgia,serif"),
+  alegreya: font("Alegreya", "Alegreya", "ital,wght@0,400;0,600;1,400", "Georgia,serif"),
+  fell: font("IM Fell English (old print)", "IM Fell English", "ital@0;1", "Georgia,serif", false),
+  merriweather: font("Merriweather", "Merriweather", "ital,wght@0,400;0,700;1,400", "Georgia,serif"),
+  robotoslab: font("Roboto Slab", "Roboto Slab", "wght@400;600", "Georgia,serif"),
+  nunito: font("Nunito (rounded sans)", "Nunito", "ital,wght@0,400;0,600;1,400", "Verdana,sans-serif"),
+  inter: font("Inter (clean sans)", "Inter", "wght@400;600", "Arial,sans-serif"),
+  vt323: font("VT323 (retro terminal)", "VT323", "", "monospace", false),
+};
+export const DEFAULT_HEADING_FONT = "cinzel", DEFAULT_BODY_FONT = "garamond";
+
+/** A font's CSS font-family value. */
+export const fontStack = (f: LookFont) => `"${f.family}",${f.fallback}`;
+/** One Google Fonts stylesheet link for these fonts. */
+export function fontsHref(fonts: LookFont[]): string {
+  const fams = [...new Map(fonts.map((f) => [f.family, f])).values()]
+    .map((f) => "family=" + f.family.replace(/ /g, "+") + (f.axes ? ":" + f.axes : ""));
+  return `https://fonts.googleapis.com/css2?${fams.join("&")}&display=swap`;
+}
+const pickFont = (list: Record<string, LookFont>, v: string | null) => list[(v ?? "").toLowerCase()] ?? null;
 
 // ── The theme ────────────────────────────────────────────────────────────────
 
@@ -152,6 +198,8 @@ export type ThemeLook = {
   d20: { disc1: string; disc2: string; rim: string; ring1: string; ring2: string; ring3: string; die1: string; die2: string; line: string; line2: string; text: string; spark: string };
   /** Query string (starting "&", or empty) the theme appends to the panels it embeds. */
   panelQuery: string;
+  /** The heading and body fonts, and the stylesheet that loads them. */
+  fonts: { heading: string; body: string; href: string; noFauxBold: boolean };
 };
 
 // The classic parchment's tokens, kept literally so the default never shifts by a shade.
@@ -228,6 +276,8 @@ export function themeLook(q: URLSearchParams, w: number, h: number): ThemeLook {
     if (c && solid(c) !== base[k]) { base[k] = solid(c); changed.add(k); }
   }
   const img = parseImageUrl(q.get("bg"));
+  const hf = pickFont(HEADING_FONTS, q.get("font")) ?? HEADING_FONTS[DEFAULT_HEADING_FONT];
+  const bf = pickFont(BODY_FONTS, q.get("bodyfont")) ?? BODY_FONTS[DEFAULT_BODY_FONT];
   const rollers = q.get("rollers") !== "0";
   const dark = luminance(base.paper) < 0.3;
   // Parchment keeps its hand-tuned tokens for every colour that wasn't changed.
@@ -265,7 +315,7 @@ export function themeLook(q: URLSearchParams, w: number, h: number): ThemeLook {
   };
 
   return {
-    classic: isParchment && !changed.size && !img && rollers,
+    classic: isParchment && !changed.size && !img && rollers && hf === HEADING_FONTS[DEFAULT_HEADING_FONT] && bf === BODY_FONTS[DEFAULT_BODY_FONT],
     dark,
     vars,
     paperBg,
@@ -274,6 +324,12 @@ export function themeLook(q: URLSearchParams, w: number, h: number): ThemeLook {
     edge,
     d20,
     panelQuery: lookQuery(q, PANEL_PARAMS),
+    fonts: {
+      heading: fontStack(hf),
+      body: fontStack(bf),
+      href: fontsHref([hf, bf]),
+      noFauxBold: !hf.bold,
+    },
   };
 }
 
@@ -288,6 +344,8 @@ export function lookQuery(q: URLSearchParams, keys: readonly string[] = LOOK_PAR
     else if (k === "bg" || k === "cardimg") clean = parseImageUrl(v);
     else if (k === "bgfit") clean = v === "tile" ? "tile" : null;
     else if (k === "rollers") clean = v === "0" ? "0" : null;
+    else if (k === "font") clean = HEADING_FONTS[v.toLowerCase()] ? v.toLowerCase() : null;
+    else if (k === "bodyfont") clean = BODY_FONTS[v.toLowerCase()] ? v.toLowerCase() : null;
     else clean = parseColor(v)?.slice(1) ?? null; // colours travel without the "#"
     if (clean) out.push(`${k}=${encodeURIComponent(clean)}`);
   }
@@ -296,8 +354,18 @@ export function lookQuery(q: URLSearchParams, keys: readonly string[] = LOOK_PAR
 
 // ── The panels ───────────────────────────────────────────────────────────────
 
-/** CSS overriding the panels' colours for a panel link's look extras; "" for the classic look. */
-export function panelLookCss(q: URLSearchParams): string {
+/** CSS overriding the panels' colours and fonts for a panel link's look extras, and the
+ * stylesheet link its fonts need ("" for both with the classic look). */
+export function panelLook(q: URLSearchParams): { css: string; fontHref: string } {
+  // The panels keep their plain Georgia unless a font is picked.
+  const hf = pickFont(HEADING_FONTS, q.get("font")), bf = pickFont(BODY_FONTS, q.get("bodyfont"));
+  const fonts = [hf, bf].filter((f): f is LookFont => !!f);
+  const fontCss = (bf ? `body{font-family:${fontStack(bf)}}` : "")
+    + (hf ? `.card h2,.chip b{font-family:${fontStack(hf)}${hf.bold ? "" : ";font-weight:400"}}` : "");
+  return { css: panelColourCss(q) + fontCss, fontHref: fonts.length ? fontsHref(fonts) : "" };
+}
+
+function panelColourCss(q: URLSearchParams): string {
   const presetKey = (q.get("preset") ?? "").toLowerCase();
   const preset = LOOK_PRESETS[presetKey];
   const cardQ = parseColor(q.get("card")), accentQ = parseColor(q.get("accent")), img = parseImageUrl(q.get("cardimg"));
@@ -323,6 +391,10 @@ export function panelLookCss(q: URLSearchParams): string {
   return `:root{${decl}}body{text-shadow:0 1px 2px var(--tshadow)}.side+.side{border-top-color:var(--rule)}.chip+.chip{border-left-color:var(--rule)}body.mirror .chip+.chip{border-right-color:var(--rule)}`
     + (img ? `.card,.strip{background-image:linear-gradient(var(--card),var(--card)),url("${img}");background-size:cover;background-position:center}` : "");
 }
+
+/** The font lists for the setup page's look picker. */
+const fontInfo = (list: Record<string, LookFont>) => Object.fromEntries(Object.entries(list).map(([k, f]) => [k, { stack: fontStack(f), href: fontsHref([f]) }]));
+export const LOOK_FONTS_JSON = JSON.stringify({ heading: fontInfo(HEADING_FONTS), body: fontInfo(BODY_FONTS) }).replace(/</g, "\\u003c");
 
 /** The presets for the setup page's look picker. */
 export const LOOK_PRESETS_JSON = JSON.stringify(

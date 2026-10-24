@@ -7,11 +7,11 @@
 import { escapeHtml } from "./utils.ts";
 import { scrollDoc } from "./scroll_theme.ts";
 import { SCENES } from "./overlay_scenes.ts";
-import { DEFAULT_PRESET, LOOK_PRESETS, LOOK_PRESETS_JSON } from "./overlay_style.ts";
+import { BODY_FONTS, DEFAULT_PRESET, HEADING_FONTS, LOOK_FONTS_JSON, LOOK_PRESETS, LOOK_PRESETS_JSON, type LookFont } from "./overlay_style.ts";
 
 /** Every overlay panel: what it shows and a sensible OBS browser-source size. */
 export const OVERLAY_PANELS: Record<string, { label: string; blurb: string; width: number; height: number }> = {
-  theme: { label: "Full stream theme", blurb: "Your whole layout in one source, in five scenes — Gameplay, Starting soon, Be right back, Just chatting and Ending soon (pick below; add one OBS Browser source per scene). Gameplay is a parchment sheet with a torn-edged window for your game, your channel name across the top, Tavern Talk chat down the right (lines run top-down and fade after 30 s — change with &fade=<seconds>, 0 keeps them — with the goldboard of the richest adventurers along its bottom; &goldboard=0 to drop it), a d20 emblem (or your own image or PNGtuber) bottom-left, and the status strip along the bottom with a rotating \"Next:\" suggestion (&status=0 to drop it). Put it above your game capture, and place your sources where the list below says. The Be right back and Just chatting scenes put your stream title under the channel name (follows your Twitch title; &subtitle=<text> to pin your own, &subtitle=0 to hide) and add a window playing The Endless Delve — the idle game your chat plays, in place of Words on Stream (&idle=0 leaves the window empty for a source of your own) — a Dungeon Gate for pop-up overlays like Tangia dungeons, a Battle Tracker (the fight under way, the raid boss and recent results, drawn by the theme — &tracker=0 to leave it empty), and a Saving Throws tally under the Be right back / Just chatting card: every saving throw chat rolls this stream (!save dex, !save wis dc15 — rolled against the bot's d20 unless a DC is named — and plain !save) as saved / failed per ability, plus the latest roll; it starts fresh when you go live or on !saves reset (&saves=0 to drop it). Starting soon and Ending soon share the Be right back layout: Starting soon swaps the card for a big \"Starting Soon\" countdown (no Saving Throws tally — it would only be empty), and Ending soon has an \"Ending Soon\" card with farewell lines, the stream's Saving Throws tally under it as a recap, and &raid=<channel> for a \"Raiding … next\" line. Extras there: &minutes=<n> for a countdown (Starting in / Back in / Ending in), or &at=<HH:MM> to count down to a time of day (your PC's clock — it keeps the same deadline if OBS reloads the source), &text=<line> for your own line instead of the rotating ones (&brbtext= still works), &topic=<text>, &gate=<label>. Your title is your Twitch name, kept up to date. The gem beside it glows red while you're live and turns grey when you're offline. Every scene also has Sound Bytes built in: the sounds chat sets off with !sound play from the theme itself, with their card popping up over the sheet (in the Dungeon Gate in Be right back and Just chatting) — only from the scene that's showing, so they never double up between scenes (tick Control audio via OBS on the source; &volume=0-100, &caption=0 for sound only, &sounds=0 to leave it out if you use the stand-alone Sound Bytes source instead). Extras: &title=<text> to write your own, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands. The emblem — the d20, your own image, or a PNGtuber that swaps to its talking image — reacts to your mic: dim when you're quiet, bright and glowing when you talk. Set it up below, and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic. Colours and the sheet itself are yours too: the 🎨 Look box above picks a preset (Moonlit Keep, Elven Grove, Frostfell, Hellforge, Arcane Tower), any colour, your own sheet image and whether the scroll rollers show.", width: 1920, height: 1080 },
+  theme: { label: "Full stream theme", blurb: "Your whole layout in one source, in five scenes — Gameplay, Starting soon, Be right back, Just chatting and Ending soon (pick below; add one OBS Browser source per scene). Gameplay is a parchment sheet with a torn-edged window for your game, your channel name across the top, Tavern Talk chat down the right (lines run top-down and fade after 30 s — change with &fade=<seconds>, 0 keeps them — with the goldboard of the richest adventurers along its bottom; &goldboard=0 to drop it), a d20 emblem (or your own image or PNGtuber) bottom-left, and the status strip along the bottom with a rotating \"Next:\" suggestion (&status=0 to drop it). Put it above your game capture, and place your sources where the list below says. The Be right back and Just chatting scenes put your stream title under the channel name (follows your Twitch title; &subtitle=<text> to pin your own, &subtitle=0 to hide) and add a window playing The Endless Delve — the idle game your chat plays, in place of Words on Stream (&idle=0 leaves the window empty for a source of your own) — a Dungeon Gate for pop-up overlays like Tangia dungeons, a Battle Tracker (the fight under way, the raid boss and recent results, drawn by the theme — &tracker=0 to leave it empty), and a Saving Throws tally under the Be right back / Just chatting card: every saving throw chat rolls this stream (!save dex, !save wis dc15 — rolled against the bot's d20 unless a DC is named — and plain !save) as saved / failed per ability, plus the latest roll; it starts fresh when you go live or on !saves reset (&saves=0 to drop it). Starting soon and Ending soon share the Be right back layout: Starting soon swaps the card for a big \"Starting Soon\" countdown (no Saving Throws tally — it would only be empty), and Ending soon has an \"Ending Soon\" card with farewell lines, the stream's Saving Throws tally under it as a recap, and &raid=<channel> for a \"Raiding … next\" line. Extras there: &minutes=<n> for a countdown (Starting in / Back in / Ending in), or &at=<HH:MM> to count down to a time of day (your PC's clock — it keeps the same deadline if OBS reloads the source), &text=<line> for your own line instead of the rotating ones (&brbtext= still works), &topic=<text>, &gate=<label>. Your title is your Twitch name, kept up to date. The gem beside it glows red while you're live and turns grey when you're offline. Every scene also has Sound Bytes built in: the sounds chat sets off with !sound play from the theme itself, with their card popping up over the sheet (in the Dungeon Gate in Be right back and Just chatting) — only from the scene that's showing, so they never double up between scenes (tick Control audio via OBS on the source; &volume=0-100, &caption=0 for sound only, &sounds=0 to leave it out if you use the stand-alone Sound Bytes source instead). Extras: &title=<text> to write your own, &hide=nightbot,streamelements to leave bots out of chat, &hidecmds=1 to leave out !commands. The emblem — the d20, your own image, or a PNGtuber that swaps to its talking image — reacts to your mic: dim when you're quiet, bright and glowing when you talk. Set it up below, and start OBS with --enable-media-stream (add it to the end of the OBS shortcut's Target) so browser sources may use the mic. Colours and the sheet itself are yours too: the 🎨 Look box above picks a preset (Moonlit Keep, Elven Grove, Frostfell, Hellforge, Arcane Tower), any colour, heading and text fonts, your own sheet image and whether the scroll rollers show.", width: 1920, height: 1080 },
   status: { label: "Status bar", blurb: "One slim strip: live dot, raid boss HP, fight in progress, giveaway, the peddler's ware and the swear jar. Made for the top or bottom edge of the screen. Add &next=1 for a rotating \"Next:\" suggestion — the command that fits what's happening (join the raid, take your turn, enter the giveaway…) or a way in for newcomers.", width: 1920, height: 70 },
   raid: { label: "Raid boss", blurb: "This stream's raid boss with its HP bar, the muster/cooldown state, and the top damage dealers.", width: 520, height: 300 },
   battle: { label: "Battle tracker", blurb: "Whatever fight is under way — arena duel, monster hunt, party duel or party hunt — with live HP bars and whose turn it is, this stream's raid boss (HP, muster state and top raiders), plus the last few results from the past 45 minutes (auto hunts and duels, !autohunt bouts, raids, robberies) with the session's win/loss tally. Hidden when there's no raid boss and nobody has fought lately.", width: 560, height: 420 },
@@ -241,8 +241,8 @@ tick();setInterval(tick,refresh);
 if(panel==="rotate")setInterval(()=>{if(latest)render(latest)},1000);
 `;
 
-/** One panel overlay; lookCss (overlay_style.ts) recolours it for a link's look extras. */
-export function renderOverlayPage(channelKey: string, panel: string, lookCss = ""): string {
+/** One panel overlay; look (overlay_style.ts) recolours it and sets its fonts for a link's look extras. */
+export function renderOverlayPage(channelKey: string, panel: string, look: { css: string; fontHref: string } = { css: "", fontHref: "" }): string {
   const cfg = {
     channel: channelKey,
     panel,
@@ -250,7 +250,7 @@ export function renderOverlayPage(channelKey: string, panel: string, lookCss = "
   };
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe overlay · ${escapeHtml(panel)}</title><style>${STYLE}${lookCss}</style></head><body><div id="root"></div><script>window.__OVERLAY__=${cfgJson};${CLIENT}</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe overlay · ${escapeHtml(panel)}</title>${look.fontHref ? `<link rel="stylesheet" href="${escapeHtml(look.fontHref)}">` : ""}<style>${STYLE}${look.css}</style></head><body><div id="root"></div><script>window.__OVERLAY__=${cfgJson};${CLIENT}</script></body></html>`;
 }
 
 // The theme card's link builder: emblem (d20, your image, or a PNGtuber pair), its size, and the mic.
@@ -267,14 +267,18 @@ const THEME_BUILDER = `<div class="tb">
 
 // The look builder (overlay_style.ts): a preset, colours and images, applied to every link on the page.
 const LOOK_COLOURS: Array<[string, string]> = [["paper", "Sheet"], ["ink", "Text"], ["heading", "Name & headings"], ["accent", "Accent & trims"], ["seal", "Live gem & banner"], ["disc", "d20 disc"], ["card", "Panel cards"]];
-const LOOK_BUILDER = `<div class="note look"><strong>🎨 Look — colours &amp; images</strong>
-<p>Make the overlays your own: pick a preset, change any colour, or give the theme's sheet your own image. Every link below picks it up (the theme takes all of it; the panels take the preset, accent and card colour/image). Share your <em>look code</em> with another streamer, or paste theirs to start from it.</p>
+const fontOptions = (list: Record<string, LookFont>) => Object.entries(list).map(([k, f]) => `<option value="${k}">${escapeHtml(f.label)}</option>`).join("");
+const LOOK_BUILDER = `<div class="note look"><strong>🎨 Look — colours, fonts &amp; images</strong>
+<p>Make the overlays your own: pick a preset, change any colour or font, or give the theme's sheet your own image. Every link below picks it up (the theme takes all of it; the panels take the preset, accent, card colour/image and fonts). Share your <em>look code</em> with another streamer, or paste theirs to start from it.</p>
 <div class="tb lk">
 <label class="tb-wide">Preset <select class="lk-preset">${Object.entries(LOOK_PRESETS).map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)}</option>`).join("")}</select></label>
 ${LOOK_COLOURS.map(([k, label]) => `<label class="lk-c"><input type="color" data-k="${k}"> ${label} <button type="button" class="ghost lk-reset" data-k="${k}" hidden title="Back to the preset's colour">↺</button></label>`).join("")}
 <label class="tb-wide">Sheet image <input type="url" class="lk-bg" placeholder="https://…/texture.png — replaces the parchment (theme only)"></label>
 <label>Image fit <select class="lk-bgfit"><option value="">Cover the sheet</option><option value="tile">Tile (repeat)</option></select></label>
 <label><input type="checkbox" class="lk-rollers" checked> Scroll rollers top and bottom</label>
+<label>Heading font <select class="lk-font">${fontOptions(HEADING_FONTS)}</select></label>
+<label>Text font <select class="lk-bodyfont">${fontOptions(BODY_FONTS)}</select></label>
+<div class="tb-wide lk-sample"><b>Tavern Talk · Be Right Back</b><span>The party is taking a short rest. <i>Rolling initiative against the kettle.</i></span></div>
 <label class="tb-wide">Panel card image <input type="url" class="lk-cardimg" placeholder="https://…/card.png — behind the panels' cards, tinted by the card colour"></label>
 <div class="tb-wide tb-row">Look code <input class="lk-code" spellcheck="false" placeholder="paste a look code or an overlay link…"><button type="button" class="lk-apply">Apply</button><button type="button" class="lk-copy" data-copy="">Copy</button></div>
 <p class="muted tb-wide">Images need a public https link (.png, .jpg, .gif or .webp). Your emblem or PNGtuber is picked on the Full stream theme below. With nothing changed you get the classic parchment.</p>
@@ -299,7 +303,7 @@ export function renderOverlayIndexPage(channelName: string, channelKey: string, 
   return scrollDoc(`OBS Overlays · ${escapeHtml(channelName)}`, `
 <span class="pill">Stream overlays</span><h1>OBS overlays</h1><p class="intro">${escapeHtml(channelName)} · live GuildScribe panels for your stream</p>
 <div class="note"><strong>Adding one to OBS</strong><ol><li>In OBS, add a <strong>Browser</strong> source to your scene.</li><li>Open an overlay below (click its name), paste its URL and set the width/height shown next to it.</li><li>Leave the background transparent (OBS's default custom CSS is fine). Panels refresh on their own every few seconds.</li></ol>
-<p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;side=right</code> (hang from the right — mirrored; the checkbox on each overlay adds it), <code>&amp;from=bottom</code> (feed from the bottom up — anchored to the bottom edge, panels stack upward; the checkbox on each overlay adds it), <code>&amp;align=right</code> or <code>center</code> (just move the column), <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning), and the look extras the 🎨 Look box writes for you (<code>&amp;preset=</code>, <code>&amp;accent=</code>, <code>&amp;card=</code>, <code>&amp;cardimg=</code>; the theme also takes <code>&amp;paper=</code>, <code>&amp;ink=</code>, <code>&amp;heading=</code>, <code>&amp;seal=</code>, <code>&amp;disc=</code>, <code>&amp;bg=</code>, <code>&amp;bgfit=tile</code>, <code>&amp;rollers=0</code>). Panels for features you've switched off on your dashboard stay hidden.</p></div>
+<p style="margin-top:10px">Optional URL extras: <code>&amp;scale=1.5</code> (bigger/smaller), <code>&amp;side=right</code> (hang from the right — mirrored; the checkbox on each overlay adds it), <code>&amp;from=bottom</code> (feed from the bottom up — anchored to the bottom edge, panels stack upward; the checkbox on each overlay adds it), <code>&amp;align=right</code> or <code>center</code> (just move the column), <code>&amp;refresh=10</code> (seconds between updates), <code>&amp;limit=3</code> (rows in leaderboards), <code>&amp;always=1</code> (show a placeholder while a panel is empty, handy for positioning), and the look extras the 🎨 Look box writes for you (<code>&amp;preset=</code>, <code>&amp;accent=</code>, <code>&amp;card=</code>, <code>&amp;cardimg=</code>, <code>&amp;font=</code>, <code>&amp;bodyfont=</code>; the theme also takes <code>&amp;paper=</code>, <code>&amp;ink=</code>, <code>&amp;heading=</code>, <code>&amp;seal=</code>, <code>&amp;disc=</code>, <code>&amp;bg=</code>, <code>&amp;bgfit=tile</code>, <code>&amp;rollers=0</code>). Panels for features you've switched off on your dashboard stay hidden.</p></div>
 ${LOOK_BUILDER}<div class="grid">${cards}</div>
 <div class="note"><strong>🗣️ Chat Reader (console streaming)</strong><p>Reads chat out loud on your own phone or PC — open it there and tap Start, not in OBS (it would read chat to your viewers too). Turn on "Chat Reader" on the dashboard first. <a href="${escapeHtml(base)}&amp;panel=reader">${escapeHtml(base)}&amp;panel=reader</a></p></div>
 <p class="colophon"><a href="${escapeHtml(baseUrl)}/roster?channel=${encodeURIComponent(channelId)}">Guild roster</a> · <a href="${escapeHtml(baseUrl)}/guide">Guild Codex</a></p>
@@ -336,7 +340,12 @@ function panelLink(ov){const side=ov.querySelector("input.side-right"),bottom=ov
 document.addEventListener("change",(e)=>{const cb=e.target.closest("input.side-right,input.from-bottom");if(cb)panelLink(cb.closest(".ov"))});
 // ── The look builder: a preset, the colours changed from it, and images. ──
 const PRESETS=${LOOK_PRESETS_JSON},DEFAULT_PRESET=${JSON.stringify(DEFAULT_PRESET)};
-const THEME_ONLY=["paper","ink","heading","seal","disc","bg","bgfit","rollers"],ORDER=["preset","paper","ink","heading","accent","seal","disc","bg","bgfit","rollers","card","cardimg"];
+const THEME_ONLY=["paper","ink","heading","seal","disc","bg","bgfit","rollers"],ORDER=["preset","paper","ink","heading","accent","seal","disc","bg","bgfit","rollers","card","cardimg","font","bodyfont"];
+const FONTS=${LOOK_FONTS_JSON},FONT_DEFAULT={font:${JSON.stringify(Object.keys(HEADING_FONTS)[0])},bodyfont:${JSON.stringify(Object.keys(BODY_FONTS)[0])}};
+// The sample line shows the picked fonts, each loaded only once it's picked.
+const fontLinks=new Set();function showFonts(){const s=lq(".lk-sample"),hf=FONTS.heading[lq(".lk-font").value],bf=FONTS.body[lq(".lk-bodyfont").value];
+  for(const f of [hf,bf])if(!fontLinks.has(f.href)){fontLinks.add(f.href);const l=document.createElement("link");l.rel="stylesheet";l.href=f.href;document.head.append(l)}
+  s.querySelector("b").style.fontFamily=hf.stack;s.querySelector("span").style.fontFamily=bf.stack}
 const lk=document.querySelector(".look"),lq=(c)=>lk.querySelector(c);
 let look={preset:DEFAULT_PRESET,colors:{}};
 const goodUrl=(v)=>{try{const u=new URL(v.trim());return u.protocol==="https:"||u.protocol==="http:"?u.href:""}catch(_){return ""}};
@@ -344,7 +353,8 @@ function lookParams(){const p={};if(look.preset!==DEFAULT_PRESET)p.preset=look.p
   for(const k in look.colors)p[k]=look.colors[k].replace("#","");
   const bg=goodUrl(lq(".lk-bg").value),ci=goodUrl(lq(".lk-cardimg").value);
   if(bg){p.bg=bg;if(lq(".lk-bgfit").value==="tile")p.bgfit="tile"}
-  if(!lq(".lk-rollers").checked)p.rollers="0";if(ci)p.cardimg=ci;return p}
+  if(!lq(".lk-rollers").checked)p.rollers="0";if(ci)p.cardimg=ci;
+  for(const k of ["font","bodyfont"]){const v=lq(".lk-"+k).value;if(v!==FONT_DEFAULT[k])p[k]=v}return p}
 // The look as link extras: everything for the theme, the preset / accent / card for a panel.
 function lookQuery(kind){const p=lookParams();return ORDER.filter(k=>k in p&&(kind==="theme"||!THEME_ONLY.includes(k))).map(k=>"&"+k+"="+encodeURIComponent(p[k])).join("")}
 function showLook(){const pr=PRESETS[look.preset]||PRESETS[DEFAULT_PRESET];lq(".lk-preset").value=look.preset;
@@ -357,6 +367,7 @@ lk.addEventListener("input",(e)=>{const t=e.target;
   else if(t.matches(".lk-bg,.lk-cardimg"))lookSoon()});
 lk.addEventListener("change",(e)=>{const t=e.target;
   if(t.matches(".lk-preset")){look={preset:t.value,colors:{}};showLook();lookChanged()}
+  else if(t.matches(".lk-font,.lk-bodyfont")){showFonts();lookChanged()}
   else if(t.matches(".lk-bgfit,.lk-rollers,.lk-bg,.lk-cardimg"))lookChanged()});
 lk.addEventListener("click",(e)=>{const r=e.target.closest(".lk-reset");if(r){delete look.colors[r.dataset.k];showLook();lookChanged();return}
   if(!e.target.closest(".lk-apply"))return;
@@ -367,8 +378,9 @@ lk.addEventListener("click",(e)=>{const r=e.target.closest(".lk-reset");if(r){de
     const hex=/^[0-9a-f]{6}$/.test(c)?"#"+c:/^[0-9a-f]{3}$/.test(c)?"#"+[...c].map(x=>x+x).join(""):/^[0-9a-f]{8}$/.test(c)?"#"+c.slice(0,6):"";
     if(hex&&hex!==PRESETS[look.preset][k])look.colors[k]=hex}
   lq(".lk-bg").value=q.get("bg")||"";lq(".lk-bgfit").value=q.get("bgfit")==="tile"?"tile":"";lq(".lk-rollers").checked=q.get("rollers")!=="0";lq(".lk-cardimg").value=q.get("cardimg")||"";
+  for(const [k,list] of [["font","heading"],["bodyfont","body"]]){const v=(q.get(k)||"").toLowerCase();lq(".lk-"+k).value=FONTS[list][v]?v:FONT_DEFAULT[k]}showFonts();
   showLook();lookChanged()});
-showLook();lookChanged();
+showLook();showFonts();lookChanged();
 document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-copy]");if(!b)return;try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied!";}catch(_){b.textContent="Select & copy";}setTimeout(()=>{b.textContent="Copy"},1500);});</script>
 `, {
     width: 1140,
@@ -386,7 +398,8 @@ document.addEventListener("click",async(e)=>{const b=e.target.closest("button[da
 .tb label,.tb-row{display:flex;align-items:center;gap:8px;min-width:0}.tb label[hidden]{display:none}.tb input,.tb select{flex:1;min-width:0;width:auto}.tb .tb-size{flex:0 1 90px}
 .tb-wide{grid-column:1/-1;flex-wrap:wrap}.tb-where{display:block;background:#efe5c8;border:1px solid var(--edge);border-radius:4px;padding:8px 12px}.tb-where ul{margin:4px 0 0;padding-left:1.2em}.tb p{margin:0}.tb button{padding:6px 12px}
 .look{margin-bottom:16px}.look .tb{margin:10px 0 0}.lk-c input[type=color]{flex:0 0 46px;width:46px;height:30px;padding:2px;cursor:pointer}
-.lk input[type=checkbox]{flex:none;width:auto}.lk-reset{padding:2px 8px!important}.lk-reset[hidden]{display:none}.lk .tb-row input{flex:1;min-width:180px;font:600 .8rem var(--mono)}
+.lk input[type=checkbox]{flex:none;width:auto}.lk-reset{padding:2px 8px!important}.lk-reset[hidden]{display:none}
+.lk-sample{display:flex;flex-direction:column;gap:2px;background:#efe5c8;border:1px solid var(--edge);border-radius:4px;padding:8px 12px}.lk-sample b{font-size:1.3rem;letter-spacing:.06em;text-transform:uppercase}.lk .tb-row input{flex:1;min-width:180px;font:600 .8rem var(--mono)}
 .side-opt{display:flex;align-items:baseline;gap:8px;margin:0 0 8px;font-size:.92rem;cursor:pointer}.side-opt .muted{font-size:.8rem}
 .preview{margin-top:10px;border-radius:5px;overflow:hidden;border:1px solid var(--edge);background:repeating-conic-gradient(#2a2420 0 25%,#1d1915 0 50%) 0 0/24px 24px}
 .preview iframe{width:100%;height:100%;border:0;background:transparent;color-scheme:normal}`,

@@ -49,7 +49,7 @@ import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
 import { getShotCount, shotWords } from "./shots.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
-import { panelLookCss, themeLook } from "./overlay_style.ts";
+import { panelLook, themeLook } from "./overlay_style.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { env, getAppToken, getChannelInfo } from "./twitch.ts";
 
@@ -496,5 +496,5 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     return html(renderIdlePage(channelKey, live.login, live.name, botId, channelBots, await getDelveOptions(channel.id)));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
-  return html(renderOverlayPage(channelKey, panel, panelLookCss(url.searchParams)));
+  return html(renderOverlayPage(channelKey, panel, panelLook(url.searchParams)));
 }

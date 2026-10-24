@@ -57,9 +57,10 @@
 // the emblem just stays at full brightness.
 //
 // Look (overlay_style.ts): &preset=<name>, colours (&paper, &ink, &heading,
-// &accent, &seal, &disc), &bg=<image URL> for the sheet (&bgfit=tile) and
-// &rollers=0 restyle the whole sheet — its CSS custom properties, torn edges
-// and d20 all come from the resolved look. The panels it embeds (status strip,
+// &accent, &seal, &disc), fonts (&font for headings, &bodyfont for text),
+// &bg=<image URL> for the sheet (&bgfit=tile) and &rollers=0 restyle the
+// whole sheet — its CSS custom properties (--hf/--bf for the fonts), torn
+// edges and d20 all come from the resolved look. The panels it embeds (status strip,
 // goldboard, Battle Tracker) get the look's panel extras passed on. With no
 // look extras it's the classic parchment, unchanged.
 
@@ -142,13 +143,13 @@ const badgeSvg = (c: ThemeLook["d20"]) => `<svg viewBox="0 0 200 200" aria-hidde
 <polygon points="100,38 152,68 152,128 100,158 48,128 48,68" fill="url(#dd)" stroke="${c.line}" stroke-width="2.5"/>
 <polygon points="100,62 128,110 72,110" fill="none" stroke="${c.line2}" stroke-width="2"/>
 <path d="M100 38L100 62M152 68L128 110M48 68L72 110M100 158L128 110M100 158L72 110M48 128L72 110M152 128L128 110M100 62L48 68M100 62L152 68" stroke="${c.line2}" stroke-width="1.6" fill="none"/>
-<text x="100" y="101" text-anchor="middle" font-family="Cinzel,Georgia,serif" font-weight="700" font-size="22" fill="${c.text}">20</text>
+<text x="100" y="101" text-anchor="middle" style="font-family:var(--hf)" font-weight="700" font-size="22" fill="${c.text}">20</text>
 <path d="M58 52l3 6 6 3-6 3-3 6-3-6-6-3 6-3z M146 46l2 4 4 2-4 2-2 4-2-4-4-2 4-2z" fill="${c.spark}"/>
 </svg>`;
 
 const STYLE = `
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}
-#stage{position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;font-family:"EB Garamond",Georgia,serif;color:var(--ink)}
+#stage{position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;font-family:var(--bf);color:var(--ink)}
 /* Its background comes from the look (overlay_style.ts), set per page. */
 .paper{position:absolute;inset:0;
   -webkit-mask:var(--sheet) 0 0/${W}px ${H}px no-repeat;mask:var(--sheet) 0 0/${W}px ${H}px no-repeat}
@@ -161,17 +162,17 @@ const STYLE = `
 .title{position:absolute;left:0;right:0;top:56px;display:flex;flex-direction:column;align-items:center;gap:3px}
 .title.sub{top:47px}
 .title .name{display:flex;justify-content:center;align-items:center;gap:18px;
-  font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 var(--hi),0 2px 6px var(--gold25)}
+  font:700 36px/1 var(--hf);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 var(--hi),0 2px 6px var(--gold25)}
 .title .subtitle{max-width:600px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
-  font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:var(--sub);text-shadow:0 1px 0 var(--hi)}
+  font:italic 500 19px/1.1 var(--bf);letter-spacing:.02em;color:var(--sub);text-shadow:0 1px 0 var(--hi)}
 /* The gem by the name shows live status: a dull grey stone while offline, a glowing, pulsing red one while live. */
 .gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e4ddd2,#9b9184 55%,#5f574d);box-shadow:0 0 0 1px #6b5a4040;transition:background .6s,box-shadow .6s}
 .gem.live{background:radial-gradient(circle at 35% 30%,var(--seal-hi),var(--seal) 55%,var(--seal-lo));box-shadow:0 0 10px var(--seal50);animation:pulse 2.4s ease-in-out infinite}
 .chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
   background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px var(--gold50),inset 0 0 0 5px transparent,inset 0 0 0 6px var(--gold25)}
 .chat header{text-align:center;padding:22px 20px 14px}
-.chat h2{margin:0;font:700 30px/1.1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
-.chat header p{margin:6px 0 0;font:italic 16px/1.2 "EB Garamond",Georgia,serif;color:var(--muted)}
+.chat h2{margin:0;font:700 30px/1.1 var(--hf);letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.chat header p{margin:6px 0 0;font:italic 16px/1.2 var(--bf);color:var(--muted)}
 .chat header::after{content:"";display:block;height:2px;margin:14px 18px 0;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
 .msgs{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;gap:10px;padding:8px 20px 20px}
 /* The goldboard (richest adventurers) along the bottom of Tavern Talk; hidden while it has nothing to show. */
@@ -194,7 +195,7 @@ const STYLE = `
 #badge.mic.nodim{filter:drop-shadow(0 0 calc(var(--lvl,0) * 26px) var(--glow))}
 @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-8px)}}
 .ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,var(--rib1),var(--rib2));color:var(--ribtext);
-  font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px var(--ribshadow);
+  font:700 22px/1 var(--hf);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px var(--ribshadow);
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
 /* Now playing (&music=1): top-left in gameplay; where brb and chat put it (scene.music) — under the tracker in brb,
    stacked (art over the song) above the emblem in chat.
@@ -206,9 +207,9 @@ const STYLE = `
 .np.stack img{width:72px;height:72px}.np.stack .song{font-size:19px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .np img{width:56px;height:56px;flex:none;border-radius:5px;object-fit:cover;box-shadow:0 0 0 1px var(--gold),0 3px 8px var(--shadow);background:var(--npbg)}
 .np .t{min-width:0;flex:1}
-.np .k{font:600 12px/1 Cinzel,Georgia,serif;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.np .song{font:700 21px/1.15 Cinzel,Georgia,serif;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
-.np .by{font:italic 17px/1.15 "EB Garamond",Georgia,serif;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .k{font:600 12px/1 var(--hf);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.np .song{font:700 21px/1.15 var(--hf);color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.np .by{font:italic 17px/1.15 var(--bf);color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .np .bar{height:2px;margin-top:4px;background:var(--gold25);overflow:hidden}.np .bar i{display:block;height:100%;width:0;background:var(--gold)}
 /* Sound Bytes (soundbytes.ts): see-through and click-through over the whole sheet; its card pops up just above the status strip.
    In scenes with a Dungeon Gate (brb, chat) it sits inside the gate instead (inline style) and its card is centred there. */
@@ -391,7 +392,8 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
   const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle, dark: look.dark, look: look.panelQuery };
   const e = look.edge;
-  const lookCss = `#stage{${Object.entries(look.vars).map(([k, v]) => `${k}:${v}`).join(";")}}.paper{background:${look.paperBg}}${look.image ? ".curl{display:none}" : ""}`;
+  // Fonts as custom properties too; a heading font with no real bold isn't smeared into a fake one.
+  const lookCss = `#stage{${Object.entries(look.vars).map(([k, v]) => `${k}:${v}`).join(";")};--hf:${look.fonts.heading};--bf:${look.fonts.body}${look.fonts.noFauxBold ? ";font-synthesis-weight:none" : ""}}.paper{background:${look.paperBg}}${look.image ? ".curl{display:none}" : ""}`;
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   // Edge shading, all through the same ROUGH filter as the mask: a shadow the
@@ -411,7 +413,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <path d="${HOLE}" stroke="${e.fibres}" stroke-width="2.6" opacity=".95" filter="url(#fibres)"/>
 </g></svg>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapeHtml(look.fonts.href)}">
 <style>${STYLE}#stage{--sheet:${mask}}${lookCss}</style></head><body><div id="stage">${sceneUnderHtml(scene)}<div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
