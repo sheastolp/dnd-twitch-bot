@@ -55,10 +55,18 @@
 // The emblem reacts to the mic: dim while you're quiet, brightening and
 // glowing as you talk. If the mic can't be opened (no permission, no device)
 // the emblem just stays at full brightness.
+//
+// Look (overlay_style.ts): &preset=<name>, colours (&paper, &ink, &heading,
+// &accent, &seal, &disc), &bg=<image URL> for the sheet (&bgfit=tile) and
+// &rollers=0 restyle the whole sheet — its CSS custom properties, torn edges
+// and d20 all come from the resolved look. The panels it embeds (status strip,
+// goldboard, Battle Tracker) get the look's panel extras passed on. With no
+// look extras it's the classic parchment, unchanged.
 
 import { escapeHtml } from "./utils.ts";
 import { NOW_PLAYING_CLIENT } from "./nowplaying.ts";
 import { ROLLER_BG } from "./scroll_theme.ts";
+import { themeLook, type ThemeLook } from "./overlay_style.ts";
 import { SCENES, SCENE_CLIENT, SCENE_CSS, box, sceneHtml, sceneUnderHtml, type Rect, type SceneDef } from "./overlay_scenes.ts";
 
 const W = 1920, H = 1080;
@@ -124,82 +132,69 @@ function sheetFor(key: string, scene: SceneDef): Sheet {
   }
   return sheet;
 }
-// Fine fibre grain and soft stains, brown at low alpha.
-const GRAIN = svgUrl(
-  `<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' seed='5' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.32  0 0 0 0 0.1  0 0 0 0.3 -0.08'/></filter><rect width='100%' height='100%' filter='url(#g)'/></svg>`,
-);
-const STAINS = svgUrl(
-  `<svg xmlns='http://www.w3.org/2000/svg' width='${W}' height='${H}'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='0.006' numOctaves='3' seed='11' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.75  0 0 0 0 0.55  0 0 0 0 0.15  0 0 0 0.55 -0.2'/></filter><rect width='100%' height='100%' filter='url(#s)'/></svg>`,
-);
-
-// The d20 badge: dark green disc in a gold ring with a golden d20 on it.
-const BADGE_SVG = `<svg viewBox="0 0 200 200" aria-hidden="true">
-<defs><radialGradient id="bd" cx=".45" cy=".38" r=".7"><stop offset="0" stop-color="#3d5a46"/><stop offset="1" stop-color="#18281e"/></radialGradient>
-<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3a8"/><stop offset=".5" stop-color="#f2c94c"/><stop offset="1" stop-color="#b8862a"/></linearGradient>
-<linearGradient id="dd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff07a"/><stop offset="1" stop-color="#e7b923"/></linearGradient></defs>
-<circle cx="100" cy="100" r="97" fill="url(#bg)"/><circle cx="100" cy="100" r="89" fill="#2a1a0c"/><circle cx="100" cy="100" r="86" fill="url(#bd)"/>
-<circle cx="100" cy="100" r="78" fill="none" stroke="#f2c94c" stroke-width="1.5" stroke-dasharray="2 5" opacity=".7"/>
-<polygon points="100,38 152,68 152,128 100,158 48,128 48,68" fill="url(#dd)" stroke="#7a5512" stroke-width="2.5"/>
-<polygon points="100,62 128,110 72,110" fill="none" stroke="#a87a16" stroke-width="2"/>
-<path d="M100 38L100 62M152 68L128 110M48 68L72 110M100 158L128 110M100 158L72 110M48 128L72 110M152 128L128 110M100 62L48 68M100 62L152 68" stroke="#a87a16" stroke-width="1.6" fill="none"/>
-<text x="100" y="101" text-anchor="middle" font-family="Cinzel,Georgia,serif" font-weight="700" font-size="22" fill="#4a2f08">20</text>
-<path d="M58 52l3 6 6 3-6 3-3 6-3-6-6-3 6-3z M146 46l2 4 4 2-4 2-2 4-2-4-4-2 4-2z" fill="#fff8d0"/>
+// The d20 badge: dark green disc in a gold ring with a golden d20 on it (colours from the look).
+const badgeSvg = (c: ThemeLook["d20"]) => `<svg viewBox="0 0 200 200" aria-hidden="true">
+<defs><radialGradient id="bd" cx=".45" cy=".38" r=".7"><stop offset="0" stop-color="${c.disc1}"/><stop offset="1" stop-color="${c.disc2}"/></radialGradient>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c.ring1}"/><stop offset=".5" stop-color="${c.ring2}"/><stop offset="1" stop-color="${c.ring3}"/></linearGradient>
+<linearGradient id="dd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c.die1}"/><stop offset="1" stop-color="${c.die2}"/></linearGradient></defs>
+<circle cx="100" cy="100" r="97" fill="url(#bg)"/><circle cx="100" cy="100" r="89" fill="${c.rim}"/><circle cx="100" cy="100" r="86" fill="url(#bd)"/>
+<circle cx="100" cy="100" r="78" fill="none" stroke="${c.ring2}" stroke-width="1.5" stroke-dasharray="2 5" opacity=".7"/>
+<polygon points="100,38 152,68 152,128 100,158 48,128 48,68" fill="url(#dd)" stroke="${c.line}" stroke-width="2.5"/>
+<polygon points="100,62 128,110 72,110" fill="none" stroke="${c.line2}" stroke-width="2"/>
+<path d="M100 38L100 62M152 68L128 110M48 68L72 110M100 158L128 110M100 158L72 110M48 128L72 110M152 128L128 110M100 62L48 68M100 62L152 68" stroke="${c.line2}" stroke-width="1.6" fill="none"/>
+<text x="100" y="101" text-anchor="middle" font-family="Cinzel,Georgia,serif" font-weight="700" font-size="22" fill="${c.text}">20</text>
+<path d="M58 52l3 6 6 3-6 3-3 6-3-6-6-3 6-3z M146 46l2 4 4 2-4 2-2 4-2-4-4-2 4-2z" fill="${c.spark}"/>
 </svg>`;
 
 const STYLE = `
-:root{--ink:#3b2814;--ink2:#6b4419;--gold:#c99a2e;--gold2:#e8c25a;--seal:#d9473a}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}
 #stage{position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0;font-family:"EB Garamond",Georgia,serif;color:var(--ink)}
+/* Its background comes from the look (overlay_style.ts), set per page. */
 .paper{position:absolute;inset:0;
-  background:${STAINS} 0 0/${W}px ${H}px no-repeat,${GRAIN} 0 0/240px 240px,
-    radial-gradient(ellipse at 8% 6%,#fffef8 0,#fffdf3 22%,transparent 55%),
-    radial-gradient(ellipse at 100% 0%,#f9e27c 0,transparent 45%),
-    radial-gradient(ellipse at 96% 100%,#f4d870 0,transparent 50%),
-    linear-gradient(115deg,#fffaf0 0%,#fdf3cf 40%,#f8e7a0 75%,#f3d97c 100%);
   -webkit-mask:var(--sheet) 0 0/${W}px ${H}px no-repeat;mask:var(--sheet) 0 0/${W}px ${H}px no-repeat}
 .edges{position:absolute;inset:0;pointer-events:none}
 /* The Codex's scroll rollers, top and bottom; the paper darkens as it curls onto them. */
-.curl{position:absolute;left:0;right:0;height:70px;pointer-events:none;background:linear-gradient(180deg,#5a3a1640,#5a3a1614 40%,transparent)}
+.curl{position:absolute;left:0;right:0;height:70px;pointer-events:none;background:linear-gradient(180deg,var(--curl1),var(--curl2) 40%,transparent)}
 .curl.bot{bottom:0;transform:scaleY(-1)}
 .roller{position:absolute;left:0;right:0;height:48px;pointer-events:none;background:${ROLLER_BG};filter:drop-shadow(0 7px 7px #0009)}
 .roller.top{top:-4px}.roller.bot{bottom:-4px;filter:drop-shadow(0 -5px 7px #0007)}
 .title{position:absolute;left:0;right:0;top:56px;display:flex;flex-direction:column;align-items:center;gap:3px}
 .title.sub{top:47px}
 .title .name{display:flex;justify-content:center;align-items:center;gap:18px;
-  font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 2px 6px #c99a2e40}
+  font:700 36px/1 Cinzel,Georgia,serif;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 var(--hi),0 2px 6px var(--gold25)}
 .title .subtitle{max-width:600px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
-  font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:#8a6424;text-shadow:0 1px 0 #fff8}
+  font:italic 500 19px/1.1 "EB Garamond",Georgia,serif;letter-spacing:.02em;color:var(--sub);text-shadow:0 1px 0 var(--hi)}
 /* The gem by the name shows live status: a dull grey stone while offline, a glowing, pulsing red one while live. */
 .gem{width:20px;height:20px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e4ddd2,#9b9184 55%,#5f574d);box-shadow:0 0 0 1px #6b5a4040;transition:background .6s,box-shadow .6s}
-.gem.live{background:radial-gradient(circle at 35% 30%,#ffb3a6,var(--seal) 55%,#8e1d14);box-shadow:0 0 10px #e9191680;animation:pulse 2.4s ease-in-out infinite}
+.gem.live{background:radial-gradient(circle at 35% 30%,var(--seal-hi),var(--seal) 55%,var(--seal-lo));box-shadow:0 0 10px var(--seal50);animation:pulse 2.4s ease-in-out infinite}
 .chat{position:absolute;left:1528px;top:100px;width:372px;height:846px;display:flex;flex-direction:column;will-change:transform;
-  background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px #c99a2e80,inset 0 0 0 5px transparent,inset 0 0 0 6px #c99a2e40}
+  background:transparent;border-radius:4px;box-shadow:inset 0 0 0 1px var(--gold50),inset 0 0 0 5px transparent,inset 0 0 0 6px var(--gold25)}
 .chat header{text-align:center;padding:22px 20px 14px}
 .chat h2{margin:0;font:700 30px/1.1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
-.chat header p{margin:6px 0 0;font:italic 16px/1.2 "EB Garamond",Georgia,serif;color:#a98235}
+.chat header p{margin:6px 0 0;font:italic 16px/1.2 "EB Garamond",Georgia,serif;color:var(--muted)}
 .chat header::after{content:"";display:block;height:2px;margin:14px 18px 0;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
 .msgs{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;gap:10px;padding:8px 20px 20px}
 /* The goldboard (richest adventurers) along the bottom of Tavern Talk; hidden while it has nothing to show. */
-.goldbox{position:relative;flex:none;height:210px;margin:0 6px 6px;border-top:1px solid #c99a2e80}
+.goldbox{position:relative;flex:none;height:210px;margin:0 6px 6px;border-top:1px solid var(--gold50)}
 .goldbox[hidden]{display:none}
 .goldbox iframe{position:absolute;inset:6px 0 0;width:100%;height:calc(100% - 6px);border:0;background:transparent}
 .msg{font-size:22px;line-height:1.3;overflow-wrap:anywhere;animation:in .45s ease-out;transition:opacity .9s ease,transform .9s ease}
-.msg b{font-weight:600}.msg .sep{color:#a98235}.msg.me .txt{font-style:italic}
+.msg b{font-weight:600}.msg .sep{color:var(--muted)}.msg.me .txt{font-style:italic}
 .msg img{height:1.35em;vertical-align:-.3em;margin:0 1px}
 .msg.out{opacity:0;transform:translateX(24px)}
-.msg.note{color:#a98235;font-style:italic;font-size:18px;text-align:center}
-.badge{position:absolute;left:22px;bottom:74px;width:250px;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 6px 10px #5a3a0f55)}
+.msg.note{color:var(--muted);font-style:italic;font-size:18px;text-align:center}
+.badge{position:absolute;left:22px;bottom:74px;width:250px;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 6px 10px var(--shadow))}
 .badge.custom{width:auto;min-width:250px}
 #badge{position:relative;width:var(--size,200px);height:var(--size,200px);transform-origin:50% 100%}
 #badge svg,#badge img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 #badge .talk{visibility:hidden}#badge.talking .talk{visibility:visible}#badge.talking .idle{visibility:hidden}
 #badge.bounce.talking{animation:bob .32s ease-in-out infinite alternate}
 /* Mic-reactive emblem: --lvl runs 0 (silence) to 1 (loud), set every frame by the client. */
-#badge.mic{filter:brightness(calc(.42 + var(--lvl,0) * .78)) saturate(calc(.7 + var(--lvl,0) * .5)) drop-shadow(0 0 calc(var(--lvl,0) * 26px) #ffd76acc)}
-#badge.mic.nodim{filter:drop-shadow(0 0 calc(var(--lvl,0) * 26px) #ffd76acc)}
+#badge.mic{filter:brightness(calc(.42 + var(--lvl,0) * .78)) saturate(calc(.7 + var(--lvl,0) * .5)) drop-shadow(0 0 calc(var(--lvl,0) * 26px) var(--glow))}
+#badge.mic.nodim{filter:drop-shadow(0 0 calc(var(--lvl,0) * 26px) var(--glow))}
 @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-8px)}}
-.ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,#e2574a,#b8302a);color:#fff7e6;
-  font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px #5a0e0a;
+.ribbon{margin-top:-26px;position:relative;padding:6px 34px 8px;background:linear-gradient(180deg,var(--rib1),var(--rib2));color:var(--ribtext);
+  font:700 22px/1 Cinzel,Georgia,serif;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;text-shadow:0 1px 1px var(--ribshadow);
   clip-path:polygon(0 0,100% 0,calc(100% - 16px) 50%,100% 100%,0 100%,16px 50%)}
 /* Now playing (&music=1): top-left in gameplay; where brb and chat put it (scene.music) — under the tracker in brb,
    stacked (art over the song) above the emblem in chat.
@@ -209,20 +204,20 @@ const STYLE = `
 .np.under{justify-content:center}.np.under .t{flex:0 1 auto}
 .np.stack{flex-direction:column;gap:8px;text-align:center}.np.stack .t{flex:none;width:100%}
 .np.stack img{width:72px;height:72px}.np.stack .song{font-size:19px;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.np img{width:56px;height:56px;flex:none;border-radius:5px;object-fit:cover;box-shadow:0 0 0 1px #c99a2e,0 3px 8px #5a3a0f55;background:#e8d49a}
+.np img{width:56px;height:56px;flex:none;border-radius:5px;object-fit:cover;box-shadow:0 0 0 1px var(--gold),0 3px 8px var(--shadow);background:var(--npbg)}
 .np .t{min-width:0;flex:1}
-.np .k{font:600 12px/1 Cinzel,Georgia,serif;letter-spacing:.14em;text-transform:uppercase;color:#a98235}
+.np .k{font:600 12px/1 Cinzel,Georgia,serif;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .np .song{font:700 21px/1.15 Cinzel,Georgia,serif;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
-.np .by{font:italic 17px/1.15 "EB Garamond",Georgia,serif;color:#6b4a22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.np .bar{height:2px;margin-top:4px;background:#c99a2e40;overflow:hidden}.np .bar i{display:block;height:100%;width:0;background:var(--gold)}
+.np .by{font:italic 17px/1.15 "EB Garamond",Georgia,serif;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .bar{height:2px;margin-top:4px;background:var(--gold25);overflow:hidden}.np .bar i{display:block;height:100%;width:0;background:var(--gold)}
 /* Sound Bytes (soundbytes.ts): see-through and click-through over the whole sheet; its card pops up just above the status strip.
    In scenes with a Dungeon Gate (brb, chat) it sits inside the gate instead (inline style) and its card is centred there. */
 .sfx{position:absolute;left:0;top:0;width:${W}px;height:${H - 130}px;border:0;background:transparent;pointer-events:none;z-index:50}
 .gate .empty{transition:opacity .3s}.gate.sfx-on .empty{opacity:0}
 .status{position:absolute;left:290px;bottom:46px;width:${W - 290 - 12}px;height:70px;border:0;background:transparent}
-.rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),#c99a2e40 40%,transparent)}
+.rule{position:absolute;left:290px;right:16px;top:952px;height:1px;background:linear-gradient(90deg,var(--gold),var(--gold25) 40%,transparent)}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes pulse{50%{opacity:.55;box-shadow:0 0 4px #e9191640}}
+@keyframes pulse{50%{opacity:.55;box-shadow:0 0 4px var(--seal25)}}
 ${SCENE_CSS}`;
 
 // The client: fits the stage to the window, then runs the chat. Plain ES2017, no build step.
@@ -270,7 +265,7 @@ const talkAt=(v=>Number.isFinite(v)&&v>0&&v<1?v:.3)(Number(Q.get("talkat")));
 // to the column's width and hidden while it's empty (gold off, nobody rich yet).
 const goldBox=document.getElementById("goldbox"),goldEl=document.getElementById("gold");
 if(goldBox){if(Q.get("goldboard")==="0")goldBox.remove();else{
-  goldEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=gold&align=center&refresh=30&limit=5"+(preview?"&always=1":"");
+  goldEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=gold&align=center&refresh=30&limit=5"+CFG.look+(preview?"&always=1":"");
   setInterval(()=>{try{const doc=goldEl.contentDocument,r=doc&&doc.getElementById("root");if(!r)return;
     const empty=!r.children.length;if(goldBox.hidden!==empty){goldBox.hidden=empty;trim()}if(empty)return;
     r.style.transform="none";r.style.maxWidth="none";r.style.margin="0";r.style.transformOrigin="top left";
@@ -279,7 +274,7 @@ if(goldBox){if(Q.get("goldboard")==="0")goldBox.remove();else{
     r.style.transform="translateX("+((W-r.scrollWidth*sc)/2-pad).toFixed(1)+"px) scale("+sc.toFixed(3)+")"}catch(e){}},1000)}}
 const statusEl=document.getElementById("status");
 if(statusEl){if(Q.get("status")==="0")statusEl.remove();
-  else statusEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10&next=1"+(preview?"&always=1":"")}
+  else statusEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=status&align=right&refresh=10&next=1"+CFG.look+(preview?"&always=1":"")}
 // Sound Bytes, in every scene: plays the sounds chat sets off with !sound and
 // pops its card up over the sheet — in the Dungeon Gate where the scene has one
 // (brb, chat), its "Adventures appear here" line fading while a card is up.
@@ -307,13 +302,14 @@ if(npEl){if(Q.get("music")!=="1")npEl.remove();else{${NOW_PLAYING_CLIENT}
 
 const list=document.getElementById("msgs");
 function h(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=String(text);return e}
-// Twitch names can be any colour; darken pale ones so they read on parchment.
-const INKS=["#8e2a1c","#1f5c3a","#24467a","#6d2f86","#8a5a12","#2f6b6b","#7a2948"];
+// Twitch names can be any colour; darken pale ones so they read on parchment
+// (or, on a dark sheet from the look, lighten dim ones).
+const INKS=CFG.dark?["#ff9a8a","#8fdcaa","#9cbcff","#d8a6f0","#f2c46a","#8adada","#f39cbc"]:["#8e2a1c","#1f5c3a","#24467a","#6d2f86","#8a5a12","#2f6b6b","#7a2948"];
 function ink(hex,name){let m=/^#([0-9a-f]{6})$/i.exec(hex||"");if(!m){let n=0;for(const c of name)n=(n*31+c.charCodeAt(0))>>>0;return INKS[n%INKS.length]}
   let r=parseInt(m[1].slice(0,2),16)/255,g=parseInt(m[1].slice(2,4),16)/255,b=parseInt(m[1].slice(4),16)/255;
   const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let hh=0,s=0,l=(mx+mn)/2;
   if(mx!==mn){const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);hh=mx===r?(g-b)/d+(g<b?6:0):mx===g?(b-r)/d+2:(r-g)/d+4;hh*=60}
-  return "hsl("+Math.round(hh)+","+Math.round(Math.min(s,.8)*100)+"%,"+Math.round(Math.min(l,.36)*100)+"%)"}
+  return "hsl("+Math.round(hh)+","+Math.round(Math.min(s,.8)*100)+"%,"+Math.round((CFG.dark?Math.max(l,.68):Math.min(l,.36))*100)+"%)"}
 // Lines run top-down: new ones go underneath, and once the panel is full the oldest drop off the top.
 function trim(){while(list.children.length>1&&list.scrollHeight>list.clientHeight)list.firstElementChild.remove()}
 function retire(el){if(!fade||preview)return;setTimeout(()=>{el.classList.add("out");setTimeout(()=>el.remove(),950)},fade*1000)}
@@ -389,11 +385,13 @@ async function startMic(){
 startMic();
 ${SCENE_CLIENT}`;
 
-export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = "", live = false, idle = true): string {
+export function renderThemePage(channelKey: string, login: string, name: string, sceneKey = "game", streamTitle = "", live = false, idle = true, look: ThemeLook = themeLook(new URLSearchParams(), W, H)): string {
   if (!(sceneKey in SCENES)) sceneKey = "game";
   const scene = SCENES[sceneKey];
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle, dark: look.dark, look: look.panelQuery };
+  const e = look.edge;
+  const lookCss = `#stage{${Object.entries(look.vars).map(([k, v]) => `${k}:${v}`).join(";")}}.paper{background:${look.paperBg}}${look.image ? ".curl{display:none}" : ""}`;
   // JSON inside <script>: escape "<" so a value can never close the tag.
   const cfgJson = JSON.stringify(cfg).replace(/</g, "\\u003c");
   // Edge shading, all through the same ROUGH filter as the mask: a shadow the
@@ -406,21 +404,21 @@ export function renderThemePage(channelKey: string, login: string, name: string,
 <mask id="onpaper" maskUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><path fill="#fff" fill-rule="evenodd" d="${PAPER}" filter="url(#rough)"/></mask>
 <mask id="ongame" maskUnits="userSpaceOnUse" x="-40" y="-40" width="${W + 80}" height="${H + 80}"><path fill="#fff" d="${HOLE}" filter="url(#rough)"/></mask></defs>
 <g stroke-linejoin="round" fill="none">
-<g mask="url(#ongame)"><path d="${HOLE}" stroke="#1a0e04" stroke-width="30" opacity=".55" filter="url(#wide)"/></g>
-<g mask="url(#onpaper)"><path d="${HOLE}" stroke="#a06a1c" stroke-width="60" opacity=".32" filter="url(#wide)"/>
-<path d="${HOLE}" stroke="#8a5718" stroke-width="12" opacity=".4" filter="url(#soft)"/>
-<path d="${HOLE}" stroke="#5e3a10" stroke-width="3.2" opacity=".8" filter="url(#rough)"/></g>
-<path d="${HOLE}" stroke="#fffbea" stroke-width="2.6" opacity=".95" filter="url(#fibres)"/>
+<g mask="url(#ongame)"><path d="${HOLE}" stroke="${e.gameShadow}" stroke-width="30" opacity=".55" filter="url(#wide)"/></g>
+<g mask="url(#onpaper)"><path d="${HOLE}" stroke="${e.band}" stroke-width="60" opacity=".32" filter="url(#wide)"/>
+<path d="${HOLE}" stroke="${e.burn}" stroke-width="12" opacity=".4" filter="url(#soft)"/>
+<path d="${HOLE}" stroke="${e.rim}" stroke-width="3.2" opacity=".8" filter="url(#rough)"/></g>
+<path d="${HOLE}" stroke="${e.fibres}" stroke-width="2.6" opacity=".95" filter="url(#fibres)"/>
 </g></svg>`;
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=EB+Garamond:ital,wght@0,400;0,600;1,400&display=swap">
-<style>${STYLE}#stage{--sheet:${mask}}</style></head><body><div id="stage">${sceneUnderHtml(scene)}<div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
+<style>${STYLE}#stage{--sheet:${mask}}${lookCss}</style></head><body><div id="stage">${sceneUnderHtml(scene)}<div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
 <div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
 <div class="np off${scene.music ? " under" : ""}${scene.music?.stack ? " stack" : ""}" id="np"${scene.music ? ` style="left:${scene.music.x}px;top:${scene.music.y}px;width:${scene.music.w}px;height:${scene.music.h}px"` : ""}><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>
-<div class="roller top"></div><div class="roller bot"></div>
-<div class="badge"><div id="badge">${BADGE_SVG}</div><div class="ribbon" id="ribbon"></div></div>
+${look.rollers ? `<div class="roller top"></div><div class="roller bot"></div>` : ""}
+<div class="badge"><div id="badge">${badgeSvg(look.d20)}</div><div class="ribbon" id="ribbon"></div></div>
 <iframe class="sfx" id="sfx" title="Sound Bytes" scrolling="no" allow="autoplay"${scene.gate ? ` data-gate style="${box({ x: scene.gate.x + 8, y: scene.gate.y + 18, w: scene.gate.w - 16, h: scene.gate.h - 26 })}"` : ""}></iframe>
 </div><script>window.__THEME__=${cfgJson};${CLIENT}</script></body></html>`;
 }

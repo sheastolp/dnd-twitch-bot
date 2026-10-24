@@ -17,6 +17,10 @@
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
 //   GET /overlay?channel=<id|login>&panel=reader     Chat Reader: reads chat aloud on the streamer's own device (chat_reader.ts)
 //
+// Looks: every overlay link takes optional look extras — a preset, colours and
+// images (&preset=, &paper=, &accent=, &bg=, &card=… — see overlay_style.ts),
+// so streamers can make the theme and panels their own and share the look.
+//
 // Same trust model as /roster and /bestiary: public, read-only, and only for
 // connected channels. Nothing here is private — activity logs are never
 // exposed. Each panel respects the channel's dashboard switches, so a feature
@@ -45,6 +49,7 @@ import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
 import { getShotCount, shotWords } from "./shots.ts";
 import { renderOverlayPage, renderOverlayIndexPage, OVERLAY_PANELS } from "./overlay_page.ts";
+import { panelLookCss, themeLook } from "./overlay_style.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { env, getAppToken, getChannelInfo } from "./twitch.ts";
 
@@ -458,7 +463,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const withSub = scene !== "game" && scene in SCENES;
     const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
     const idle = await isCommandGroupEnabled(channel.id, "delve");
-    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live, idle));
+    return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live, idle, themeLook(url.searchParams, 1920, 1080)));
   }
   if (panel === "music") return html(renderNowPlayingOverlay(channelKey));
   if (panel === "idle" && !(await isCommandGroupEnabled(channel.id, "delve"))) {
@@ -491,5 +496,5 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     return html(renderIdlePage(channelKey, live.login, live.name, botId, channelBots, await getDelveOptions(channel.id)));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
-  return html(renderOverlayPage(channelKey, panel));
+  return html(renderOverlayPage(channelKey, panel, panelLookCss(url.searchParams)));
 }

@@ -171,23 +171,23 @@ export const box = (r: Rect) => `left:${r.x}px;top:${r.y}px;width:${r.w}px;heigh
 export const SCENE_CSS = `
 .idlegame{position:absolute;border:0;background:#120d09}
 .slot-hint{position:absolute;display:flex;align-items:center;justify-content:center;font:700 28px/1.2 Cinzel,Georgia,serif;letter-spacing:.06em;color:#fff8;text-transform:uppercase;text-align:center;pointer-events:none}
-.gate{position:absolute;border:2px dashed #c99a2e99;border-radius:10px;box-shadow:inset 0 0 0 6px #fff3,inset 0 0 40px #b07a2222}
+.gate{position:absolute;border:2px dashed var(--gold60);border-radius:10px;box-shadow:inset 0 0 0 6px var(--hi2),inset 0 0 40px var(--gold13)}
 .gate::before,.gate::after{content:"◆";position:absolute;color:var(--gold);font-size:16px;line-height:1}
 .gate::before{left:-9px;top:-10px}
 .gate::after{right:-9px;bottom:-10px}
 .gate .plaque,.tracker .plaque{position:absolute;left:50%;top:-19px;transform:translateX(-50%);padding:6px 26px 7px;white-space:nowrap;
-  background:linear-gradient(180deg,#fffaf0,#f6e3a6);border:1px solid #c99a2e;border-radius:4px;box-shadow:0 2px 6px #8a5a1830;
+  background:linear-gradient(180deg,var(--plaque1),var(--plaque2));border:1px solid var(--gold);border-radius:4px;box-shadow:0 2px 6px var(--pshadow);
   font:700 18px/1 Cinzel,Georgia,serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
-.gate .empty,.tracker .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#a98235;opacity:.55;font:italic 22px/1.3 "EB Garamond",Georgia,serif;text-align:center;padding:20px}
+.gate .empty,.tracker .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);opacity:.55;font:italic 22px/1.3 "EB Garamond",Georgia,serif;text-align:center;padding:20px}
 .gate .empty b,.tracker .empty b{font:400 46px/1 Georgia,serif;font-style:normal}
-.tracker{position:absolute;border:1px solid #c99a2e80;border-radius:10px;box-shadow:inset 0 0 0 5px #fff2,inset 0 0 0 6px #c99a2e40}
+.tracker{position:absolute;border:1px solid var(--gold50);border-radius:10px;box-shadow:inset 0 0 0 5px var(--hi1),inset 0 0 0 6px var(--gold25)}
 .tracker .empty[hidden]{display:none}
 .tracker iframe{position:absolute;inset:28px 6px 6px;width:calc(100% - 12px);height:calc(100% - 34px);border:0;background:transparent}
 .scard{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px 28px}
-.scard h1{margin:0;font:700 74px/1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 #fff8,0 3px 10px #c99a2e50}
+.scard h1{margin:0;font:700 74px/1 Cinzel,Georgia,serif;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);text-shadow:0 1px 0 var(--hi),0 3px 10px var(--gold31)}
 .scard .flourish{width:62%;height:14px;margin:12px 0 10px;background:linear-gradient(90deg,transparent,var(--gold) 30%,var(--gold) 70%,transparent) center/100% 1px no-repeat;position:relative}
-.scard .flourish::after{content:"❦";position:absolute;left:50%;top:50%;transform:translate(-50%,-52%);padding:0 10px;background:#fbefc3;color:var(--gold);font-size:20px;border-radius:50%}
-.scard .line{font:italic 30px/1.3 "EB Garamond",Georgia,serif;color:#6b4a22;transition:opacity .6s ease;min-height:1.3em}
+.scard .flourish::after{content:"❦";position:absolute;left:50%;top:50%;transform:translate(-50%,-52%);padding:0 10px;background:var(--paper);color:var(--gold);font-size:20px;border-radius:50%}
+.scard .line{font:italic 30px/1.3 "EB Garamond",Georgia,serif;color:var(--ink3);transition:opacity .6s ease;min-height:1.3em}
 .scard .line.swap{opacity:0}
 .scard .count{margin-top:8px;font:600 28px/1 Cinzel,Georgia,serif;letter-spacing:.06em;color:var(--seal)}
 /* The gate's plaque sits right, clear of the stream-title subtitle centred above —
@@ -205,21 +205,21 @@ export const SCENE_CSS = `
 /* Ending soon with a raid line: a smaller heading so all four lines clear the Saving Throws plaque. */
 .scard.has-raid h1{font-size:56px}.scard.has-raid .flourish{margin:6px 0 4px}.scard.has-raid .line{font-size:26px}.scard.has-raid .count{margin-top:4px;font-size:24px}
 /* The Saving Throws tally under the card: saved / failed per ability, the latest roll below. */
-.saves{position:absolute;border:1px solid #c99a2e80;border-radius:10px;box-shadow:inset 0 0 0 5px #fff2,inset 0 0 0 6px #c99a2e40}
+.saves{position:absolute;border:1px solid var(--gold50);border-radius:10px;box-shadow:inset 0 0 0 5px var(--hi1),inset 0 0 0 6px var(--gold25)}
 .saves .plaque{position:absolute;left:50%;top:-16px;transform:translateX(-50%);padding:5px 22px 6px;white-space:nowrap;
-  background:linear-gradient(180deg,#fffaf0,#f6e3a6);border:1px solid #c99a2e;border-radius:4px;box-shadow:0 2px 6px #8a5a1830;
+  background:linear-gradient(180deg,var(--plaque1),var(--plaque2));border:1px solid var(--gold);border-radius:4px;box-shadow:0 2px 6px var(--pshadow);
   font:700 15px/1 Cinzel,Georgia,serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
 .saves .row{position:absolute;left:10px;right:10px;top:20px;height:46px;display:flex;justify-content:space-around;align-items:stretch}
 .saves .cell{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0}
-.saves .cell+.cell{border-left:1px solid #c99a2e40}
+.saves .cell+.cell{border-left:1px solid var(--gold25)}
 .saves .cell.all{flex:1.25}
-.saves .ab{font:700 14px/1 Cinzel,Georgia,serif;letter-spacing:.12em;color:#a98235}
+.saves .ab{font:700 14px/1 Cinzel,Georgia,serif;letter-spacing:.12em;color:var(--muted)}
 .saves .n{font:600 21px/1 "EB Garamond",Georgia,serif;white-space:nowrap;color:var(--ink2)}
-.saves .ok{color:#3f6b2a}.saves .no{color:#b8302a}
+.saves .ok{color:var(--ok)}.saves .no{color:var(--no)}
 .saves .cell.zero .n{opacity:.4}
 .saves .latest{position:absolute;left:12px;right:12px;bottom:7px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font:italic 17px/1.1 "EB Garamond",Georgia,serif;color:#6b4a22}
-.saves .empty{position:absolute;inset:14px 10px 4px;display:flex;align-items:center;justify-content:center;color:#a98235;opacity:.7;font:italic 21px/1.2 "EB Garamond",Georgia,serif;text-align:center}
+  font:italic 17px/1.1 "EB Garamond",Georgia,serif;color:var(--ink3)}
+.saves .empty{position:absolute;inset:14px 10px 4px;display:flex;align-items:center;justify-content:center;color:var(--muted);opacity:.7;font:italic 21px/1.2 "EB Garamond",Georgia,serif;text-align:center}
 .saves .empty[hidden],.saves .row[hidden],.saves .latest[hidden]{display:none}
 `;
 
@@ -270,7 +270,7 @@ function clearPlaque(){const sub=document.getElementById("subtitle"),g=gl&&gl.cl
 clearPlaque();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(clearPlaque);
 const trackerEl=document.getElementById("tracker");
 if(trackerEl){if(Q.get("tracker")==="0")trackerEl.remove();else{
-  trackerEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=battle&align=center&refresh=8"+(preview?"&always=1":"");
+  trackerEl.src="/overlay?channel="+encodeURIComponent(CFG.channel)+"&panel=battle&align=center&refresh=8"+CFG.look+(preview?"&always=1":"");
   // Same origin: hide the empty line while a card is up, and fit the cards to
   // the frame — stacked or side by side, whichever needs less shrinking.
   // In just chatting (data-grow) the cards may grow, stack from the bottom up
