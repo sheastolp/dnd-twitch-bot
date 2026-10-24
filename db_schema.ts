@@ -233,6 +233,13 @@ export async function ensureTables() {
   } catch (_) {
     /* column already exists */
   }
+  // source_channel: the broadcaster_id a pending confirm_importchar copies
+  // the viewer's character from (!importchar, characters.ts).
+  try {
+    await sqlite.execute(`ALTER TABLE creation_sessions ADD COLUMN source_channel TEXT`);
+  } catch (_) {
+    /* column already exists */
+  }
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS encounters (
       broadcaster_id TEXT PRIMARY KEY, round INTEGER, current_index INTEGER, active INTEGER, entries TEXT, updated_at INTEGER

@@ -8,7 +8,7 @@ import { maybeChronicleQuote } from "./chronicle.ts";
 import { isNpcChatterActive, maybeNpcChatter } from "./npcs.ts";
 import { handleCustomCommandInvocation, handleTriggerMatch } from "./customcommands.ts";
 import { channelCommandsUrl } from "./commands_page.ts";
-import { generateCharacter, handleLevelUpCommand } from "./characters.ts";
+import { generateCharacter, handleLevelUpCommand, whisperImportHint } from "./characters.ts";
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections, getShoutoutProfile } from "./twitch.ts";
@@ -493,6 +493,7 @@ export async function handleBuiltinChatCommand(ctx: {
           : `@${display} @${targetUser} doesn't have a character yet.`,
         broadcasterId,
       );
+      if (targetUser === chatter) await whisperImportHint(chatter, broadcasterId);
     }
   } else if (/^!lurk$/i.test(chatMessage)) {
     await sendChatMessage(`Thank you, @${display}, for your attendance. The ledger has been noted.`, broadcasterId);

@@ -8,6 +8,7 @@ import {
   rollStat,
   formatRaceName,
   formatStatLine,
+  splitChatMessage,
 } from "./utils.ts";
 import {
   getBroadcaster,
@@ -16,8 +17,12 @@ import {
   getCreationSession,
   saveCreationSession,
   clearCreationSession,
+  isCommandGroupEnabled,
+  listCharactersElsewhere,
+  importCharacter,
 } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
+import { getReplyInitiator, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { gearHpBonus } from "./gear.ts";
 
 export function generateCharacter(username: string): Character {
@@ -195,6 +200,77 @@ export async function adjustLevel(username: string, delta: number, broadcasterId
   return { c, oldLevel, delta: newLevel - oldLevel, hpGain: c.hpMax - oldHpMax, asi };
 }
 
+function describeImport(e: { channel: string; character: Character }) {
+  const c = e.character;
+  return `Level ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} from ${e.channel}`;
+}
+
+// Everything that names another channel goes by whisper, never into this
+// channel's chat: other streamers' names don't belong in someone else's chat.
+// The bot can only send whispers, so the viewer still answers in chat — with
+// a number from the whispered list and !answer yes, which name nothing.
+async function whisperChatter(text: string) {
+  const to = getReplyInitiator()?.userId;
+  return !!to && sendWhisperParts(to, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
+}
+
+// Who has already been whispered the !importchar hint, so a viewer typing
+// !char over and over isn't whispered each time (and the bot stays well
+// inside Twitch's cap on whispers to new recipients).
+const hintedImport = new Set<string>();
+
+/** Whispers "you have a character in another channel — !importchar" once per
+ * viewer and channel, when they have none here, have one elsewhere, and
+ * imports are switched on here. Called from the "no character yet" replies. */
+export async function whisperImportHint(username: string, broadcasterId: string) {
+  const key = `${broadcasterId}:${username}`;
+  if (hintedImport.has(key)) return;
+  if (!(await isCommandGroupEnabled(broadcasterId, "charimport"))) return;
+  const elsewhere = await listCharactersElsewhere(username, broadcasterId);
+  if (!elsewhere.length) return;
+  hintedImport.add(key);
+  const b: any = await getBroadcaster(broadcasterId);
+  const here = String(b?.display_name || b?.login || "the channel");
+  const more = elsewhere.length > 1 ? ` (and ${elsewhere.length - 1} more)` : "";
+  await whisperChatter(`📜 You have a ${describeImport(elsewhere[0])}${more}. Type !importchar in ${here}'s chat to bring it over.`);
+}
+
+/** !importchar [n]: copy your character from another channel into this one.
+ * The list and the confirm prompt are whispered; the viewer picks by number
+ * and confirms with !answer yes (confirm_importchar below). */
+async function handleImportChar(username: string, display: string, broadcasterId: string, arg: string) {
+  const elsewhere = await listCharactersElsewhere(username, broadcasterId);
+  if (!elsewhere.length) {
+    await sendChatMessage(`@${display} you have no character to import — try !createchar or !newchar.`, broadcasterId);
+    return;
+  }
+  const n = arg ? Number(arg) : elsewhere.length === 1 ? 1 : 0;
+  const pick = Number.isInteger(n) && n >= 1 ? elsewhere[n - 1] : undefined;
+  const b: any = await getBroadcaster(broadcasterId);
+  const here = String(b?.display_name || b?.login || "the channel");
+  let whispered: boolean;
+  if (!pick) {
+    const list = elsewhere.map((e, i) => `${i + 1}) ${describeImport(e)}`).join(" · ");
+    whispered = await whisperChatter(`📜 Your characters in other channels: ${list}. Type !importchar <number> in ${here}'s chat to pick one.`);
+  } else {
+    await saveCreationSession({ username, step: "confirm_importchar", sourceChannel: pick.broadcasterId }, broadcasterId);
+    const existing = await getCharacter(username, broadcasterId);
+    const warning = existing
+      ? ` ⚠️ This overwrites your active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}) in ${here}.`
+      : "";
+    whispered = await whisperChatter(
+      `📜 Import your ${describeImport(pick)} into ${here}? It's a copy — the original stays where it is.${warning} Type !answer yes in ${here}'s chat to import, or !answer no to cancel.`,
+    );
+    if (!whispered) await clearCreationSession(username, broadcasterId);
+  }
+  await sendChatMessage(
+    whispered
+      ? `@${display} 📜 I've whispered you the import details.`
+      : `@${display} I couldn't whisper you the import details — check that your whispers are open, then try !importchar again.`,
+    broadcasterId,
+  );
+}
+
 export async function handleCreationCommand(
   username: string,
   display: string,
@@ -207,6 +283,12 @@ export async function handleCreationCommand(
       `@${display} New character started. Choose a race: ${Object.keys(races).join(", ")}. Reply !answer <race>. Type !cancel to stop.`,
       broadcasterId,
     );
+    if (!(await getCharacter(username, broadcasterId))) await whisperImportHint(username, broadcasterId);
+    return true;
+  }
+  const importMatch = chatMessage.match(/^!importchar(?:\s+(\S+))?$/i);
+  if (importMatch) {
+    await handleImportChar(username, display, broadcasterId, importMatch[1] ?? "");
     return true;
   }
   if (chatMessage === "!cancel") {
@@ -349,6 +431,25 @@ export async function handleCreationCommand(
       );
     } else {
       await sendChatMessage(`@${display} Reply !answer yes to overwrite or !answer no to keep the existing character.`, broadcasterId);
+    }
+    return true;
+  }
+
+  if (s.step === "confirm_importchar") {
+    if (answer.toLowerCase() === "yes") {
+      await clearCreationSession(username, broadcasterId);
+      const c = s.sourceChannel ? await importCharacter(username, s.sourceChannel, broadcasterId) : null;
+      await sendChatMessage(
+        c
+          ? `@${display} imported your level ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)}`
+          : `@${display} that character isn't there anymore — nothing was imported.`,
+        broadcasterId,
+      );
+    } else if (answer.toLowerCase() === "no") {
+      await clearCreationSession(username, broadcasterId);
+      await sendChatMessage(`@${display} import cancelled. No changes made.`, broadcasterId);
+    } else {
+      await sendChatMessage(`@${display} Reply !answer yes to import or !answer no to cancel.`, broadcasterId);
     }
     return true;
   }

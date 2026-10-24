@@ -286,6 +286,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!levelup` / `!levelup +/-N` | Adjust level |
 | `!hp` / `!hp +/-N` | Show or change HP |
 | `!savechar` / `!loadchar` / `!resetchar` | Backup / restore / reset |
+| `!importchar [number]` | Copy your character from another channel into this one. The list and confirm prompt are whispered so no other channel is named in chat; confirm with `!answer yes` |
 | `!resetchar @user` | Reset another player's character *(mod)* |
 | `!shmash` / `!shmash @user` | Just-for-fun narrated smash using your character against a target's (or a random comedic target if none given) — no HP/game state touched |
 | `!watchtime` / `!watchtime @user` | How long a viewer has been around: a clock that runs while the viewer is in chat and the stream is live, lurkers included (needs the `watchtime_cron.ts` cron and the broadcaster to reconnect for `moderator:read:chatters`; without it, only time around chat messages counts — gaps over `WATCHTIME_SESSION_GAP_MINUTES`, default 15, aren't counted). Starts from deploy |

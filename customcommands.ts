@@ -231,7 +231,7 @@ async function getRandomFfzEmote(broadcasterId: string): Promise<string | null> 
 export const RESERVED_NAMES = new Set([
   "roll", "r", "d20", "bg3roll", "bg3", "bg3companion", "bg3origin", "bg3loot", "bg3camp", "bg3lookup",
   "div2", "div2build", "div2loot", "div2mission", "div2lookup",
-  "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar",
+  "createchar", "newchar", "answer", "cancel", "char", "hp", "savechar", "loadchar", "resetchar", "importchar",
   "levelup", "spell", "item", "class", "feat", "ability", "race", "subrace", "rule", "rules",
   "dndduel", "turn", "party", "dndbot", "dndbothelp", "logs", "connections", "help", "start", "link", "guide",
   "cmd", "trigger", "command", "commands", "hug", "map", "roster", "mod", "admin", "bot",

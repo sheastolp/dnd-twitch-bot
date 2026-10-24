@@ -45,7 +45,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     key: "characters", icon: "🧙", name: "Characters",
     what: "Viewers roll a D&D hero in one command (!createchar) and can view, level and back it up. Heroes are what everything else fights with.",
     yourPart: "Nothing.",
-    switches: ["charcreate", "charsaves", "charprogress", "charfun", "bg3char", "streamstats"],
+    switches: ["charcreate", "charsaves", "charimport", "charprogress", "charfun", "bg3char", "streamstats"],
   },
   {
     key: "fighting", icon: "⚔️", name: "Fighting & hunts",

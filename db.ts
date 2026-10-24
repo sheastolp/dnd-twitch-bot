@@ -171,6 +171,40 @@ export async function resetCharacter(username: string, broadcasterId: string) {
   await sqlite.execute("DELETE FROM character_backups WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username]);
 }
 
+/** The viewer's characters in other connected, unblocked channels, highest
+ * level first — what !importchar offers to copy into this one. */
+export async function listCharactersElsewhere(username: string, broadcasterId: string) {
+  const res = await sqlite.execute(
+    `SELECT c.*, b.login AS channel_login, b.display_name AS channel_display
+       FROM characters c JOIN broadcasters b ON b.broadcaster_id = c.broadcaster_id
+      WHERE c.username = ? AND c.broadcaster_id <> ? AND b.connected = 1
+        AND NOT EXISTS (SELECT 1 FROM channel_blocks k WHERE k.broadcaster_id = c.broadcaster_id)
+      ORDER BY c.level DESC, c.xp DESC, c.broadcaster_id LIMIT 10`,
+    [username, broadcasterId],
+  );
+  return res.rows.map((r: any) => ({
+    broadcasterId: String(r.broadcaster_id),
+    login: String(r.channel_login ?? ""),
+    channel: String(r.channel_display || r.channel_login || r.broadcaster_id),
+    character: rowToCharacter(r),
+  }));
+}
+
+/** Copies the viewer's character from another channel into this one (a
+ * snapshot — the original stays where it was) at full HP. Null when the
+ * source character is gone. */
+export async function importCharacter(username: string, fromBroadcasterId: string, broadcasterId: string) {
+  const res = await sqlite.execute(
+    "SELECT * FROM characters WHERE broadcaster_id = ? AND username = ?",
+    [fromBroadcasterId, username],
+  );
+  if (!res.rows.length) return null;
+  const c = rowToCharacter(res.rows[0]);
+  c.hpCurrent = c.hpMax;
+  await saveCharacter(c, broadcasterId);
+  return c;
+}
+
 export async function getCreationSession(username: string, broadcasterId: string) {
   const res = await sqlite.execute("SELECT * FROM creation_sessions WHERE broadcaster_id = ? AND username = ?", [broadcasterId, username]);
   if (!res.rows.length) return null;
@@ -188,12 +222,13 @@ export async function getCreationSession(username: string, broadcasterId: string
     alignment: r.alignment ?? null,
     hook: r.hook ?? null,
     targetUser: r.target_user ?? null,
+    sourceChannel: r.source_channel ?? null,
   };
 }
 
 export async function saveCreationSession(s: any, broadcasterId: string) {
   await sqlite.execute(
-    "INSERT OR REPLACE INTO creation_sessions (broadcaster_id,username,step,race,subrace,class,scores,subclass,background,alignment,hook,target_user,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    "INSERT OR REPLACE INTO creation_sessions (broadcaster_id,username,step,race,subrace,class,scores,subclass,background,alignment,hook,target_user,source_channel,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     [
       broadcasterId,
       s.username,
@@ -207,6 +242,7 @@ export async function saveCreationSession(s: any, broadcasterId: string) {
       s.alignment ?? null,
       s.hook ?? null,
       s.targetUser ?? null,
+      s.sourceChannel ?? null,
       Date.now(),
     ],
   );
