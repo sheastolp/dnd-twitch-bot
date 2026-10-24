@@ -11,7 +11,7 @@ export const races: Record<string, Race> = {
     traits: ["Extra Language"],
   },
   Elf: {
-    subraces: ["High Elf", "Wood Elf", "Drow"],
+    subraces: ["High Elf", "Wood Elf", "Drow", "Undead Elf"],
     bonuses: { DEX: 2 },
     speed: 30,
     traits: ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance"],
@@ -79,6 +79,7 @@ export const subraceBonuses: Record<string, Partial<Record<Ability, number>>> =
     "High Elf": { INT: 1 },
     "Wood Elf": { WIS: 1 },
     Drow: { CHA: 1 },
+    "Undead Elf": { CON: 1 },
     "Hill Dwarf": { WIS: 1 },
     "Mountain Dwarf": { STR: 2 },
     Lightfoot: { CHA: 1 },
