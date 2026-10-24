@@ -11,6 +11,7 @@ import { handleAbilitiesCommand } from "./abilities_cmd.ts";
 import { handleAdCommand } from "./ads.ts";
 import { disconnectAdToken, ensureAdTables, purgeAdData } from "./ads_db.ts";
 import { handleOracleCommand } from "./oracle.ts";
+import { handleAskMeCommand } from "./askme.ts";
 import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.ts";
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
@@ -762,6 +763,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     await handleAdCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)
   ) return new Response("OK");
   if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  if (await handleAskMeCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleQuoteCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   // !stats (game_stats.ts): the game the dashboard picked, Warframe by default.

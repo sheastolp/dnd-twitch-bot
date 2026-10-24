@@ -185,6 +185,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka
   // (babushka.ts checks this switch itself; there's no command word).
   mentionreply: { section: "Other", label: "Babushka replies when chat @-tags the bot (AI)", commands: [] },
+  // askme.ts: AI answers backed by a web search, with a source link (OpenAI only).
+  askme: { section: "Other", label: "Ask me anything (!askme <question> — AI answer with a source)", commands: ["askme"] },
 };
 
 // ── Switches that depend on other switches ──────────────────────────────
