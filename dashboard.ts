@@ -67,6 +67,7 @@ import { applyGameStatsForm, renderGameStatsPage } from "./game_stats_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { applyTipsForm, renderTipsDashboardPage } from "./tips.ts";
+import { applySongListForm, getSongList, renderSongListPage } from "./songlist.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
 import { startNightbotConnect } from "./nightbot_import.ts";
@@ -966,6 +967,37 @@ export async function handleTipsForm(form: FormData, baseUrl: string, cookieHead
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/tips?${params.toString()}`);
+}
+
+// ── Song request list (songlist.ts), behind the same key + login ──
+// The page polls ?format=json and posts with fetch (Accept: application/json)
+// so it never reloads; a plain form post (no JS) gets the usual redirect.
+
+const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+
+export async function handleSongListPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  if (url.searchParams.get("format") === "json") return jsonResponse({ ok: true, list: await getSongList(auth.channelId) });
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderSongListPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleSongListForm(form: FormData, baseUrl: string, cookieHeader: string | null, wantsJson: boolean): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applySongListForm(auth.channelId, form, "Mod");
+  if (wantsJson) return jsonResponse({ ...result, list: await getSongList(auth.channelId) });
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/songs?${params.toString()}`);
 }
 
 /** GET /dashboard/music/spotify — off to Spotify to connect (comes back via /spotify/callback). */

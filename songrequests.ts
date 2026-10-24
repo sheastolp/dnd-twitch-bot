@@ -1,6 +1,8 @@
 // GuildScribe — song requests: chat adds songs to the streamer's Spotify queue.
 //
 //   !sr <song name or Spotify link>   add a song (who may: the songs.who option)
+//   !sr <YouTube/SoundCloud/… link>   goes on the mods' request list instead (songlist.ts), as does
+//                                     every !sr while Spotify isn't set up for song requests
 //   !sr                               how to request, and the queue link
 //   !song                             what's playing, and who asked for it
 //   !queue                            the next few songs, and the queue link
@@ -30,6 +32,7 @@ import { optNum, optWord } from "./channel_options.ts";
 import { getNowPlaying, spotifyFetch, spotifyQueueAccess } from "./nowplaying.ts";
 import { escapeHtml } from "./utils.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
+import { addListRequest, cleanLink, pendingCount, pendingCountFor, youtubeSearchLink } from "./songlist.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 /** A request counts as "this viewer's" (for !skip, the queue page) this long. */
@@ -83,10 +86,9 @@ async function spotifyProblem(res: Response | null): Promise<string> {
   return `Spotify didn't take that (${res.status}). Try again in a moment.`;
 }
 
-/** A Spotify link → that track; anything else → Spotify's best match for the words. */
+/** A Spotify link → that track; words → Spotify's best match (other links never get here: they go on the request list). */
 async function findTrack(broadcasterId: string, query: string): Promise<{ track: Track } | { problem: string }> {
   const id = query.match(TRACK_ID_RE)?.[1];
-  if (!id && /https?:\/\//i.test(query)) return { problem: "only Spotify songs can be requested — paste a Spotify track link, or just type the song name." };
   const res = id
     ? await spotifyFetch(broadcasterId, `/tracks/${id}?market=from_token`)
     : await spotifyFetch(broadcasterId, `/search?${new URLSearchParams({ q: query.slice(0, 200), type: "track", limit: "1", market: "from_token" })}`);
@@ -151,13 +153,13 @@ export async function handleSongRequestCommand(
   const arg = (match[2] ?? "").trim();
   const reply = (text: string) => sendChatMessage(`@${display} ${text}`, broadcasterId);
 
+  // Without Spotify (or before it's reconnected with the queue permission),
+  // !sr still works through the request list (songlist.ts); only !skip and
+  // the Spotify queue need it.
   const access = await spotifyQueueAccess(broadcasterId);
-  if (access !== "ok" && word !== "song") {
-    await reply(access === "needs_reconnect"
-      ? "🎵 song requests need one more Spotify permission — the streamer can reconnect Spotify on the dashboard's 🎵 Now playing page."
-      : "🎵 song requests need Spotify connected on the dashboard's 🎵 Now playing page (Spotify, not Last.fm).");
-    return true;
-  }
+  const noSpotify = access === "needs_reconnect"
+    ? "🎵 skipping needs one more Spotify permission — the streamer can reconnect Spotify on the dashboard's 🎵 Now playing page."
+    : "🎵 skipping needs Spotify connected on the dashboard's 🎵 Now playing page.";
 
   if (word === "song") {
     const np = await getNowPlaying(broadcasterId);
@@ -169,15 +171,19 @@ export async function handleSongRequestCommand(
   }
 
   if (word === "queue" || word === "songs") {
+    const listed = await pendingCount(broadcasterId);
+    const listNote = listed ? `${listed} request${listed === 1 ? "" : "s"} on the request list.` : "";
+    if (access !== "ok") { await reply(`🎵 ${listNote || "No requests waiting."}`); return true; }
     const q = await getQueue(broadcasterId);
     if ("problem" in q) { await reply(`🎵 ${q.problem}`); return true; }
     const asked = await recentRequests(broadcasterId);
     const next = q.next.slice(0, 3).map((t, i) => `${i + 1}. ${label(t)}${asked.has(t.uri) ? ` (${asked.get(t.uri)!.display})` : ""}`);
-    await reply(`🎵 ${q.current ? `Now: ${label(q.current)}. ` : ""}${next.length ? `Up next: ${next.join(" · ")}. ` : "Nothing queued. "}Full queue: ${queueLink(channelKey)}`);
+    await reply(`🎵 ${q.current ? `Now: ${label(q.current)}. ` : ""}${next.length ? `Up next: ${next.join(" · ")}. ` : "Nothing queued. "}${listNote ? `${listNote} ` : ""}Full queue: ${queueLink(channelKey)}`);
     return true;
   }
 
   if (word === "skip") {
+    if (access !== "ok") { await reply(noSpotify); return true; }
     const q = await getQueue(broadcasterId, true);
     if ("problem" in q) { await reply(`🎵 ${q.problem}`); return true; }
     if (!q.current) { await reply("🎵 nothing's playing to skip."); return true; }
@@ -201,7 +207,7 @@ export async function handleSongRequestCommand(
     optNum(broadcasterId, "songs.cooldown"),
   ]);
   if (!arg || /^(help|list)$/i.test(arg)) {
-    await reply(`🎵 request a song with !sr <song name or Spotify link> (${WHO_LABEL[who] ?? "everyone"}; up to ${perViewer} waiting each). !song for what's playing, !queue for what's next: ${queueLink(channelKey)}`);
+    await reply(`🎵 request a song with !sr <song name, Spotify or YouTube link> (${WHO_LABEL[who] ?? "everyone"}; up to ${perViewer} waiting each). !song for what's playing, !queue for what's next${access === "ok" ? `: ${queueLink(channelKey)}` : "."}`);
     return true;
   }
   if (!allowed(who, badges, isModerator)) {
@@ -210,9 +216,36 @@ export async function handleSongRequestCommand(
   }
   const login = chatter.toLowerCase();
   if (!isModerator && gapSecs > 0) {
-    const last = await sqlite.execute("SELECT MAX(requested_at) AS at FROM song_requests WHERE broadcaster_id = ? AND login = ?", [broadcasterId, login]);
+    const last = await sqlite.execute(
+      `SELECT MAX(at) AS at FROM (SELECT MAX(requested_at) AS at FROM song_requests WHERE broadcaster_id = ? AND login = ?
+         UNION ALL SELECT MAX(requested_at) FROM song_list WHERE broadcaster_id = ? AND login = ?)`,
+      [broadcasterId, login, broadcasterId, login],
+    );
     const wait = Math.ceil((Number(last.rows[0]?.at ?? 0) + gapSecs * 1000 - Date.now()) / 1000);
     if (wait > 0) { await reply(`🎵 one request at a time — you can ask again in ${wait >= 60 ? `${Math.ceil(wait / 60)} min` : `${wait}s`}.`); return true; }
+  }
+
+  // Other links (YouTube, SoundCloud, …), and anything while Spotify can't
+  // take requests, go on the mods' request list instead of the Spotify queue.
+  const typedLink = arg.match(/https?:\/\/\S+/i)?.[0];
+  if ((typedLink && !TRACK_ID_RE.test(typedLink)) || access !== "ok") {
+    const url = typedLink ? cleanLink(typedLink) : youtubeSearchLink(arg);
+    if (!url) { await reply("🎵 that link doesn't look right — paste the whole link, starting with https://."); return true; }
+    if (!isModerator) {
+      const mine = await pendingCountFor(broadcasterId, login);
+      if (mine >= perViewer) {
+        await reply(`🎵 you already have ${mine} song${mine === 1 ? "" : "s"} on the request list — request another once one has played.`);
+        return true;
+      }
+    }
+    const added = await addListRequest(broadcasterId, { login, display, url, label: typedLink ? "" : arg });
+    if (!added.ok) {
+      await reply(added.reason === "duplicate" ? "🎵 that one's already on the request list." : "🎵 the request list is full right now — try again later.");
+      return true;
+    }
+    const n = await pendingCount(broadcasterId);
+    await reply(`🎵 added ${added.label || "your link"} to the request list (#${n}).`);
+    return true;
   }
 
   const found = await findTrack(broadcasterId, arg);

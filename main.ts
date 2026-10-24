@@ -49,6 +49,7 @@ import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData }
 import { ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
 import { ensureTipTables, handleTipCommand, purgeTipData } from "./tips.ts";
 import { ensureSongRequestTables, handleSongRequestCommand, purgeSongRequestData } from "./songrequests.ts";
+import { ensureSongListTables, purgeSongListData } from "./songlist.ts";
 import { ensureAlertTables, handleAlertCommand, onCheerAlert, onFollowAlert, purgeAlertData, pushAlert } from "./alerts.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
@@ -152,6 +153,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureFollowThanksTables,
   ensureAlertTables,
   ensureSongRequestTables,
+  ensureSongListTables,
   ensureTipTables,
   ensureSocialTables,
   ensurePointsTables,
@@ -571,6 +573,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeFollowThanksData(broadcasterId);
       await purgeAlertData(broadcasterId);
       await purgeSongRequestData(broadcasterId);
+      await purgeSongListData(broadcasterId);
       await purgeTipData(broadcasterId);
       await purgeFollowBotData(broadcasterId);
       await purgeModLogData(broadcasterId);

@@ -81,8 +81,8 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "songrequests", icon: "🎶", name: "Song requests",
-    what: "Chat adds songs to your Spotify queue with !sr <song name or Spotify link>. !song says what's playing and who asked for it, !queue shows what's next (with a queue page to share), and mods — or whoever requested the song — can !skip it.",
-    yourPart: "Connect Spotify on the dashboard's 🎵 Now playing page (connected before song requests existed? connect it again). Spotify only takes requests on Premium, with Spotify open and playing. Set limits under ⚙ Options.",
+    what: "Chat adds songs to your Spotify queue with !sr <song name or Spotify link>. YouTube, SoundCloud and other links (and every request while Spotify isn't connected) go on the 🎶 Song request list on the dashboard instead, with the link and who asked, for you and your mods to tick off. !song says what's playing and who asked for it, !queue shows what's next (with a queue page to share), and mods — or whoever requested the song — can !skip it.",
+    yourPart: "For the Spotify queue, connect Spotify on the dashboard's 🎵 Now playing page (connected before song requests existed? connect it again); Spotify only takes requests on Premium, with Spotify open and playing. For everything else, keep the 🎶 Song request list open and press Done as songs play. Set limits under ⚙ Options.",
     switches: ["songrequests"],
   },
   {

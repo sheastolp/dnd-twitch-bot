@@ -22,7 +22,7 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSongListPage, handleSongListForm } from "./dashboard.ts";
 import { renderTipPage } from "./tips.ts";
 import { renderSongQueuePage } from "./songrequests.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
@@ -515,6 +515,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Now playing settings (nowplaying.ts) — same gate.
     return await handleNowPlayingPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/songs") {
+    // Song request list (songlist.ts) — same gate; mods only.
+    return await handleSongListPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/tips") {
     // Tip page links (tips.ts) — same gate.
     return await handleTipsPage(url, req.headers.get("Cookie"));
@@ -812,6 +816,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/botcheck") {
     return await handleBotCheckForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/songs") {
+    return await handleSongListForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"), (req.headers.get("Accept") ?? "").includes("application/json"));
   }
   if (req.method === "POST" && path === "/dashboard/tips") {
     return await handleTipsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

@@ -100,7 +100,7 @@ const MAPPING: Array<[string, string, string, string]> = [
   ["Followage", "Yes", "Via custom command", "<code>!followage</code>, built in."],
   ["Spam filters", "Yes", "Yes", "Link, caps, symbol, emote and repeat filters with a warn → timeout ladder, plus auto-bans for “AI viewers” spam."],
   ["Channel-point rewards", "Yes", "No", "Linked to in-chat effects with <code>!boon</code>."],
-  ["Song requests", "Yes", "Yes", "<code>!sr</code> adds songs straight to your Spotify queue, with per-viewer limits, <code>!song</code>, <code>!queue</code>, <code>!skip</code> and a public queue page. Spotify Premium only; no YouTube requests."],
+  ["Song requests", "Yes", "Yes", "<code>!sr</code> adds songs straight to your Spotify queue, with per-viewer limits, <code>!song</code>, <code>!queue</code>, <code>!skip</code> and a public queue page (Spotify Premium). YouTube and other links go on a request list your mods tick off."],
   ["Follow / sub alert boxes", "Yes", "No", "An Alerts overlay with a card and fanfare for follows, subs, resubs, gift subs, raids and cheers, on top of the thank-yous in chat."],
   ["Tips & donations", "Yes", "No", "A tip page (<code>!tip</code>) with your own PayPal, Ko-fi, Cash App, Stripe or other links. Tips go straight to you; mods announce them on stream with <code>!alert tip</code>."],
   ["OBS overlays", "Alerts & widgets", "No", "Alerts, now playing, sound effects, and overlays for giveaways, leaderboards and chat games."],
@@ -164,7 +164,7 @@ export function renderSwitchPage(): Response {
 <h2>Alerts, tips and song requests</h2>
 <ul>
 <li><strong>Alerts.</strong> Add the Alerts overlay from <code>!overlays</code> as an OBS Browser source. New followers, subs, resubs (with their message), gift subs, raids and cheers each get a card and a fanfare. Test it with <code>!alert test sub</code>.</li>
-<li><strong>Song requests.</strong> Connect Spotify on the dashboard's Now playing page and viewers can <code>!sr</code> a song name or Spotify link straight into your queue. You set how many songs each viewer can have waiting, the longest song allowed and who can request. Spotify only allows this on Premium, and GuildScribe doesn't take YouTube requests.</li>
+<li><strong>Song requests.</strong> Connect Spotify on the dashboard's Now playing page and viewers can <code>!sr</code> a song name or Spotify link straight into your queue. You set how many songs each viewer can have waiting, the longest song allowed and who can request. Spotify only allows this on Premium. YouTube, SoundCloud and other links, or every request if you don't use Spotify, go on a mods-only request list on the dashboard, with the link and who asked for it, and a Done button for each song once it's played.</li>
 <li><strong>Tips.</strong> Put your PayPal.me, Ko-fi, Cash App, Stripe Payment Link or StreamElements/Streamlabs tip link on your GuildScribe tip page, and <code>!tip</code> posts it. The money goes straight to you, and GuildScribe never touches it. Because those services don't report back, a mod puts a tip on screen with <code>!alert tip &lt;name&gt; &lt;amount&gt;</code>.</li>
 </ul>
 <h2>Questions</h2><div class="faq">${faq}</div>

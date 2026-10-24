@@ -174,7 +174,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // !alert), so a channel's own !alert custom command still works.
   alerts: { section: "Stream overlays", label: "On-screen alerts (follows, subs, gift subs, raids, cheers and tips on stream; !alerts)", commands: [] },
   // songrequests.ts checks this switch itself; !sr, !song and !skip yield to a channel's own custom command.
-  songrequests: { section: "Stream overlays", label: "Song requests (!sr <song> adds it to your Spotify queue; !song, !queue, !skip)", commands: [] },
+  songrequests: { section: "Stream overlays", label: "Song requests (!sr <song> adds it to your Spotify queue, or YouTube/other links to the mods' request list; !song, !queue, !skip)", commands: [] },
   // tips.ts: !tip / !donate post the channel's tip page; checks its switch itself.
   tips: { section: "Stream overlays", label: "Tip page (!tip — your tip/donation links on one GuildScribe page)", commands: [] },
   shots: { section: "Stream overlays", label: "Shot counter (!shot — mods add one, !shots shows the count; Shots taken overlay)", commands: [] },
