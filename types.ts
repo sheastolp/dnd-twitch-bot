@@ -33,6 +33,34 @@ export type Character = {
   items: string[];
   feats: string[];
   abilities: string[];
+  /** A Druid's active !wildshape form (wildshape.ts), set by getCharacter. */
+  wildForm?: WildForm;
+};
+
+/** One attack from a beast's stat block: +bonus to hit, dice d die + mod damage. */
+export type BeastAttack = {
+  name: string;
+  bonus: number;
+  dice: number;
+  die: number;
+  mod: number;
+  type: string;
+  /** Extra damage on every hit ("plus 7 (2d6) Poison damage"). */
+  plus?: { dice: number; die: number; type: string };
+};
+
+/** A Wild Shape form as fights use it, fixed when the druid shifts. */
+export type WildForm = {
+  name: string;
+  ac: number;
+  tempHp: number;
+  /** Circle of the Moon (Lunar Form at level 14). */
+  moon: boolean;
+  str: number;
+  dex: number;
+  con: number;
+  /** One turn's attacks in order: Multiattack spelled out, else the best single attack. */
+  attacks: BeastAttack[];
 };
 
 export type CreationSession = {

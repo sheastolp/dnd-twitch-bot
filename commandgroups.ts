@@ -70,7 +70,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   charfun: { section: "Adventurer's parchment", label: "For fun (!shmash)", commands: ["shmash"] },
   charprogress: { section: "Adventurer's parchment", label: "Manage progress (!levelup, !hp)", commands: ["levelup", "hp"], parent: "character" },
   charsaves: { section: "Adventurer's parchment", label: "Save and restore (!savechar, !loadchar, !resetchar)", commands: ["savechar", "loadchar", "resetchar"], parent: "character" },
-  charcreate: { section: "Adventurer's parchment", label: "Create and view (!newchar, !createchar, !char, !abilities, !roster)", commands: ["newchar", "createchar", "char", "abilities", "roster"], parent: "character" },
+  charcreate: { section: "Adventurer's parchment", label: "Create and view (!newchar, !createchar, !char, !abilities, !wildshape, !roster)", commands: ["newchar", "createchar", "char", "abilities", "wildshape", "roster"], parent: "character" },
   streamstats: { section: "Adventurer's parchment", label: "Stream stats (!watchtime, !followage, !nick)", commands: ["watchtime", "followage", "nick"], parent: "misc" },
   gamestats: { section: "Adventurer's parchment", label: "Game stats (!stats — Warframe by default, game picked on the dashboard's Game stats page)", commands: ["stats"], parent: "misc" },
   // Fate's dice

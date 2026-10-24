@@ -38,7 +38,11 @@
 //              ally under half HP: (1 + level/4)d4 + WIS, 2–4 a fight);
 //              Spiritual Weapon L3 (a bonus strike every turn, 1–3d8)
 //   Druid      Produce Flame (d8, 1–4 dice); Healing Word (2–3 a fight);
-//              Wild Shape L2 (a beast form soaks 5 + 2×level damage first)
+//              Wild Shape L2: a druid in an active !wildshape form (wildshape.ts,
+//              2024 rules) fights as the beast — its AC, its attacks (Multiattack
+//              spelled out), its Temporary HP soaking damage first, Primal Strike
+//              (+1d8 once a turn, 2d8 L15) and Moon's Lunar Form (+2d10, L14);
+//              no spells, healing or species traits while shifted
 //   Bard       Vicious Mockery-style cantrip (d8, 1–4 dice); Bardic
 //              Inspiration (CHA mod uses, d6–d12: turns a near-miss by any ally
 //              into a hit); Healing Word (1–2 a fight)
@@ -85,7 +89,7 @@
 // fight; classic turn-by-turn fights get only the free ones (Cunning Strike,
 // Vicious Mockery).
 
-import type { Ability } from "./types.ts";
+import type { Ability, WildForm } from "./types.ts";
 import { classes, draconicAncestry } from "./data.ts";
 import { attackAbility, heroAc, modifier } from "./utils.ts";
 import { type BattleLog, heroAcWhy, type Mods, rollDice, type Strike } from "./battle.ts";
@@ -148,7 +152,14 @@ export interface Kit {
   healDice: number;
   inspiration: number;
   inspireDie: number;
+  /** Temporary HP of an active Wild Shape form, soaking damage first. */
   wildShape: number;
+  /** The druid's active Wild Shape form: its attacks replace the hero's. */
+  beast?: WildForm;
+  /** Elemental Fury's Primal Strike: +dice d8 once a turn with a beast's attack. */
+  primalDice: number;
+  /** Moon's Lunar Form: +2d10 radiant once a turn in Wild Shape. */
+  lunar: boolean;
   lucky: boolean;
   relentless: boolean;
   breathDice: number;
@@ -278,7 +289,7 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
     rage: 0, sneak: 0, uncanny: 0, uncannyRound: 0, martialDie: 0, markName: "",
     smiteDice: 0, smites: 0, improvedSmite: false, layOnHands: 0,
     secondWind: false, actionSurge: false, quickened: 0, shields: 0,
-    heals: 0, healDice: 0, inspiration: 0, inspireDie: 0, wildShape: 0,
+    heals: 0, healDice: 0, inspiration: 0, inspireDie: 0, wildShape: 0, primalDice: 0, lunar: false,
     lucky: false, relentless: false, breathDice: 0, breathDc: 0, breathName: "breath weapon", bigSpells: 0, spiritDice: 0, colossus: false, ki: 0,
     hinders: [], hinderUses: 0, hinderDc: 8 + prof + mod, cuttingWords: false, names,
   };
@@ -290,6 +301,8 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
     names.push(name);
   };
   const slots = (level9: number) => (level >= level9 ? 2 : 1);
+  const form: WildForm | undefined = cls === "druid" && level >= 2 ? c.wildForm : undefined;
+  if (form) return beastKit(k, form, limited);
   if (cantrip) names.push(`${cantrip.name} (${cls === "warlock" ? `${cantripDice(level)} beam${cantripDice(level) > 1 ? "s" : ""}` : `${k.dice}d${k.die}`})`);
   const extraAttack = level >= 5 && ["barbarian", "fighter", "paladin", "ranger", "monk"].includes(cls);
   switch (cls) {
@@ -443,10 +456,7 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
       k.heals = limited(level >= 9 ? 3 : 2);
       k.healDice = 1 + Math.floor(level / 4);
       names.push(`Healing Word (${k.healDice}d4 + WIS, ${level >= 9 ? 3 : 2}/fight)`);
-      if (level >= 2) {
-        k.wildShape = limited(5 + 2 * level);
-        names.push(`Wild Shape (${5 + 2 * level} HP beast form, 1/fight)`);
-      }
+      if (level >= 2) names.push("Wild Shape (!wildshape <beast> to fight as a beast)");
       hinder(
         { name: "Entangle", cond: "restrained", how: "cast", cost: "uses", save: "STR", turns: 10, repeat: true, effect: { disadvantage: true, exposed: true } },
         `Entangle (restrained, ${dc}, ${slots(9)}/fight)`, slots(9),
@@ -494,6 +504,39 @@ export function makeKit(c: any, opts: { stateless?: boolean; minDie?: number; ed
   return k;
 }
 
+const signedNum = (n: number) => `${n < 0 ? "−" : "+"}${Math.abs(n)}`;
+
+/** A druid's kit in Wild Shape (2024): the beast's attacks and Temporary HP,
+ * plus the class features that work in the form. No spells, healing or
+ * species traits. */
+function beastKit(k: Kit, form: WildForm, limited: (n: number) => number): Kit {
+  k.beast = form;
+  k.attacks = form.attacks.length;
+  const first = form.attacks[0];
+  if (first) Object.assign(k, { die: first.die, dice: first.dice, dmgMod: first.mod });
+  k.wildShape = limited(form.tempHp);
+  k.primalDice = k.level >= 15 ? 2 : k.level >= 7 ? 1 : 0;
+  k.lunar = form.moon && k.level >= 14;
+  const attackText = (a: WildForm["attacks"][number]) =>
+    `${a.name} ${signedNum(a.bonus)} (${a.dice ? `${a.dice}d${a.die}${a.mod ? ` ${signedNum(a.mod)}` : ""}` : a.mod} ${a.type}` +
+    `${a.plus ? ` + ${a.plus.dice}d${a.plus.die} ${a.plus.type}` : ""})`;
+  k.names.push(
+    `Wild Shape: ${form.name} form (AC ${form.ac}, ${form.tempHp} temp HP${k.wildShape ? "" : " — not in classic fights"})`,
+    form.attacks.length ? `${form.attacks.length > 1 ? "Multiattack: " : ""}${form.attacks.map(attackText).join(", ")}` : "no attacks in this form",
+  );
+  if (k.primalDice) k.names.push(`Primal Strike (+${k.primalDice}d8 once a turn)`);
+  if (k.lunar) k.names.push("Lunar Form (+2d10 radiant once a turn)");
+  return k;
+}
+
+/** A hero's AC: their Wild Shape form's, else from their scores. `acBase` 11
+ * (vs monsters) gives a form the same +1 it gives everyone. */
+export function fighterAc(c: any, acBase: number): { ac: number; why: string } {
+  const form: WildForm | undefined = String(c.cls ?? "").toLowerCase() === "druid" && Number(c.level) >= 2 ? c.wildForm : undefined;
+  if (form) return { ac: form.ac + acBase - 10, why: `${form.name} form AC ${form.ac}${acBase > 10 ? ` +${acBase - 10} vs monsters` : ""}` };
+  return { ac: heroAc(c, acBase).ac, why: heroAcWhy(acBase, c) };
+}
+
 /** A hero ready to fight. `acBase` is 10 (PvP) or 11 (vs monsters). */
 export function heroFighter(
   name: string,
@@ -504,10 +547,13 @@ export function heroFighter(
 ): Fighter {
   const cls = String(c.cls ?? "");
   const saves: string[] = (classes as any)[cls]?.savingThrows ?? [];
-  const dexSave = modifier(Number(c.scores?.DEX ?? 10)) + (saves.includes("DEX") ? Number(c.proficiency ?? 2) : 0);
+  const kit = makeKit(c, opts);
+  const dex = kit.beast?.dex ?? Number(c.scores?.DEX ?? 10);
+  const dexSave = modifier(dex) + (saves.includes("DEX") ? Number(c.proficiency ?? 2) : 0);
+  const ac = fighterAc(c, acBase);
   return {
-    name, c, hp, max: Number(c.hpMax ?? hp), ac: heroAc(c, acBase).ac, acWhy: heroAcWhy(acBase, c),
-    kit: makeKit(c, opts), dexSave, fateDc: opts.fateDc,
+    name, c, hp, max: Number(c.hpMax ?? hp), ac: ac.ac, acWhy: ac.why,
+    kit, dexSave, fateDc: opts.fateDc,
   };
 }
 
@@ -556,7 +602,7 @@ function takeHit(t: Fighter, raw: number, round: number): { taken: number; tags:
     const soaked = Math.min(k.wildShape, dmg);
     k.wildShape -= soaked;
     dmg -= soaked;
-    tags.push(k.wildShape ? `beast form soaks ${soaked}` : `beast form soaks ${soaked} and breaks`);
+    tags.push(`${k.beast ? `${k.beast.name.toLowerCase()} form's` : "beast form"} temp HP ${k.wildShape ? "soak" : "soak the last"} ${soaked}`);
   }
   t.hp = Math.max(0, t.hp - dmg);
   const shownHp = t.hp;
@@ -567,7 +613,7 @@ function takeHit(t: Fighter, raw: number, round: number): { taken: number; tags:
   } else if (t.hp <= 0 && t.fateDc && !t.fateUsed) {
     t.fateUsed = true;
     const roll = d(20);
-    const con = modifier(Number(t.c?.scores?.CON ?? 10));
+    const con = modifier(Number(k?.beast?.con ?? t.c?.scores?.CON ?? 10));
     if (roll + con >= t.fateDc) {
       t.hp = 1;
       after.push(`✨ fate stays its hand — ${t.name === "you" ? "you are" : t.name + " is"} left at 1 HP`);
@@ -743,13 +789,26 @@ function useHinder(me: Fighter, t: Fighter, h: Hinder, battle: BattleLog) {
 export type Pick = () => Fighter | undefined;
 
 /** What a hero has used up this turn. */
-type Turn = { sneakUsed: boolean; colossusUsed?: boolean; hindered?: boolean };
+type Turn = {
+  sneakUsed: boolean;
+  colossusUsed?: boolean;
+  hindered?: boolean;
+  /** Wild Shape: the last of the form's attacks used this turn, and its once-a-turn extras. */
+  beastNext?: number;
+  primalUsed?: boolean;
+  lunarUsed?: boolean;
+};
 
 /** One attack roll by a hero. Returns the strike as logged. */
 function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, turn: Turn, opts: { bonusStrike?: boolean } = {}): Strike {
   const k = me.kit!;
   const tags: string[] = opts.bonusStrike ? [k.martialDie ? "martial arts" : "spiritual weapon"] : [];
-  const atk: Mods = [[k.ability, k.mod], ["prof", k.prof]];
+  // In Wild Shape, each swing is the form's next attack, at its own bonus.
+  const beast = k.beast && !opts.bonusStrike && k.beast.attacks.length
+    ? k.beast.attacks[(turn.beastNext = (turn.beastNext ?? -1) + 1) % k.beast.attacks.length]
+    : undefined;
+  if (beast) tags.push(beast.name.toLowerCase());
+  const atk: Mods = beast ? [[beast.name.toLowerCase(), beast.bonus]] : [[k.ability, k.mod], ["prof", k.prof]];
   if (k.edge && t.attack !== undefined) atk.push(["edge", k.edge]);
   let roll = attackD20(me, t, tags, atk);
   if (roll === 1 && k.lucky) {
@@ -791,10 +850,10 @@ function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, tu
     record(battle, base, []);
     return base;
   }
-  const die = opts.bonusStrike ? (k.martialDie || 8) : k.die;
-  const count = opts.bonusStrike ? (k.martialDie ? 1 : k.spiritDice) : k.dice;
+  const die = beast ? beast.die : opts.bonusStrike ? (k.martialDie || 8) : k.die;
+  const count = beast ? beast.dice : opts.bonusStrike ? (k.martialDie ? 1 : k.spiritDice) : k.dice;
   const rolls = rollDice(crit ? count * 2 + k.critDice : count, die);
-  const dmgMods: Mods = [[k.ability, opts.bonusStrike ? k.mod : k.dmgMod]];
+  const dmgMods: Mods = beast ? [[beast.type, beast.mod]] : [[k.ability, opts.bonusStrike ? k.mod : k.dmgMod]];
   if (k.edge && t.attack !== undefined) dmgMods.push(["edge", k.edge]);
   const extra = (label: string, n: number, sides: number) => {
     const r = sum(rollDice(crit ? n * 2 : n, sides));
@@ -827,6 +886,15 @@ function heroSwing(me: Fighter, t: Fighter, battle: BattleLog, round: number, tu
     tags.push("smite");
   }
   if (k.improvedSmite && !opts.bonusStrike) extra("radiant 1d8", 1, 8);
+  if (beast?.plus) extra(`${beast.plus.type} ${beast.plus.dice}d${beast.plus.die}`, beast.plus.dice, beast.plus.die);
+  if (beast && k.primalDice && !turn.primalUsed) {
+    turn.primalUsed = true;
+    extra(`primal strike ${k.primalDice}d8`, k.primalDice, 8);
+  }
+  if (beast && k.lunar && !turn.lunarUsed) {
+    turn.lunarUsed = true;
+    extra("lunar 2d10", 2, 10);
+  }
   const raw = weakened(me, Math.max(1, sum(rolls) + sum(dmgMods.map(([, v]) => v))), tags);
   const hit2 = takeHit(t, raw, round);
   tags.push(...hit2.tags);
@@ -1043,6 +1111,10 @@ export function abilitySummary(c: any): { attack: string; abilities: string[]; n
   const k = makeKit(c);
   const ac = heroAc(c, 10);
   const signed = (n: number) => `${n < 0 ? "−" : "+"}${Math.abs(n)}`;
+  if (k.beast) {
+    const form = fighterAc(c, 10);
+    return { attack: `in ${k.beast.name} form: AC ${form.ac} (${form.ac + 1} vs monsters), ${k.beast.tempHp} temp HP each fight`, abilities: k.names, next: null };
+  }
   const swings = k.attacks > 1 ? `${k.attacks}× ` : "";
   // Against monsters a weapon is a d10, the hunter's edge adds +1 to hit
   // and damage, and AC is on base 11 (simulateMonsterFight, raids).

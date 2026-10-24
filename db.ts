@@ -3,6 +3,7 @@
 import { sqlite } from "./sqlite.ts";
 import type { Character } from "./types.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
+import { activeWildForm } from "./wildshape_form.ts";
 
 // db.ts is split by area to stay well under Val Town's per-file size
 // ceiling; these modules are re-exported so importers keep using "./db.ts".
@@ -57,7 +58,13 @@ export async function getCharacter(username: string, broadcasterId: string) {
     "UPDATE channel_characters SET updated_at = ? WHERE broadcaster_id = ? AND username = ?",
     [Date.now(), broadcasterId, username],
   );
-  return rowToCharacter(res.rows[0]);
+  const c = rowToCharacter(res.rows[0]);
+  // A druid in a !wildshape form fights in it (combat_abilities.ts).
+  if (String(c.cls).toLowerCase() === "druid") {
+    const form = await activeWildForm(broadcasterId, username);
+    if (form) c.wildForm = form;
+  }
+  return c;
 }
 
 export async function saveCharacter(c: Character, broadcasterId: string) {

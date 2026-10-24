@@ -8,6 +8,7 @@ import { handleMapCommand } from "./maps.ts";
 import { handleMerchantCommand } from "./merchant.ts";
 import { handleHaggleCommand } from "./haggle.ts";
 import { handleAbilitiesCommand } from "./abilities_cmd.ts";
+import { ensureWildShapeTables, handleWildShapeCommand, purgeWildShapeData } from "./wildshape.ts";
 import { handleAdCommand } from "./ads.ts";
 import { disconnectAdToken, ensureAdTables, purgeAdData } from "./ads_db.ts";
 import { handleOracleCommand } from "./oracle.ts";
@@ -153,6 +154,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAutohuntTables,
   ensureRedemptionTables,
   ensureHuntCooldownTables,
+  ensureWildShapeTables,
   ensureRaidTables,
   ensureViewerNameTables,
   ensureWatchtimeTables,
@@ -516,6 +518,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     await sendChatMessage(`@${display} GuildScribe is disconnecting from this channel${purge ? " and purging its stored guild data" : ""}.`, broadcasterId);
     await purgeAutohuntData(broadcasterId); // hunts stop with the bot, purge or not
     await purgeHuntCooldownData(broadcasterId, purge);
+    await purgeWildShapeData(broadcasterId);
     await purgeRaidData(broadcasterId, purge);
     await purgeViewerNames(broadcasterId);
     await purgeReplyPages(broadcasterId);
@@ -733,6 +736,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleBribeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleSilenceCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleAbilitiesCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  if (await handleWildShapeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleWatchtimeCommand(chatMessage, chatter, chatterId, display, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleNickCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleBoonCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");

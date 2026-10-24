@@ -5,7 +5,7 @@
 // is rejected and the deploy silently stays on old code).
 
 import { attackAbility, heroAc } from "./utils.ts";
-import { heroFighter, heroTurn, makeKit, kitLine, monsterFighter, monsterTurn } from "./combat_abilities.ts";
+import { fighterAc, heroFighter, heroTurn, makeKit, kitLine, monsterFighter, monsterTurn } from "./combat_abilities.ts";
 
 // Auto solo monster duels (bare !dndduel / !dndduel <name>) are decided by the
 // actual dice, not a fixed win rate: the odds come from the real matchup
@@ -133,6 +133,12 @@ export function fighterLine(
   const k = makeKit(c, { minDie: opts.die, edge: opts.edge, stateless: opts.stateless });
   const edge = opts.edge ?? 0;
   const edgeText = edge ? ` +${edge} edge (hunter's edge)` : "";
+  if (k.beast) {
+    // Wild Shape: the attacks are the form's own (kitLine lists them).
+    const ac = fighterAc(c, acBase);
+    return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"} in ${k.beast.name} form, ${hp}/${c.hpMax} HP, AC ${ac.ac} (${ac.why}), ` +
+      `${k.attacks || "no"} attack${k.attacks === 1 ? "" : "s"} a turn at the form's bonuses${edgeText}.${kitLine(k)}`;
+  }
   const swings = k.attacks > 1 ? `${k.attacks} attacks a turn, each ` : "attack ";
   return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${heroAc(c, acBase).ac} (${heroAcWhy(acBase, c)}), ` +
     `${swings}d20 ${signed(k.mod)} ${k.ability} +${k.prof} prof${edgeText}, ` +
