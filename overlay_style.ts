@@ -13,8 +13,8 @@
 //   &rollers=0         drop the scroll rollers top and bottom
 //   &card=<hex>        the panels' card colour (#rrggbb, or #rrggbbaa for see-through)
 //   &cardimg=<URL>     an image behind the panels' cards
-//   &font=<name>       headings, names and plaques (HEADING_FONTS — Cinzel by default)
-//   &bodyfont=<name>   chat, lines and panel text (BODY_FONTS — EB Garamond on the theme)
+//   &font=<name>       headings, names and plaques (HEADING_FONTS — the preset's, Cinzel on parchment)
+//   &bodyfont=<name>   chat, lines and panel text (BODY_FONTS — the preset's, EB Garamond on parchment)
 //
 // Colours are hex only and images http(s) only, so nothing a link carries can
 // break out of the CSS, and fonts come from a fixed list of Google Fonts. Everything is resolved here, server-side, into plain
@@ -71,6 +71,9 @@ export type LookPreset = {
   /** The panels' card colour (with alpha) and accent — their cards are dark glass on every preset but the light ones. */
   card: string;
   panelAccent: string;
+  /** Its heading and text fonts (keys of HEADING_FONTS / BODY_FONTS); &font= / &bodyfont= still override them. */
+  font: string;
+  bodyfont: string;
 };
 
 export const LOOK_PRESETS: Record<string, LookPreset> = {
@@ -79,36 +82,48 @@ export const LOOK_PRESETS: Record<string, LookPreset> = {
     base: { paper: "#fdf3cf", ink: "#3b2814", heading: "#6b4419", accent: "#c99a2e", seal: "#d9473a", disc: "#2f4a39" },
     card: "#15120fd6",
     panelAccent: "#e6a56e",
+    font: "cinzel",
+    bodyfont: "garamond",
   },
   moonlit: {
     label: "Moonlit Keep (dark blue)",
     base: { paper: "#1c2333", ink: "#dde4f2", heading: "#f1d98f", accent: "#8faee8", seal: "#ff5d73", disc: "#20304f" },
     card: "#0d1220db",
     panelAccent: "#9fbcf2",
+    font: "marcellus",
+    bodyfont: "lora",
   },
   grove: {
     label: "Elven Grove (green)",
     base: { paper: "#e6edd5", ink: "#23331f", heading: "#2f5a2a", accent: "#7a9a3c", seal: "#c4552f", disc: "#2e4a2b" },
     card: "#121a10d6",
     panelAccent: "#a8c76a",
+    font: "almendra",
+    bodyfont: "alegreya",
   },
   frost: {
     label: "Frostfell (icy blue)",
     base: { paper: "#e9f2f8", ink: "#1c3144", heading: "#24577e", accent: "#5f9fc9", seal: "#e0566a", disc: "#1e3b57" },
     card: "#0e1823d6",
     panelAccent: "#8cc4ea",
+    font: "cinzeldeco",
+    bodyfont: "crimson",
   },
   hellforge: {
     label: "Hellforge (dark red)",
     base: { paper: "#2b1612", ink: "#f5dccb", heading: "#ffb36b", accent: "#e2622b", seal: "#ff3b2f", disc: "#3d140e" },
     card: "#1a0b08db",
     panelAccent: "#ff8a4c",
+    font: "pirata",
+    bodyfont: "fell",
   },
   arcane: {
     label: "Arcane Tower (violet)",
     base: { paper: "#eee4f6", ink: "#2c1a3e", heading: "#5b2f88", accent: "#9b6bd8", seal: "#d94a8c", disc: "#2d1c4b" },
     card: "#160e22d6",
     panelAccent: "#c39cf2",
+    font: "metamorphous",
+    bodyfont: "lora",
   },
 };
 export const DEFAULT_PRESET = "parchment";
@@ -276,8 +291,8 @@ export function themeLook(q: URLSearchParams, w: number, h: number): ThemeLook {
     if (c && solid(c) !== base[k]) { base[k] = solid(c); changed.add(k); }
   }
   const img = parseImageUrl(q.get("bg"));
-  const hf = pickFont(HEADING_FONTS, q.get("font")) ?? HEADING_FONTS[DEFAULT_HEADING_FONT];
-  const bf = pickFont(BODY_FONTS, q.get("bodyfont")) ?? BODY_FONTS[DEFAULT_BODY_FONT];
+  const hf = pickFont(HEADING_FONTS, q.get("font")) ?? HEADING_FONTS[preset.font];
+  const bf = pickFont(BODY_FONTS, q.get("bodyfont")) ?? BODY_FONTS[preset.bodyfont];
   const rollers = q.get("rollers") !== "0";
   const dark = luminance(base.paper) < 0.3;
   // Parchment keeps its hand-tuned tokens for every colour that wasn't changed.
@@ -357,8 +372,11 @@ export function lookQuery(q: URLSearchParams, keys: readonly string[] = LOOK_PAR
 /** CSS overriding the panels' colours and fonts for a panel link's look extras, and the
  * stylesheet link its fonts need ("" for both with the classic look). */
 export function panelLook(q: URLSearchParams): { css: string; fontHref: string } {
-  // The panels keep their plain Georgia unless a font is picked.
-  const hf = pickFont(HEADING_FONTS, q.get("font")), bf = pickFont(BODY_FONTS, q.get("bodyfont"));
+  // The panels keep their plain Georgia unless a font is picked, or a preset other than parchment brings its own.
+  const preset = LOOK_PRESETS[(q.get("preset") ?? "").toLowerCase()];
+  const own = preset && preset !== LOOK_PRESETS[DEFAULT_PRESET];
+  const hf = pickFont(HEADING_FONTS, q.get("font")) ?? (own ? HEADING_FONTS[preset.font] : null);
+  const bf = pickFont(BODY_FONTS, q.get("bodyfont")) ?? (own ? BODY_FONTS[preset.bodyfont] : null);
   const fonts = [hf, bf].filter((f): f is LookFont => !!f);
   const fontCss = (bf ? `body{font-family:${fontStack(bf)}}` : "")
     + (hf ? `.card h2,.chip b{font-family:${fontStack(hf)}${hf.bold ? "" : ";font-weight:400"}}` : "");
@@ -398,5 +416,5 @@ export const LOOK_FONTS_JSON = JSON.stringify({ heading: fontInfo(HEADING_FONTS)
 
 /** The presets for the setup page's look picker. */
 export const LOOK_PRESETS_JSON = JSON.stringify(
-  Object.fromEntries(Object.entries(LOOK_PRESETS).map(([k, v]) => [k, { label: v.label, ...v.base, card: solid(v.card) }])),
+  Object.fromEntries(Object.entries(LOOK_PRESETS).map(([k, v]) => [k, { label: v.label, ...v.base, card: solid(v.card), font: v.font, bodyfont: v.bodyfont }])),
 ).replace(/</g, "\\u003c");

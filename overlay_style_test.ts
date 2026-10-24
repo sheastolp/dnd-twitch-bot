@@ -74,3 +74,10 @@ Deno.test("fonts: only from the lists, on the theme and the panels", () => {
   assertEquals(panel.fontHref, fontsHref([{ ...HEADING_FONTS.cinzel, family: "Lora", axes: "ital,wght@0,400;0,600;1,400" }]));
   assert(panel.css.includes(`body{font-family:"Lora",Georgia,serif}`));
 });
+
+Deno.test("presets bring their own fonts, which a link can still override", () => {
+  assertEquals(themeLook(q("preset=hellforge"), 1920, 1080).fonts.heading, `"Pirata One",Georgia,serif`);
+  assertEquals(themeLook(q("preset=hellforge&font=cinzel"), 1920, 1080).fonts.heading, `"Cinzel",Georgia,serif`);
+  assert(panelLook(q("preset=grove")).css.includes(`body{font-family:"Alegreya",Georgia,serif}`));
+  assertEquals(panelLook(q("accent=ff8800")).fontHref, ""); // parchment panels keep Georgia
+});
