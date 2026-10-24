@@ -694,6 +694,13 @@ export async function createFollowEventSubscription(broadcasterId: string, callb
   );
 }
 
+// Cheers — powers the on-screen cheer alert (alerts.ts). Needs the
+// broadcaster's bits:read grant, so channels connected before it was
+// requested pick it up lazily once they reconnect.
+export async function createCheerEventSubscription(broadcasterId: string, callbackUrl: string) {
+  return createEventSubSubscription("channel.cheer", "1", { broadcaster_user_id: broadcasterId }, callbackUrl);
+}
+
 // Stream going live/offline — powers the fast, no-API-call "quiet while
 // offline" check (broadcasters.is_live, updated by these notifications; see
 // main.ts). Like channel.raid, both need no extra OAuth scope beyond the

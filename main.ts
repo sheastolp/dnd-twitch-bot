@@ -47,6 +47,9 @@ import { handleHoardCommand } from "./hoard.ts";
 import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
 import { ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
+import { ensureTipTables, handleTipCommand, purgeTipData } from "./tips.ts";
+import { ensureSongRequestTables, handleSongRequestCommand, purgeSongRequestData } from "./songrequests.ts";
+import { ensureAlertTables, handleAlertCommand, onCheerAlert, onFollowAlert, purgeAlertData, pushAlert } from "./alerts.ts";
 import { ensureWatchtimeTables, handleWatchtimeCommand, purgeWatchtimeData, trackWatchtime } from "./watchtime.ts";
 import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
@@ -147,6 +150,9 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureDelveTables,
   ensureAdAlertTables,
   ensureFollowThanksTables,
+  ensureAlertTables,
+  ensureSongRequestTables,
+  ensureTipTables,
   ensureSocialTables,
   ensurePointsTables,
   ensureSwearJarTables,
@@ -299,6 +305,18 @@ async function handleNotification(body: any): Promise<Response | void> {
     if (!subConnection || Number(subConnection.connected) !== 1) return new Response("OK");
     if (await isChannelBlocked(subBroadcasterId)) return new Response("OK");
     if (!(await isChannelEnabled(subBroadcasterId))) return new Response("OK");
+    // The on-screen alert (alerts.ts) has its own switch and doesn't wait
+    // for the stream to be live. A gift batch is one alert, like the
+    // thank-you below: the per-recipient channel.subscribe events are skipped.
+    if (!(subscriptionType === "channel.subscribe" && body.event?.is_gift)) {
+      try {
+        await pushAlert(subBroadcasterId, subscriptionType === "channel.subscribe"
+          ? { kind: "sub", name: subDisplay, detail: tier }
+          : subscriptionType === "channel.subscription.gift"
+            ? { kind: "gift", name: isAnonymousGifter ? "" : subDisplay, amount: Number(body.event?.total ?? 1), detail: tier }
+            : { kind: "resub", name: subDisplay, amount: Number(body.event?.cumulative_months ?? 1), detail: tier, message: String(body.event?.message?.text ?? "") });
+      } catch (e) { await recordMonitorEvent("alert_error", String(e)); }
+    }
     // Subs/resubs/gifts can land while the channel is offline — stay quiet
     // rather than thanking someone into an empty, offline chat. is_live is
     // kept current by the stream.online/offline notifications below, so
@@ -337,6 +355,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     if (!raidConnection || Number(raidConnection.connected) !== 1) return new Response("OK");
     if (await isChannelBlocked(raidBroadcasterId)) return new Response("OK");
     if (!(await isChannelEnabled(raidBroadcasterId))) return new Response("OK");
+    try { await pushAlert(raidBroadcasterId, { kind: "raid", name: raiderDisplay, amount: viewers }); } catch (e) { await recordMonitorEvent("alert_error", String(e)); }
     // Stay quiet rather than thanking a raider into an offline channel
     // (reuses raidConnection.is_live already fetched above).
     if (Number(raidConnection.is_live) !== 1) return new Response("OK");
@@ -348,7 +367,18 @@ async function handleNotification(body: any): Promise<Response | void> {
   // New follower: a short thank-you in chat (follow_thanks.ts).
   if (subscriptionType === "channel.follow") {
     // Follow bots (followbots.ts) are blocked first and get no thank-you.
-    try { if (!(await maybeBlockFollowBot(body.event))) await onFollow(body.event); } catch (e) { await recordMonitorEvent("follow_event_error", String(e)); }
+    try {
+      if (!(await maybeBlockFollowBot(body.event))) {
+        await onFollow(body.event);
+        await onFollowAlert(body.event);
+      }
+    } catch (e) { await recordMonitorEvent("follow_event_error", String(e)); }
+    return new Response("OK");
+  }
+
+  // Cheers: an on-screen alert only (alerts.ts); there's no chat thank-you.
+  if (subscriptionType === "channel.cheer") {
+    try { await onCheerAlert(body.event); } catch (e) { await recordMonitorEvent("alert_error", String(e)); }
     return new Response("OK");
   }
 
@@ -539,6 +569,9 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeDelveData(broadcasterId);
       await purgeAdAlertData(broadcasterId);
       await purgeFollowThanksData(broadcasterId);
+      await purgeAlertData(broadcasterId);
+      await purgeSongRequestData(broadcasterId);
+      await purgeTipData(broadcasterId);
       await purgeFollowBotData(broadcasterId);
       await purgeModLogData(broadcasterId);
       await purgePointsData(broadcasterId);
@@ -773,6 +806,9 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleAskMeCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
+  if (await handleSongRequestCommand(chatMessage, chatter, display, broadcasterId, String(connection.login || broadcasterId), isModerator, modEvent.badges)) return new Response("OK");
+  if (await handleTipCommand(chatMessage, display, broadcasterId, String(connection.login || broadcasterId), String(connection.display_name || connection.login || "this channel"))) return new Response("OK");
+  if (await handleAlertCommand(chatMessage, display, broadcasterId, String(connection.login || broadcasterId), isModerator)) return new Response("OK");
   if (await handleQuoteCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   // !stats (game_stats.ts): the game the dashboard picked, Warframe by default.
   if (await handleGameStatsCommand(chatMessage, display, broadcasterId)) return new Response("OK");

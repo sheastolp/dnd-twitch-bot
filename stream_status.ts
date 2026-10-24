@@ -22,6 +22,7 @@ import { resetSavingThrowTally } from "./savingthrows.ts";
 import { resetShotsForNewStream } from "./shots.ts";
 import { onChecklistStreamOnline } from "./checklist.ts";
 import { ensureFollowSubscription } from "./follow_thanks.ts";
+import { ensureCheerSubscription } from "./alerts.ts";
 import { onStreamStatusGuard } from "./stream_guard.ts";
 import { onStreamOnlineMotd } from "./motd.ts";
 
@@ -66,6 +67,8 @@ export async function onStreamOnline(broadcasterId: string, startedAt: unknown, 
   if (!(await isChannelBlocked(broadcasterId))) await onChecklistStreamOnline(broadcasterId);
   // Channels connected before follow thank-yous existed (follow_thanks.ts).
   await ensureFollowSubscription(broadcasterId, PUBLIC_ORIGIN);
+  // ...and before cheer alerts, once they've reconnected with bits:read (alerts.ts).
+  await ensureCheerSubscription(broadcasterId, PUBLIC_ORIGIN);
   // Offline lock + going-live announcement (stream_guard.ts).
   try { await onStreamStatusGuard(broadcasterId, true); } catch (e) { await recordMonitorEvent("stream_guard_error", String(e)); }
   // The developer's message of the day (motd.ts); says nothing when there isn't one.

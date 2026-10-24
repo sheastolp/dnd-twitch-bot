@@ -66,6 +66,7 @@ import { applySwearJarForm, renderSwearJarPage } from "./swearjar_page.ts";
 import { applyGameStatsForm, renderGameStatsPage } from "./game_stats_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
+import { applyTipsForm, renderTipsDashboardPage } from "./tips.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
 import { startNightbotConnect } from "./nightbot_import.ts";
@@ -939,6 +940,32 @@ export async function handleNowPlayingForm(form: FormData, baseUrl: string, cook
   if (result?.path) params.set("path", result.path);
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/music?${params.toString()}`);
+}
+
+// ── Tip page (tips.ts), behind the same key + login ──
+
+export async function handleTipsPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderTipsDashboardPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    channelKey: String(b?.login || auth.channelId),
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleTipsForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyTipsForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/tips?${params.toString()}`);
 }
 
 /** GET /dashboard/music/spotify — off to Spotify to connect (comes back via /spotify/callback). */

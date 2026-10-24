@@ -74,6 +74,24 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["soundbytes"],
   },
   {
+    key: "alerts", icon: "🔔", name: "On-screen alerts",
+    what: "A card and a fanfare on stream for new followers, subs, resubs, gift subs, raids and cheers, so you don't need StreamElements or Streamlabs for alerts. Tips through your own links can be announced with !alert tip <name> <amount>.",
+    yourPart: "Add the \"Alerts\" overlay from !overlays to your scenes (1920×1080) and tick Control audio via OBS. Try it with !alert test sub. For cheer alerts, reconnect GuildScribe once so Twitch grants bits:read.",
+    switches: ["alerts"],
+  },
+  {
+    key: "songrequests", icon: "🎶", name: "Song requests",
+    what: "Chat adds songs to your Spotify queue with !sr <song name or Spotify link>. !song says what's playing and who asked for it, !queue shows what's next (with a queue page to share), and mods — or whoever requested the song — can !skip it.",
+    yourPart: "Connect Spotify on the dashboard's 🎵 Now playing page (connected before song requests existed? connect it again). Spotify only takes requests on Premium, with Spotify open and playing. Set limits under ⚙ Options.",
+    switches: ["songrequests"],
+  },
+  {
+    key: "tips", icon: "🪙", name: "Tip page",
+    what: "One page with your tip and donation links (PayPal, Ko-fi, Cash App, a Stripe link, your StreamElements or Streamlabs tip page…), posted in chat with !tip or !donate. Tips go straight to you; GuildScribe never handles money.",
+    yourPart: "Add your links on the dashboard's 🪙 Tip page. For a tip alert on stream, a mod types !alert tip <name> <amount> (needs On-screen alerts).",
+    switches: ["tips"],
+  },
+  {
     key: "chatreader", icon: "🗣️", name: "Chat Reader",
     what: "Reads your chat out loud to you — handy when streaming straight from a console with no second screen. Skips bots and !commands, drops messages mods delete, and never goes out on stream.",
     yourPart: "Type !chatreader in chat (or open it from !overlays), open the link on your phone or PC near you and tap Start. Pick the voice and speed under Settings.",

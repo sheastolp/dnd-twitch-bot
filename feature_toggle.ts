@@ -28,7 +28,8 @@ const ALIASES: Record<string, string> = {
   ball: "pokeball", golivechecklist: "checklist", botlist: "botcheckauto", sounds: "soundbytes", sound: "soundbytes",
   quote: "quotes", hunt: "hunts", duel: "duels", map: "maps", clip: "clips", so: "shoutout",
   babushka: "mentionreply", hoard: "hunts", shop: "hunts", followers: "followthanks", subs: "subthanks",
-  rally: "raid", shot: "shots",
+  rally: "raid", shot: "shots", alert: "alerts", sr: "songrequests", songrequest: "songrequests", songs: "songrequests",
+  tip: "tips", donate: "tips", donations: "tips",
 };
 
 const isSwitch = (key: string) => key in COMMAND_GROUPS || key in DEDICATED_LABELS;

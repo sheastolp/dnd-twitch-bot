@@ -109,6 +109,15 @@ export const OPTIONS: OptionDef[] = [
   // Shot counter (shots.ts) — dashboard only, no chat command changes it.
   { key: "shots.word", bundle: "shots", label: "What's being counted", help: "One word, singular. The commands follow it (drink → !drink adds one, !drinks shows the count), and chat and the overlay say e.g. \"3 drinks\".", kind: "word",
     def: "shot", validate: (w) => shotWordProblem(w), suggest: ["shot", "drink", "sip", "beer", "chug"] },
+  // Song requests (songrequests.ts); mods skip every limit but "who".
+  { key: "songs.who", bundle: "songrequests", label: "Who can request songs", help: "subs = subscribers, VIPs and mods.", kind: "word",
+    def: "everyone", choices: ["everyone", "subs", "vips", "mods"], suggest: ["everyone", "subs", "vips", "mods"] },
+  { key: "songs.perViewer", bundle: "songrequests", label: "Songs each viewer can have waiting", kind: "number", int: true,
+    def: 2, min: 1, max: 20, suggest: ["1", "2", "3", "5"] },
+  { key: "songs.maxLength", bundle: "songrequests", label: "Longest song allowed", help: "off = any length.", kind: "duration", unit: "m",
+    def: 600, min: 0, max: 7200, suggest: ["5m", "7m", "10m", "off"] },
+  { key: "songs.cooldown", bundle: "songrequests", label: "Gap between one viewer's requests", kind: "duration", unit: "s",
+    def: 60, min: 0, max: 3600, suggest: ["off", "30s", "1m", "5m"] },
   // AI characters
   { key: "npc.chatterChance", bundle: "npcs", label: "NPCs chime in on a chat message", kind: "percent",
     def: env("NPC_CHATTER_CHANCE_PERCENT", 4, 0, 100), min: 0, max: 100, suggest: ["1%", "4%", "10%"] },

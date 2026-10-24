@@ -7,6 +7,7 @@
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
 import { subscribeToFollows } from "./follow_thanks.ts";
+import { subscribeToCheers } from "./alerts.ts";
 import { INSTANCE, sqlite } from "./sqlite.ts";
 import { getCharacter, getBroadcaster, listChannelCharacters, listChannelParties, getBroadcasterByLogin, listShowcaseChannels, getOrCreateDashboardKey, regenerateDashboardKey, blockChannel, unblockChannel, recordMonitorEvent, getMerchantCronStatus, getMerchantOverview, getMonitorEvents, queueEventSubCancellation, getPendingEventSubCancellations, clearPendingEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptions, getMap, getMapCells, getMapTokens, listMaps, markStreamStatusSubscribed, isCommandGroupEnabled, getCommandGroupToggles, listCustomCommandsFull, listCustomTriggers, listTimedMessages, isMerchantEnabled } from "./db.ts";
 import { saveBroadcasterAdToken } from "./ads_db.ts";
@@ -21,7 +22,9 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm } from "./dashboard.ts";
+import { renderTipPage } from "./tips.ts";
+import { renderSongQueuePage } from "./songrequests.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { handleNightbotCallback } from "./nightbot_import.ts";
 import { env, fetchIsChannelLiveNow, exchangeCode, createChatSubscription, createSubEventSubscriptions, createRaidEventSubscription, createStreamStatusEventSubscriptions, deleteEventSubSubscription } from "./twitch.ts";
@@ -301,6 +304,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       } catch (e) {
         await recordMonitorEvent("eventsub_follow_subscription_failed", `${user.id}: ${String(e)}`);
       }
+      // Best-effort: cheer alerts (alerts.ts). Needs bits:read, requested above.
+      try {
+        await subscribeToCheers(user.id, PUBLIC_ORIGIN);
+      } catch (e) {
+        await recordMonitorEvent("eventsub_cheer_subscription_failed", `${user.id}: ${String(e)}`);
+      }
       // Best-effort: powers the "quiet while offline" check (see main
       // dispatch above and the two cron files). Also needs no extra OAuth
       // scope. Seed broadcasters.is_live with one direct lookup right away
@@ -390,6 +399,18 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // one channel — the page the !roster chat command links to. Same trust model
   // as /maps (the channel must be connected). Must stay above the catch-all GET
   // block further down.
+  // Public tip page (tips.ts, /tip/<login> is what !tip posts) and song
+  // queue (songrequests.ts, linked from !sr and !queue). Same trust model as
+  // /roster; each says so itself when its switch is off.
+  if (req.method === "GET" && (path === "/songs" || path === "/tip" || path.startsWith("/tip/"))) {
+    const raw = (path.startsWith("/tip/") ? decodeURIComponent(path.slice(5)) : url.searchParams.get("channel") ?? "").trim().replace(/^@/, "");
+    if (!/^[A-Za-z0-9_]{1,25}$/.test(raw)) return new Response("Missing or invalid channel.", { status: 400 });
+    const broadcaster: any = /^\d+$/.test(raw) ? await getBroadcaster(raw) : await getBroadcasterByLogin(raw.toLowerCase());
+    if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Unavailable for this channel.", { status: 404 });
+    const channel = { id: String(broadcaster.broadcaster_id), name: String(broadcaster.display_name || broadcaster.login || "This channel") };
+    const out = path === "/songs" ? await renderSongQueuePage(channel) : await renderTipPage(channel);
+    return new Response(out.html, { status: out.status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   // Public quote book (quotes.ts) — the page !quotes links to. Same trust model as /roster.
   if (req.method === "GET" && path === "/quotes") {
     const channelId = url.searchParams.get("channel");
@@ -493,6 +514,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   if (req.method === "GET" && path === "/dashboard/music") {
     // Now playing settings (nowplaying.ts) — same gate.
     return await handleNowPlayingPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/tips") {
+    // Tip page links (tips.ts) — same gate.
+    return await handleTipsPage(url, req.headers.get("Cookie"));
   }
   if (req.method === "GET" && path === "/dashboard/music/spotify") {
     return await handleSpotifyConnect(url, req.headers.get("Cookie"));
@@ -787,6 +812,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/botcheck") {
     return await handleBotCheckForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/tips") {
+    return await handleTipsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/music") {
     return await handleNowPlayingForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

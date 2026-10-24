@@ -32,7 +32,7 @@ export type SoundByte = { id: string; cmd: string; name: string; icon: string; b
 // name to type when it can't simply be the id: "fireball" anywhere in a chat
 // message is a spell in The Endless Delve (idle.ts), so the fireball sound is
 // listed as "kaboom" (typing !sound fireball still works, and casts there too).
-// `len` (seconds) must match the sound's length in SYNTH_JS below.
+// `len` (seconds) must match the sound's length in SOUND_SYNTH_JS below.
 export const SOUND_BYTES: SoundByte[] = [
   { id: "nat20", cmd: "nat20", name: "Natural 20", icon: "🌟", blurb: "A brass fanfare fit for a crit.", line: "{user} rolled a NATURAL 20! The bards are already writing the song.", len: 1.9 },
   { id: "nat1", cmd: "nat1", name: "Natural 1", icon: "💀", blurb: "The sad trombone of critical failure.", line: "{user} rolled a natural 1. The dice gods turn away in shame.", len: 2.2 },
@@ -175,8 +175,8 @@ export async function handleSoundByteCommand(
 // ── The overlay ─────────────────────────────────────────────────────────────
 
 // The synth, one play function per sound id. Ported from Tavernworks'
-// soundbytes/sounds.js; plain browser JS, embedded in the overlay page.
-const SYNTH_JS = `
+// soundbytes/sounds.js; plain browser JS, embedded in the overlay page (and in the alerts overlay, alerts.ts).
+export const SOUND_SYNTH_JS = `
 const SoundSynth=(function(){
   let ctx=null,master=null,noiseBuf=null;
   function audio(){
@@ -279,7 +279,7 @@ body{font-family:Inter,system-ui,sans-serif;color:#f1e6d6}
 </style></head><body>
 <div class="stage"><div class="pop" id="pop" aria-live="polite"><div class="icon" id="pop-icon"></div><div><div class="name" id="pop-name"></div><div class="line" id="pop-line"></div></div></div></div>
 <div class="status" id="status" hidden></div>
-<script>${SYNTH_JS}
+<script>${SOUND_SYNTH_JS}
 (function(){
   const CFG=${cfgJson};
   const q=new URLSearchParams(location.search);

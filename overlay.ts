@@ -15,6 +15,8 @@
 //   POST /overlay/idle?channel=<id|login>            its snapshot for the Twitch Extension (idle.ts)
 //   GET /overlay/nowplaying?channel=<id|login>       the song playing now (nowplaying.ts); panel=music shows it
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
+//   GET /overlay?channel=<id|login>&panel=alerts     follow/sub/raid/cheer/tip alerts (alerts.ts)
+//   GET /overlay/alerts?channel=<id|login>&after=<n> the alerts it polls
 //   GET /overlay?channel=<id|login>&panel=reader     Chat Reader: reads chat aloud on the streamer's own device (chat_reader.ts)
 //
 // Looks: every overlay link takes optional look extras — a preset, colours and
@@ -44,6 +46,7 @@ import { getDelveOptions, getIdleHeroes, renderIdlePage, saveDelveSnapshot } fro
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
+import { ALERTS_OFF_PAGE, getAlertsAfter, renderAlertsOverlay } from "./alerts.ts";
 import { renderChatReaderOff, renderChatReaderPage } from "./chat_reader.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
 import { getSavingThrowTally, type SaveTally } from "./savingthrows.ts";
@@ -405,7 +408,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     try { body = JSON.parse(text); } catch (_) { /* not JSON: dropped below */ }
     return json({ ok: await saveDelveSnapshot(channel.id, body) });
   }
-  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying")) return null;
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying" || path === "/overlay/alerts")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
 
   if (path === "/overlay/title") {
@@ -420,6 +423,14 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   if (path === "/overlay/nowplaying") {
     if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
     return json({ ok: true, track: await getNowPlaying(channel.id) });
+  }
+
+  if (path === "/overlay/alerts") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    // Switched off: the overlay reloads into the empty "off" page.
+    if (!(await isCommandGroupEnabled(channel.id, "alerts"))) return json({ ok: true, off: true, last: 0, alerts: [] });
+    const after = Number(url.searchParams.get("after"));
+    return json({ ok: true, ...(await getAlertsAfter(channel.id, Number.isFinite(after) ? Math.floor(after) : -1)) });
   }
 
   if (path === "/overlay/idle") {
@@ -479,6 +490,11 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: nothing can be recognized as GuildScribe, so nothing plays */ }
     return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1"));
+  }
+  if (panel === "alerts") {
+    const always = url.searchParams.get("always") === "1";
+    if (!always && !(await isCommandGroupEnabled(channel.id, "alerts"))) return html(ALERTS_OFF_PAGE);
+    return html(renderAlertsOverlay(channelKey, always));
   }
   if (panel === "reader") {
     if (!(await isCommandGroupEnabled(channel.id, "chatreader"))) return html(renderChatReaderOff());

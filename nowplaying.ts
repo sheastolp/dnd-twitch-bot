@@ -3,7 +3,11 @@
 // Every channel sets itself up on its dashboard's 🎵 Now playing page, a
 // step-by-step guide that needs nobody else: no server keys, no developer.
 //   • Spotify — the streamer makes their own (free) Spotify app, pastes its
-//     Client ID and secret, and connects (OAuth, user-read-currently-playing).
+//     Client ID and secret, and connects (OAuth, user-read-currently-playing,
+//     plus user-read-playback-state and user-modify-playback-state so song
+//     requests can read and add to the queue — songrequests.ts; connections
+//     made before those were asked for keep working for now playing and are
+//     asked to reconnect for song requests).
 //     Their own app means Spotify's development-mode user list only needs
 //     their own account. Keys are checked with Spotify before they're saved.
 //   • Apple Music — Apple has no live "now playing" API, so it goes through
@@ -36,7 +40,9 @@ import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 const NOW_PLAYING_CACHE_MS = 4_000;
 const OAUTH_STATE_TTL_MS = 10 * 60_000;
-const SPOTIFY_SCOPE = "user-read-currently-playing";
+const SPOTIFY_SCOPE = "user-read-currently-playing user-read-playback-state user-modify-playback-state";
+/** What song requests (songrequests.ts) can't work without. */
+const SONG_REQUEST_SCOPES = ["user-read-playback-state", "user-modify-playback-state"];
 const LASTFM_USER_RE = /^[A-Za-z][A-Za-z0-9_-]{1,14}$/;
 const KEY_RE = /^[0-9a-f]{32}$/i; // Spotify client ID/secret and Last.fm API keys are all 32 hex characters
 const LASTFM_BLANK_ART = "2a96cbd8b46e442fc41c2b86b821562f"; // Last.fm's grey star placeholder
@@ -69,7 +75,8 @@ export async function ensureNowPlayingTables() {
     )`,
   );
   // Per-channel keys (the self-serve setup guide); added after the table first shipped.
-  for (const col of ["spotify_client_id", "spotify_client_secret", "lastfm_key", "setup_path"]) {
+  // spotify_scope: what the connection was granted (song requests need more than now playing).
+  for (const col of ["spotify_client_id", "spotify_client_secret", "lastfm_key", "setup_path", "spotify_scope"]) {
     try { await sqlite.execute(`ALTER TABLE now_playing ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`); } catch (_) { /* already there */ }
   }
   await sqlite.execute(
@@ -99,6 +106,7 @@ type Settings = {
   spotifyClientId: string;
   spotifyClientSecret: string;
   setupPath: string;
+  spotifyScope: string;
 };
 
 async function getSettings(broadcasterId: string): Promise<Settings> {
@@ -113,18 +121,20 @@ async function getSettings(broadcasterId: string): Promise<Settings> {
     spotifyClientId: String(r?.spotify_client_id ?? ""),
     spotifyClientSecret: String(r?.spotify_client_secret ?? ""),
     setupPath: String(r?.setup_path ?? ""),
+    spotifyScope: String(r?.spotify_scope ?? ""),
   };
 }
 
 async function saveSettings(broadcasterId: string, patch: Partial<Settings>) {
   const s = { ...(await getSettings(broadcasterId)), ...patch };
   await sqlite.execute(
-    `INSERT INTO now_playing (broadcaster_id, lastfm_user, lastfm_key, spotify_user, spotify_refresh, spotify_access, spotify_expires, spotify_client_id, spotify_client_secret, setup_path)
-     VALUES (?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO now_playing (broadcaster_id, lastfm_user, lastfm_key, spotify_user, spotify_refresh, spotify_access, spotify_expires, spotify_client_id, spotify_client_secret, setup_path, spotify_scope)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(broadcaster_id) DO UPDATE SET lastfm_user = excluded.lastfm_user, lastfm_key = excluded.lastfm_key, spotify_user = excluded.spotify_user,
        spotify_refresh = excluded.spotify_refresh, spotify_access = excluded.spotify_access, spotify_expires = excluded.spotify_expires,
-       spotify_client_id = excluded.spotify_client_id, spotify_client_secret = excluded.spotify_client_secret, setup_path = excluded.setup_path`,
-    [broadcasterId, s.lastfmUser, s.lastfmKey, s.spotifyUser, s.spotifyRefresh, s.spotifyAccess, s.spotifyExpires, s.spotifyClientId, s.spotifyClientSecret, s.setupPath],
+       spotify_client_id = excluded.spotify_client_id, spotify_client_secret = excluded.spotify_client_secret, setup_path = excluded.setup_path,
+       spotify_scope = excluded.spotify_scope`,
+    [broadcasterId, s.lastfmUser, s.lastfmKey, s.spotifyUser, s.spotifyRefresh, s.spotifyAccess, s.spotifyExpires, s.spotifyClientId, s.spotifyClientSecret, s.setupPath, s.spotifyScope],
   );
   cache.delete(broadcasterId);
 }
@@ -177,11 +187,12 @@ async function spotifyAccess(broadcasterId: string, s: Settings): Promise<string
       spotifyAccess: String(t.access_token),
       spotifyExpires: Date.now() + Number(t.expires_in ?? 3600) * 1000,
       ...(t.refresh_token ? { spotifyRefresh: String(t.refresh_token) } : {}),
+      ...(t.scope ? { spotifyScope: String(t.scope) } : {}),
     });
     return String(t.access_token);
   } catch (e) {
     // invalid_grant/invalid_client: access was removed in Spotify, or the app changed — forget the connection.
-    if (/invalid_grant|invalid_client/.test(String(e))) await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
+    if (/invalid_grant|invalid_client/.test(String(e))) await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "", spotifyScope: "" });
     console.error("spotify refresh failed", e);
     return "";
   }
@@ -217,6 +228,30 @@ async function fromSpotify(broadcasterId: string, s: Settings): Promise<NowPlayi
     durationMs: Number(item.duration_ms ?? 0),
     at: Date.now(),
   };
+}
+
+/** Whether song requests can use this channel's Spotify: connected directly
+ * (not just through Last.fm) and granted the queue scopes. */
+export async function spotifyQueueAccess(broadcasterId: string): Promise<"ok" | "not_connected" | "needs_reconnect"> {
+  const s = await getSettings(broadcasterId);
+  if (!s.spotifyRefresh || !spotifyCreds(s)) return "not_connected";
+  const granted = new Set(s.spotifyScope.split(/\s+/));
+  return SONG_REQUEST_SCOPES.every((x) => granted.has(x)) ? "ok" : "needs_reconnect";
+}
+
+/** A Spotify Web API call as the channel's connected account; null when not
+ * connected. A 401 forgets the access token so the next call refreshes it. */
+export async function spotifyFetch(broadcasterId: string, path: string, init: RequestInit = {}): Promise<Response | null> {
+  const s = await getSettings(broadcasterId);
+  const token = await spotifyAccess(broadcasterId, s);
+  if (!token) return null;
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
+    ...init,
+    headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(6000),
+  });
+  if (res.status === 401) await saveSettings(broadcasterId, { spotifyAccess: "", spotifyExpires: 0 });
+  return res;
 }
 
 // ── Last.fm (Apple Music and anything else that scrobbles) ──
@@ -333,6 +368,7 @@ export async function handleSpotifyCallback(url: URL): Promise<Response> {
       spotifyExpires: Date.now() + Number(t.expires_in ?? 3600) * 1000,
       spotifyUser: user,
       setupPath: "spotify",
+      spotifyScope: String(t.scope ?? ""),
     });
     return back("notice", `Spotify connected${user ? ` as ${user}` : ""}. Play a song to test it below.`);
   } catch (e) {
@@ -359,15 +395,15 @@ export async function applyNowPlayingForm(broadcasterId: string, form: FormData)
     if (check === "unreachable") return { ok: false, path: "spotify", message: "Couldn't reach Spotify to check the keys — try again in a minute." };
     // A different app's connection can't carry over: its refresh token belongs to the old app.
     const sameApp = id === s.spotifyClientId;
-    await saveSettings(broadcasterId, { spotifyClientId: id, spotifyClientSecret: secret, setupPath: "spotify", ...(sameApp ? {} : { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" }) });
+    await saveSettings(broadcasterId, { spotifyClientId: id, spotifyClientSecret: secret, setupPath: "spotify", ...(sameApp ? {} : { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "", spotifyScope: "" }) });
     return { ok: true, path: "spotify", message: "Spotify accepted your keys. Next: press Connect Spotify (step 4)." };
   }
   if (intent === "spotify_keys_clear") {
-    await saveSettings(broadcasterId, { spotifyClientId: "", spotifyClientSecret: "", spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
+    await saveSettings(broadcasterId, { spotifyClientId: "", spotifyClientSecret: "", spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "", spotifyScope: "" });
     return { ok: true, path: "spotify", message: "Spotify keys removed (and disconnected)." };
   }
   if (intent === "spotify_disconnect") {
-    await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "" });
+    await saveSettings(broadcasterId, { spotifyRefresh: "", spotifyAccess: "", spotifyExpires: 0, spotifyUser: "", spotifyScope: "" });
     return { ok: true, path: "spotify", message: "Spotify disconnected." };
   }
   if (intent === "lastfm_save") {
@@ -463,7 +499,11 @@ ${keysSaved ? `<p class="ok-line">✓ Keys saved and accepted by Spotify (Client
 ${!keysSaved && creds && !creds.own ? `<p class="muted small">This GuildScribe server also has a shared Spotify app, so you could skip to step 4 — but that only works if the server's owner added your Spotify account to it. Your own app always works.</p>` : ""}`),
       stepHtml(4, "connect", "Connect Spotify", spotifyConnected,
         spotifyConnected
-          ? `<p class="ok-line">✓ Connected${s.spotifyUser ? ` as <strong>${escapeHtml(s.spotifyUser)}</strong>` : ""}. ${btn("spotify_disconnect", "Disconnect", "ghost", "Disconnect Spotify?")}</p>`
+          ? `<p class="ok-line">✓ Connected${s.spotifyUser ? ` as <strong>${escapeHtml(s.spotifyUser)}</strong>` : ""}. ${btn("spotify_disconnect", "Disconnect", "ghost", "Disconnect Spotify?")}</p>${
+            SONG_REQUEST_SCOPES.every((x) => s.spotifyScope.split(/\s+/).includes(x))
+              ? `<p class="muted small">Song requests (<code>!sr</code>) can use this connection too — turn on "Song requests" on the dashboard. They need Spotify Premium.</p>`
+              : `<p class="note">This connection was made before song requests existed, so it can show your song but can't add to your queue. To use <code>!sr</code>, <a href="/dashboard/music/spotify?${qs}">connect Spotify again</a> and choose Agree.</p>`
+          }`
           : creds
           ? `<p>Press the button, sign in to Spotify if asked, and choose <strong>Agree</strong>. You'll come straight back here.</p><p><a class="btn ember" href="/dashboard/music/spotify?${qs}">Connect Spotify</a></p>
 <p class="muted small">If Spotify shows <em>INVALID_CLIENT: Invalid redirect URI</em>, the Redirect URI in step 1 doesn't match — copy it again. If it says your account isn't registered for the app, redo step 2.</p>`

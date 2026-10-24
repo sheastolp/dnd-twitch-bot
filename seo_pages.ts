@@ -100,10 +100,10 @@ const MAPPING: Array<[string, string, string, string]> = [
   ["Followage", "Yes", "Via custom command", "<code>!followage</code>, built in."],
   ["Spam filters", "Yes", "Yes", "Link, caps, symbol, emote and repeat filters with a warn → timeout ladder, plus auto-bans for “AI viewers” spam."],
   ["Channel-point rewards", "Yes", "No", "Linked to in-chat effects with <code>!boon</code>."],
-  ["Song requests", "Yes", "Yes", "No. GuildScribe can show what's playing on Spotify or Last.fm, but doesn't take requests."],
-  ["Follow / sub alert boxes", "Yes", "No", "No. Thank-yous for follows, subs and raids are posted in chat, not as on-screen alerts."],
-  ["Tips & donations", "Yes", "No", "No."],
-  ["OBS overlays", "Alerts & widgets", "No", "Overlays for giveaways, leaderboards and chat games."],
+  ["Song requests", "Yes", "Yes", "<code>!sr</code> adds songs straight to your Spotify queue, with per-viewer limits, <code>!song</code>, <code>!queue</code>, <code>!skip</code> and a public queue page. Spotify Premium only; no YouTube requests."],
+  ["Follow / sub alert boxes", "Yes", "No", "An Alerts overlay with a card and fanfare for follows, subs, resubs, gift subs, raids and cheers, on top of the thank-yous in chat."],
+  ["Tips & donations", "Yes", "No", "A tip page (<code>!tip</code>) with your own PayPal, Ko-fi, Cash App, Stripe or other links. Tips go straight to you; mods announce them on stream with <code>!alert tip</code>."],
+  ["OBS overlays", "Alerts & widgets", "No", "Alerts, now playing, sound effects, and overlays for giveaways, leaderboards and chat games."],
   ["Chat games", "Mini-games", "No", "A full D&amp;D 5e RPG: characters, duels, hunts, a raid boss and battle maps."],
 ];
 
@@ -112,7 +112,7 @@ const SWITCH_FAQ: Array<[string, string]> = [
   ["Can I run GuildScribe and StreamElements or Nightbot at the same time?", "Yes. Every GuildScribe feature starts switched off, GuildScribe ignores messages from other bots, and its built-in commands avoid names StreamElements already uses (<code>!gold</code> rather than <code>!points</code>, <code>!gold top</code> rather than <code>!leaderboard</code>, <code>!boon</code> rather than <code>!redeem</code>). Turn features on one at a time and switch the matching ones off in your old bot as you go."],
   ["Will my viewers lose their watch time?", "No. If your channel used StreamElements, <code>!watchtime</code> adds each viewer's StreamElements watch time to what GuildScribe has counted, so totals go back to before the switch."],
   ["Will my Nightbot commands work without changes?", "Most will. GuildScribe understands Nightbot's <code>$(user)</code>, <code>$(touser)</code>, <code>$(count)</code> and <code>$(random …)</code> placeholders. Commands that call outside services with <code>$(urlfetch …)</code> or run code with <code>$(eval …)</code> are flagged on import so you can rewrite them."],
-  ["What does GuildScribe not do?", "It has no on-screen follow/sub alert boxes, no tipping or donation page, and no song requests. Keep StreamElements or Streamlabs for alerts and tips; GuildScribe is happy to share the chat."],
+  ["Does GuildScribe do alerts, tips and song requests?", "Yes. The Alerts overlay shows follows, subs, gift subs, raids and cheers on stream. <code>!sr</code> takes song requests into your Spotify queue. Your tip page (<code>!tip</code>) gathers your PayPal, Ko-fi or other tip links in one place. GuildScribe never handles money itself, so a tip reaches you through the service you picked, and a mod shows its alert with <code>!alert tip</code>."],
 ];
 
 const SWITCH_CSS = `<style>.table-wrap{overflow-x:auto;border:1px solid var(--edge);border-radius:6px;background:#e7e0ca;margin:14px 0}
@@ -161,8 +161,12 @@ export function renderSwitchPage(): Response {
 <p>You don't have to switch everything in one night. GuildScribe ignores messages from Nightbot, StreamElements and other bots, and its built-in commands use names that don't clash with StreamElements' own: loyalty points are <code>!gold</code> (not <code>!points</code>), the leaderboard is <code>!gold top</code> (not <code>!leaderboard</code>) and channel-point effects use <code>!boon</code> (not <code>!redeem</code>).</p>
 <h2>Feature-by-feature comparison</h2>
 <div class="table-wrap"><table><thead><tr><th>Feature</th><th>StreamElements</th><th>Nightbot</th><th>GuildScribe</th></tr></thead><tbody>${rows}</tbody></table></div>
-<h2>What GuildScribe doesn't do</h2>
-<p>GuildScribe has no on-screen follow/sub alert boxes, no tipping or donation page, and no song requests. <strong>Keep StreamElements or Streamlabs for alerts and tips</strong>; GuildScribe can take over the chat side next to them.</p>
+<h2>Alerts, tips and song requests</h2>
+<ul>
+<li><strong>Alerts.</strong> Add the Alerts overlay from <code>!overlays</code> as an OBS Browser source. New followers, subs, resubs (with their message), gift subs, raids and cheers each get a card and a fanfare. Test it with <code>!alert test sub</code>.</li>
+<li><strong>Song requests.</strong> Connect Spotify on the dashboard's Now playing page and viewers can <code>!sr</code> a song name or Spotify link straight into your queue. You set how many songs each viewer can have waiting, the longest song allowed and who can request. Spotify only allows this on Premium, and GuildScribe doesn't take YouTube requests.</li>
+<li><strong>Tips.</strong> Put your PayPal.me, Ko-fi, Cash App, Stripe Payment Link or StreamElements/Streamlabs tip link on your GuildScribe tip page, and <code>!tip</code> posts it. The money goes straight to you, and GuildScribe never touches it. Because those services don't report back, a mod puts a tip on screen with <code>!alert tip &lt;name&gt; &lt;amount&gt;</code>.</li>
+</ul>
 <h2>Questions</h2><div class="faq">${faq}</div>
 <h2>Related guides</h2>
 <p><a class="btn" href="/howto/custom-commands">How to make custom commands on Twitch</a><a class="btn" href="/howto/timed-messages">How to set up timed messages on Twitch</a><a class="btn" href="/howto/giveaways">How to run a Twitch giveaway</a><a class="btn" href="/howto/moderation">How to stop spam bots in Twitch chat</a></p>`,

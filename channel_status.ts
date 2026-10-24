@@ -27,6 +27,8 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: 
   { scope: "moderator:manage:chat_settings", feature: "Offline lock (emote/followers/subs-only)", optional: true },
   { scope: "user:manage:blocked_users", feature: "Follow-bot blocking (!removebots)", optional: true },
   { scope: "clips:edit", feature: "!clip", optional: true },
+  // Optional: only the on-screen cheer alert needs it (alerts.ts subscribes lazily once granted).
+  { scope: "bits:read", feature: "Cheer alerts on stream", optional: true },
 ];
 
 /** Extra EventSub subscriptions /connect creates (eventsub_extra_subscriptions.kind).
@@ -42,6 +44,7 @@ export const EXTRA_SUBSCRIPTIONS: Array<{ kinds: string[]; feature: string; scop
   { kinds: ["stream_online", "stream_offline"], feature: "Live / offline tracking", selfHeals: true },
   { kinds: ["ad_break"], feature: "Ad-break alerts", scope: "channel:read:ads", selfHeals: true },
   { kinds: ["redemption"], feature: "Channel-point boons", scope: "channel:read:redemptions" },
+  { kinds: ["cheer"], feature: "Cheer alerts", scope: "bits:read", selfHeals: true },
 ];
 
 export type ChannelHealth = "ok" | "partial" | "disconnected" | "blocked";
