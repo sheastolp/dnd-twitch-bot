@@ -152,6 +152,7 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   subthanks: { section: FEATURE_SECTION, label: "Sub thank-yous (new subs, resubs and gift subs)", commands: [] },
   raidthanks: { section: FEATURE_SECTION, label: "Raid thank-yous (welcomes an incoming raid)", commands: [] },
   goodnight: { section: FEATURE_SECTION, label: "Goodnight send-offs (replies when chat says goodnight)", commands: [] },
+  firstchat: { section: FEATURE_SECTION, label: "First-chatter manners (reminds a first-time chatter who asks to play or for help to chat first)", commands: [] },
   // Stream protection (stream_guard.ts / followbots.ts).
   hateraid: { section: FEATURE_SECTION, label: "Hate-raid shield (bans waves of new accounts posting the same thing, turns on Shield Mode; !hateraid)", commands: [] },
   followbots: { section: FEATURE_SECTION, label: "Block follow bots (removes bot-looking new followers; !followbots, !removebots)", commands: [] },

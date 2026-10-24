@@ -33,6 +33,7 @@ import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, purgeRaidData
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
 import { ensureNickname, ensureViewerNameTables, getChannelNicknames, purgeViewerNames, recordViewerName, resolveNicknameTargets } from "./mentions.ts";
 import { handleNickCommand } from "./nick.ts";
+import { ensureFirstChatterTables, maybeRemindFirstChatter, purgeFirstChatterData } from "./first_chatter.ts";
 import { ensureAutohuntTables, purgeAutohuntData } from "./autohunt_db.ts";
 import { disconnectPointsData, ensurePointsTables, isPointsEnabled, migrateToCopper, purgePointsData, setRobPause } from "./points_db.ts";
 import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanData } from "./autoban.ts";
@@ -183,6 +184,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureFollowBotTables,
   ensureModLogTables,
   ensureMotdTables,
+  ensureFirstChatterTables,
 ];
 
 async function schemaFingerprint(): Promise<string> {
@@ -590,6 +592,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeSavingThrowData(broadcasterId);
       await purgeQuoteData(broadcasterId);
       await purgeGameStatsData(broadcasterId);
+      await purgeFirstChatterData(broadcasterId);
     } else {
       await disconnectBroadcasterData(broadcasterId, false);
       await disconnectPointsData(broadcasterId);
@@ -696,6 +699,17 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (Number(connection.is_live) === 1) defer(maybeAdHeadsUp(broadcasterId, baseUrl));
   // Pokéball advisor (pokeball.ts): a viewer's !pokecatch with a ball it doesn't know gets asked about.
   if (/^!pokecatch\s/i.test(chatMessage)) defer(maybeAskAboutBall(broadcasterId, chatter, chatMessage));
+
+  // First-time chatter asking to play or for help gets a "chat first"
+  // reminder instead of any other plain-chat reply (first_chatter.ts).
+  try {
+    if (
+      await maybeRemindFirstChatter({
+        chatMessage, messageType: String(body.event?.message_type ?? ""), chatter, display, broadcasterId, isModerator,
+        enabled: () => isCommandGroupEnabled(broadcasterId, "firstchat"),
+      })
+    ) return new Response("OK");
+  } catch (e) { await recordMonitorEvent("first_chatter_error", String(e)); }
 
   if (chatMessage.startsWith("!")) {
     // Throttle non-mod command spam before it reaches any handler or the DB.
