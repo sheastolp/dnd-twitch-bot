@@ -21,7 +21,13 @@
 //   - Game questions: chat abbreviations (bg3, botw, rdr2…) are spelled out,
 //     "this game" becomes the channel's current Twitch category, game-worded
 //     questions also search "… video game", and the article whose title the
-//     question names outranks its sequels, spin-offs and namesakes.
+//     question names outranks its sequels, spin-offs and namesakes. A game
+//     the question names also gets its Fandom wiki searched (free, same API as
+//     Wikipedia), which has the in-game detail Wikipedia doesn't — charms,
+//     items, stats — and is credited as the source when it's used.
+//   - Nothing is posted that doesn't answer the question: "couldn't find"
+//     from the AI, or (when the AI is down) a best passage that misses most of
+//     the question's words, becomes a "couldn't find" reply instead.
 //   - Per-chatter cooldown (ASKME_USER_COOLDOWN_S, default 30 s, mods skip it)
 //     and a channel-wide one (ASKME_CHANNEL_COOLDOWN_S, default 5 s).
 
@@ -42,8 +48,13 @@ const MAX_ANSWER_LEN = 300;
 const MAX_URL_LEN = 120;
 const ARTICLES = 3;
 /** Passages handed to the AI, and the most characters each may have. */
-const PASSAGES = 5;
+const PASSAGES = 6;
 const MAX_PASSAGE_LEN = 400;
+/** Score added to game-wiki passages over Wikipedia's. */
+const GAME_WIKI_BONUS = 1.5;
+/** The share of the question's words a passage must contain to be posted on
+ * its own when the AI can't answer — below it, it's likely off topic. */
+const MIN_FALLBACK_COVERAGE = 0.6;
 // Roomy so "thinking" models (qwen3, gpt-5…) have budget left to answer;
 // llama3.2 and the like stop after a sentence or two anyway.
 const ANSWER_MAX_TOKENS = 1000;
@@ -69,6 +80,8 @@ interface Article {
   title: string;
   url: string;
   text: string;
+  /** Where it's from, for the source line: "Wikipedia" or a game wiki's name. */
+  site: string;
 }
 
 interface Passage {
@@ -85,7 +98,7 @@ interface Passage {
 
 interface Answer {
   text: string;
-  source: { url: string; title: string };
+  source: { url: string; title: string; site: string };
 }
 
 // Words that say nothing about what's being asked.
@@ -212,8 +225,12 @@ async function wikiQuery(params: Record<string, string>): Promise<any> {
 
 async function searchTitles(query: string): Promise<string[]> {
   if (!query.trim()) return [];
-  const search = await wikiQuery({ list: "search", srsearch: query, srlimit: String(ARTICLES), srprop: "" });
-  return (search.query?.search ?? []).map((r: any) => String(r.title)).filter((t: string) => !/\(disambiguation\)$/i.test(t));
+  const search = await wikiQuery({ list: "search", srsearch: query, srlimit: String(ARTICLES), srprop: "", srinfo: "suggestion" });
+  const titles = (search.query?.search ?? []).map((r: any) => String(r.title)).filter((t: string) => !/\(disambiguation\)$/i.test(t));
+  // Nothing found for a typo or a run-together name ("hollowknight"): try
+  // Wikipedia's own "did you mean" ("hollow knight").
+  const suggestion = search.query?.searchinfo?.suggestion;
+  return titles.length || !suggestion ? titles : await searchTitles(suggestion);
 }
 
 /** The top Wikipedia articles for `question`, with their full plain text and
@@ -235,12 +252,164 @@ async function searchWikipedia(question: string, game: boolean, games: string[])
     try {
       const data = await wikiQuery({ prop: "extracts|info", explaintext: "1", inprop: "url", titles: title, redirects: "1" });
       const page = data.query?.pages?.[0];
-      return page?.extract?.trim() ? { article: { title: page.title, url: page.fullurl, text: page.extract } as Article, rank } : null;
+      return page?.extract?.trim()
+        ? { article: { title: page.title, url: page.fullurl, text: page.extract, site: "Wikipedia" } as Article, rank }
+        : null;
     } catch {
       return null; // one missing article shouldn't sink the others
     }
   }));
   return pages.filter((p) => p !== null);
+}
+
+/** Letters and digits only, lowercased: "Hollow Knight" → "hollowknight". */
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The games a question is about: the ones it named by abbreviation or "this
+ * game", plus any Wikipedia article it found that's a game and whose name the
+ * question spells out, spaces or not ("hollowknight" → Hollow Knight). A
+ * "(video game)" title only counts on a game-worded question, so "how far is
+ * the moon" doesn't pull in a game called Moon. */
+async function gamesAsked(question: string, named: string[], articles: { article: Article }[], game: boolean): Promise<string[]> {
+  const asked = squash(question);
+  const found = articles.filter(({ article }) => {
+    const name = squash(article.title.replace(/\s*\(.*\)$/, "").replace(/:.*$/, ""));
+    if (name.length < 4 || !asked.includes(name)) return false;
+    if (/\(.*video game\)$/i.test(article.title)) return game;
+    // The opening sentence says what it is: "Warframe is a … online game".
+    return /\b(video|computer|online|mobile) game\b|\bgame (developed|published)\b/i.test(article.text.slice(0, 400));
+  }).map(({ article }) => article.title.replace(/\s*\(.*\)$/, ""));
+  return [...new Set([...named, ...found, ...await gamesByTitle(question)])].slice(0, 2);
+}
+
+/** Games named outright in the question that its search missed ("what is the
+ * fastest warframe" finds articles that mention fast, not Warframe): every run
+ * of one to three of its words is looked up as a Wikipedia title, and the
+ * ones whose short description is "<year> video game" count, longest first. */
+async function gamesByTitle(question: string): Promise<string[]> {
+  const words = question.match(/[a-z0-9'&]+/gi) ?? [];
+  const runs = new Set<string>();
+  for (let n = 3; n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const run = words.slice(i, i + n);
+      if (STOPWORDS.has(run[0].toLowerCase()) || STOPWORDS.has(run[n - 1].toLowerCase())) continue;
+      runs.add(run.map((w) => w[0].toUpperCase() + w.slice(1)).join(" "));
+    }
+  }
+  if (!runs.size) return [];
+  try {
+    const data = await wikiQuery({ prop: "description", titles: [...runs].slice(0, 50).join("|"), redirects: "1" });
+    return (data.query?.pages ?? [])
+      .filter((p: any) => /\bvideo game\b/i.test(p.description ?? ""))
+      .map((p: any) => String(p.title).replace(/\s*\(.*\)$/, ""))
+      .sort((a: string, b: string) => b.length - a.length);
+  } catch {
+    return [];
+  }
+}
+
+// Fandom game wikis have the detail Wikipedia leaves out (charms, items,
+// stats) and the same free MediaWiki API. A game's wiki is found by guessing
+// its address, and kept so it's only looked up once.
+const fandomWikis = new Map<string, { url: string; name: string } | null>();
+// "Fastest"/"strongest" questions are answered by a stat page, which game
+// wikis name by the stat ("Sprint Speed"), not the superlative.
+const GAME_WIKI_TERMS: Record<string, string> = {
+  fastest: "fastest speed", slowest: "slowest speed", strongest: "strongest damage", tankiest: "tankiest health armor",
+  best: "best tier",
+};
+/** Most characters of a game-wiki page's HTML that get read (stat tables can be huge). */
+const MAX_WIKI_HTML = 300_000;
+
+async function fandomQuery(wiki: string, params: Record<string, string>): Promise<any> {
+  const url = `${wiki}/api.php?${new URLSearchParams({ format: "json", formatversion: "2", ...params })}`;
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(WIKI_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`Game wiki request failed: HTTP ${res.status}`);
+  return await res.json(); // an unknown wiki answers with an HTML page, which throws here
+}
+
+/** The Fandom wiki for `game` ("Hollow Knight" → hollowknight.fandom.com),
+ * or null. Tries the full name, without "The", and before its subtitle; the
+ * wiki's own name must share a word with the game's, so a guess doesn't land
+ * on an unrelated wiki. */
+async function fandomWikiFor(game: string): Promise<{ url: string; name: string } | null> {
+  const key = game.toLowerCase();
+  if (fandomWikis.has(key)) return fandomWikis.get(key)!;
+  const base = game.replace(/\s*\(.*\)$/, "");
+  const short = base.replace(/:.*$/, "");
+  const slugs = [...new Set([base, short, short.replace(/^the\s+/i, ""), short.replace(/\s*\d+$/, "")].map(squash))]
+    .filter((s) => s.length >= 3);
+  const gameWords = keywords(base);
+  let found: { url: string; name: string } | null = null;
+  for (const slug of slugs) {
+    const url = `https://${slug}.fandom.com`;
+    try {
+      const name = String((await fandomQuery(url, { action: "query", meta: "siteinfo" })).query?.general?.sitename ?? "");
+      if ([...keywords(name)].some((w) => gameWords.has(w))) {
+        found = { url, name };
+        break;
+      }
+    } catch { /* no wiki at that address */ }
+  }
+  fandomWikis.set(key, found);
+  return found;
+}
+
+/** A game-wiki page's HTML as plain text in the shape Wikipedia extracts have:
+ * "== Heading ==" lines, a paragraph or table row per line, cells split by "|". */
+function htmlToText(html: string): string {
+  return html.slice(0, MAX_WIKI_HTML)
+    .replace(/<(script|style|sup)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<table[^>]*class="[^"]*navbox[\s\S]*?<\/table>/gi, "")
+    .replace(/<h[2-4][^>]*>([\s\S]*?)<\/h[2-4]>/gi, (_, h) => `\n== ${h.replace(/<[^>]+>/g, "").trim()} ==\n`)
+    .replace(/<\/t[dh]>/gi, " | ")
+    .replace(/<(\/(p|tr|li|div|dd|dt)|br\s*\/?)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;|&#160;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/[ \t]*\|[ \t]*$/gm, "")
+    .replace(/\[edit\]/gi, "");
+}
+
+/** The best pages on `game`'s Fandom wiki for `question`. The search leaves
+ * out the game's own name, which is on every page of its wiki ("fastest
+ * warframe" on the Warframe wiki searches "fastest"). */
+async function searchGameWiki(question: string, game: string): Promise<{ article: Article; rank: number }[]> {
+  const wiki = await fandomWikiFor(game);
+  if (!wiki) return [];
+  const gameWords = keywords(game);
+  const words = searchWords(question).filter((w) => !gameWords.has(stem(w)) && !squash(game).includes(w));
+  const query = (words.length ? words : searchWords(question)).map((w) => GAME_WIKI_TERMS[w] ?? w).join(" ");
+  // A page named for what's asked about ("charm" → Charms) is usually the
+  // overview, which the text search ranks below pages that just mention it.
+  const named = words.flatMap((w) => {
+    const word = w[0].toUpperCase() + w.slice(1);
+    return [word, word.endsWith("s") ? word : `${word}s`];
+  });
+  try {
+    const [search, exact] = await Promise.all([
+      fandomQuery(wiki.url, { action: "query", list: "search", srsearch: query, srlimit: String(ARTICLES), srprop: "" }),
+      named.length ? fandomQuery(wiki.url, { action: "query", titles: named.slice(0, 20).join("|"), redirects: "1" }) : null,
+    ]);
+    const titles: string[] = [...new Set([
+      ...(exact?.query?.pages ?? []).filter((p: any) => !p.missing && p.ns === 0).map((p: any) => String(p.title)),
+      ...(search.query?.search ?? []).map((r: any) => String(r.title)),
+    ])].slice(0, ARTICLES + 1);
+    const pages = await Promise.all(titles.map(async (title, rank) => {
+      try {
+        const page = (await fandomQuery(wiki.url, { action: "parse", page: title, prop: "text", redirects: "1", disabletoc: "1" })).parse;
+        const text = htmlToText(String(page?.text ?? "")).trim();
+        const url = `${wiki.url}/wiki/${encodeURIComponent(String(page.title).replace(/ /g, "_"))}`;
+        return text ? { article: { title: page.title, url, text, site: wiki.name } as Article, rank } : null;
+      } catch {
+        return null;
+      }
+    }));
+    return pages.filter((p) => p !== null);
+  } catch (e) {
+    console.error("askme game wiki lookup failed", e);
+    return [];
+  }
 }
 
 /** Cuts an article into paragraph-sized passages, skipping reference sections
@@ -306,7 +475,10 @@ function titleScore(title: string, wanted: Set<string>, game: boolean): number {
  * article and (for "how many/when…" questions) a passage with digits in it
  * get a nudge. */
 function bestPassages(question: string, articles: { article: Article; rank: number }[], game: boolean): Passage[] {
-  const all = articles.flatMap(({ article, rank }) => passagesOf(article, rank));
+  // The same paragraph can turn up on two pages (game wikis reuse text).
+  const seen = new Set<string>();
+  const all = articles.flatMap(({ article, rank }) => passagesOf(article, rank))
+    .filter((p) => !seen.has(p.text) && seen.add(p.text));
   const wanted = [...keywords(question)];
   const wantedSet = new Set(wanted);
   const titles = new Map(articles.map(({ article }) => [article.title, titleScore(article.title, wantedSet, game)]));
@@ -320,12 +492,22 @@ function bestPassages(question: string, articles: { article: Article; rank: numb
     }
     if (numeric && HAS_NUMBER.test(p.text)) s += 1;
     if (p.lead) s += 0.5;
+    // A game wiki page was searched for this exact game, so it's on topic.
+    if (p.article.site !== "Wikipedia") s += GAME_WIKI_BONUS;
     return s + (titles.get(p.article.title) ?? 0) - p.rank * 0.5;
   };
   const ranked = all.map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s);
   const intros = ranked.filter(({ p }) => p.lead).slice(0, 2);
   const rest = ranked.filter(({ p }) => !p.lead).slice(0, PASSAGES - intros.length);
   return [...intros, ...rest].sort((a, b) => b.s - a.s).map(({ p }) => p);
+}
+
+/** The passages the AI answers `query` from: Wikipedia's, plus the wiki of
+ * any game the question names. (Exported for testing.) */
+export async function findPassages(query: string, games: string[], game: boolean): Promise<Passage[]> {
+  const wikipedia = await searchWikipedia(query, game, games);
+  const gameWiki = (await Promise.all((await gamesAsked(query, games, wikipedia, game)).map((g) => searchGameWiki(query, g)))).flat();
+  return bestPassages(query, [...gameWiki, ...wikipedia], game);
 }
 
 /** Looks `question` up on Wikipedia and has the AI answer from what it finds. */
@@ -335,7 +517,7 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
   const game = games.length > 0 || GAME_WORDS.test(query);
   let passages: Passage[];
   try {
-    passages = bestPassages(query, await searchWikipedia(query, game, games), game);
+    passages = await findPassages(query, games, game);
   } catch (e) {
     console.error("askme Wikipedia lookup failed", e);
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
@@ -344,7 +526,7 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
   if (!passages.length) return null;
 
   try {
-    const excerpts = passages.map((p, i) => `[${i + 1}] (${p.article.title}) ${p.text}`).join("\n\n");
+    const excerpts = passages.map((p, i) => `[${i + 1}] (${p.article.site}: ${p.article.title}) ${p.text}`).join("\n\n");
     // No `temperature` override: some OpenAI models only accept the default.
     const completion = await openai.chat.completions.create({
       model: MODEL,
@@ -365,14 +547,24 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
       raw.replace(/\s*\[\d\]/g, "").replace(/\s*https?:\/\/\S+/g, "").replace(/[*_`#]/g, "").replace(/^["']|["']$/g, ""),
       MAX_ANSWER_LEN,
     );
-    if (text) return { text, source: { url: article.url, title: article.title } };
+    // "I couldn't find that" with a source link under it reads as an answer.
+    if (/\b(couldn'?t|could not|can'?t|cannot|unable to) find\b|\bdo(es)?n'?t (say|mention|contain|include)\b/i.test(text)) return null;
+    if (text) return { text, source: { url: article.url, title: article.title, site: article.site } };
   } catch (e) {
     console.error("askme AI answer failed", e);
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
   }
-  // The AI is down or said nothing: let the best passage speak for itself.
+  // The AI is down or said nothing: let the best passage speak for itself —
+  // but only if it covers most of what was asked, so an unrelated paragraph
+  // isn't posted as the answer.
   const top = passages[0];
-  return { text: fitSentences(top.text, MAX_ANSWER_LEN), source: { url: top.article.url, title: top.article.title } };
+  const wanted = [...keywords(query)];
+  const covered = wanted.filter((w) => top.words.has(w) || keywords(top.article.title).has(w)).length;
+  if (!wanted.length || covered / wanted.length < MIN_FALLBACK_COVERAGE) return null;
+  return {
+    text: fitSentences(top.text, MAX_ANSWER_LEN),
+    source: { url: top.article.url, title: top.article.title, site: top.article.site },
+  };
 }
 
 export async function handleAskMeCommand(
@@ -418,7 +610,7 @@ export async function handleAskMeCommand(
 
   const answer = await answerQuestion(broadcasterId, compactText(question, MAX_QUESTION_LEN));
   if (!answer) {
-    await sendChatMessage(`@${display} I couldn't find anything on Wikipedia for that — try wording it differently.`, broadcasterId);
+    await sendChatMessage(`@${display} I couldn't find a reliable answer to that — try wording it differently.`, broadcasterId);
     return true;
   }
 
@@ -426,7 +618,8 @@ export async function handleAskMeCommand(
   // A very long article URL is left off rather than cut mid-link.
   const title = compactText(answer.source.title, 30);
   const link = answer.source.url.length <= MAX_URL_LEN ? ` — ${answer.source.url}` : "";
-  const reply = `@${display} ${answer.text} 📚 Source: Wikipedia, ${title}${link}`;
+  const site = compactText(answer.source.site, 30);
+  const reply = `@${display} ${answer.text} 📚 Source: ${site}, ${title}${link}`;
   await sendChatMessage(reply, broadcasterId, [], { keepNames: true });
   return true;
 }
