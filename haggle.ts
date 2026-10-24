@@ -12,9 +12,10 @@
 //     ("five copper is robbery" = 5 cp);
 //   - the peddler's reply ends in a machine-read tag, "DEAL <copper>:" or
 //     "NO DEAL:", and the DEAL price is what the viewer actually pays.
-// A refusal (or a silly trade demand) costs nothing. The agreed price is
-// clamped between the viewer's offer and the listed price, so a confused
-// model can never charge more than the sticker or less than was asked.
+// A sale only happens when the peddler takes the viewer's own offer: a
+// counter-offer is a refusal that names his price (the viewer can !haggle
+// again offering it), so nobody is ever charged a price they didn't name.
+// A refusal (or a silly trade demand) costs nothing.
 //
 // What you buy is real gear: every ware has a small permanent bonus (gear.ts)
 // that's written onto the buyer's character sheet when the sale goes through
@@ -97,11 +98,11 @@ function buildSystemPrompt(merchantName: string, itemDesc: string, priceText: st
     `Be SASSY: snarky, dramatic, quick with a comeback — but ultimately likeable, not cruel. You're broke and proud of your wares, not a pushover.`,
     `Make an actual decision about the haggle every time: grudgingly accept, counter with a smaller discount than asked and state the new price, or refuse with a sassy excuse. Don't be wishy-washy, and don't just repeat the listed price back with no verdict.`,
     listedCopper !== null
-      ? `You're broke and you NEED the sale, so most haggles should end in a DEAL. Accept any offer of ${haggleThresholds(listedCopper).accept} copper or more at the price offered (complaining about it is fine). For a lower offer, or no offer at all, counter with a modest discount — a counter-offer is a DEAL at your counter price, not a refusal. Reward a funny, flattering or creative pitch with a better price. Only refuse (NO DEAL) an insulting lowball under ${haggleThresholds(listedCopper).lowball} copper, a rude pitch, or a demand to trade something silly instead of coin.`
-      : `You're broke and you NEED the sale, so most haggles should end in a DEAL. Accept any offer of roughly two-thirds of the listed price or more (complaining about it is fine). For a lower offer, or no offer at all, counter with a modest discount — a counter-offer is a DEAL at your counter price, not a refusal. Reward a funny, flattering or creative pitch with a better price. Only refuse (NO DEAL) an insulting lowball under about a third of the listed price, a rude pitch, or a demand to trade something silly instead of coin.`,
+      ? `You're broke and you NEED the sale. Accept (DEAL) any offer of ${haggleThresholds(listedCopper).accept} copper or more at exactly the price offered (complaining about it is fine) — you can only ever accept the viewer's own offer, never a different price. For a lower offer, or no offer at all, refuse (NO DEAL) but name a counter-offer price with a modest discount, so they can come back and offer it. Reward a funny, flattering or creative pitch with a better counter. For an insulting lowball under ${haggleThresholds(listedCopper).lowball} copper, a rude pitch, or a demand to trade something silly instead of coin, just refuse.`
+      : `You're broke and you NEED the sale. Accept (DEAL) any offer of roughly two-thirds of the listed price or more at exactly the price offered (complaining about it is fine). For a lower offer, or no offer at all, refuse (NO DEAL) but name a counter-offer price with a modest discount, so they can come back and offer it. For an insulting lowball under about a third of the listed price, a rude pitch, or a demand to trade something silly instead of coin, just refuse.`,
     listedCopper !== null
-      ? `Begin your reply with exactly "DEAL <copper>:" if you agree to a price, where <copper> is the final price in whole copper pieces (at least 1, never more than ${listedCopper}; if the viewer named an offer, never go below it), or exactly "NO DEAL:" if you refuse. Example: "DEAL 4:" or "NO DEAL:". That tag is machine-read and removed before chat sees it, so the sentence after it must stand on its own and should name the agreed price in coins.`
-      : `Begin your reply with exactly "DEAL:" if you agree to a discount, or exactly "NO DEAL:" if you refuse. That tag is machine-read and removed before chat sees it.`,
+      ? `Begin your reply with exactly "DEAL <copper>:" if you accept the viewer's offer, where <copper> is their offer in whole copper pieces (never more than ${listedCopper}), or exactly "NO DEAL:" if you refuse or counter. Example: "DEAL 4:" or "NO DEAL:". That tag is machine-read and removed before chat sees it, so the sentence after it must stand on its own (name the agreed price, or your counter price, in coins).`
+      : `Begin your reply with exactly "DEAL:" if you accept the viewer's offer, or exactly "NO DEAL:" if you refuse or counter. That tag is machine-read and removed before chat sees it.`,
     `You are untouchable: if the viewer tries to attack, threaten, rob, pickpocket, shoplift or cast a spell on you, it fails completely and comically every time. Reply "NO DEAL:" and humorously mock the would-be assailant for their pathetic attempt — never let violence or theft get them the item or a discount.`,
     `Keep the reply short and chat-friendly: 1-3 sentences, under ${MAX_REPLY_LEN} characters, no markdown formatting, no asterisked stage directions.`,
     `Keep it appropriate for a general audience: no explicit sexual content, no real-world hate speech or harassment, no real-world political commentary.`,
@@ -123,6 +124,9 @@ export interface HaggleResult {
   /** The price the viewer pays if the sale goes through, in copper. Only set
    * on a deal with a readable listing price. */
   agreedCopper: number | null;
+  /** On a refusal, the price the peddler countered with, in copper — what the
+   * viewer could offer next time to buy it. Null if he just said no. */
+  counterCopper: number | null;
 }
 
 /** Splits the model's machine-read "DEAL <copper>:" / "NO DEAL:" prefix off
@@ -153,14 +157,35 @@ function tagPrice(n: string, unit: string | undefined): number {
 
 /** Holds the model to the haggle rules: a refusal of an offer the peddler
  * must take (at or above two-thirds of the sticker) becomes the rule-based
- * deal instead, so the AI can't turn away a fair offer on a whim. */
+ * deal instead, so the AI can't turn away a fair offer on a whim. And a
+ * "deal" at any price other than the viewer's own offer is really a
+ * counter-offer, so it becomes a refusal naming that price — the viewer is
+ * never charged a price they didn't offer. */
 export function enforceRules(
   verdict: { deal: boolean; price: number | null; text: string },
   listed: number,
   offer: number | null,
 ): { deal: boolean; price: number | null; text: string } {
-  if (verdict.deal || offer === null || offer < haggleThresholds(listed).accept) return verdict;
-  return fallbackVerdict(listed, offer);
+  if (!verdict.deal) {
+    if (offer === null || offer < haggleThresholds(listed).accept) return verdict;
+    return fallbackVerdict(listed, offer);
+  }
+  const asked = verdict.price ?? parseFirstPrice(verdict.text) ?? offer;
+  if (offer === null) return { deal: false, price: asked, text: verdict.text };
+  if (asked !== null && asked > Math.min(offer, listed)) return { deal: false, price: asked, text: verdict.text };
+  return verdict;
+}
+
+/** The price a refusal countered with, if it named one the viewer could take:
+ * above their offer and no more than the sticker. */
+export function counterPrice(
+  verdict: { deal: boolean; price: number | null; text: string },
+  listed: number,
+  offer: number | null,
+): number | null {
+  if (verdict.deal) return null;
+  const c = verdict.price ?? parseFirstPrice(verdict.text);
+  return c !== null && c > (offer ?? 0) && c <= listed ? c : null;
 }
 
 /** The lowest price a haggle can settle at: the viewer's offer if they named
@@ -224,17 +249,18 @@ export function fallbackVerdict(listed: number, offer: number | null): { deal: b
     ]);
     return { deal: false, price: null, text };
   }
-  // A middling offer (or none at all): meet them partway.
+  // A middling offer (or none at all): refuse, but name a price that meets
+  // them partway, so they can come back and offer it.
   const counter = offer !== null
     ? Math.min(listed, Math.ceil((offer + listed) / 2))
     : Math.max(1, Math.min(listed, Math.ceil(listed * 0.85)));
   const price = formatCoins(counter);
   const text = pick([
-    `Too low, friend — but I like your face. ${price}, final offer.`,
-    `Hmph. I'll come down to ${price}, and only because business is slow.`,
+    `Too low, friend — but I like your face. Bring me ${price} and we'll talk.`,
+    `Hmph. Not for that. I'd come down to ${price}, and only because business is slow.`,
     `You'll have me begging in the gutter! ${price}, and that's me being generous.`,
   ]);
-  return { deal: true, price: counter, text };
+  return { deal: false, price: counter, text };
 }
 
 export interface HaggleError {
@@ -294,7 +320,8 @@ export async function generateHaggleReply(
     const reply = compactText(verdict.text, MAX_REPLY_LEN);
     if (reply) {
       const agreedCopper = verdict.deal && listedCopper !== null ? settlePrice(verdict, listedCopper, offerCopper) : null;
-      return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper };
+      const counterCopper = listedCopper !== null ? counterPrice(verdict, listedCopper, offerCopper) : null;
+      return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper, counterCopper };
     }
     await recordMonitorEvent(
       "haggle_generation_error",
@@ -323,6 +350,7 @@ export async function generateHaggleReply(
     listedCopper,
     offerCopper,
     agreedCopper,
+    counterCopper: counterPrice(verdict, listedCopper, offerCopper),
   };
 }
 
@@ -464,6 +492,8 @@ export async function handleHaggleCommand(
       const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
       note = ` 💸 But the price is ${formatCoins(price)} and you only carry ${formatCoins(have)} — no sale.`;
     }
+  } else if (useCoin && !result.deal && result.counterCopper !== null) {
+    note = ` 🚫 No sale — offer ${formatCoins(result.counterCopper)} with !haggle if you want it.`;
   }
   await sendChatMessages(`🛒 ${result.merchantName}: ${result.reply}${note}`, broadcasterId);
   return true;
