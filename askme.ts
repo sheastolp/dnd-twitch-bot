@@ -1,10 +1,14 @@
 // !askme <question> — a straight, factual answer from an AI that searches the
 // web first, with a link to the source it used.
 //
-//   !askme <question>   anyone — e.g. !askme how far away is the moon?
+//   !askme <question>         anyone — e.g. !askme how far away is the moon?
+//   !askme on|off|status      on/off: broadcaster or mods; status: anyone
 //
-//   - Dashboard switch "askme" (off by default, "Other" section); main.ts
-//     gates it through COMMAND_GROUPS like any other command word.
+//   - Dashboard switch "askme" (off by default, "Other" section), also
+//     switched by !askme on/off. This file checks the switch itself (it isn't
+//     gated by COMMAND_GROUPS' word list), so on/off/status work while it's
+//     off and, when off, questions fall through to a channel's own !askme
+//     custom command.
 //   - Needs OpenAI (OPENAI_API_KEY): it uses the Responses API's web_search
 //     tool, which Ollama doesn't have (see openai.ts responses.create).
 //     ASKME_MODEL picks the model (default gpt-4.1-mini).
@@ -17,7 +21,7 @@
 import { OpenAI, supportsWebSearch } from "./openai.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { compactText } from "./utils.ts";
-import { recordMonitorEvent } from "./db.ts";
+import { isCommandGroupEnabled, recordMonitorEvent, setCommandGroupEnabled } from "./db.ts";
 
 const openai = new OpenAI();
 
@@ -110,6 +114,24 @@ export async function handleAskMeCommand(
   if (!match) return false;
 
   const question = (match[1] ?? "").trim();
+  const toggle = question.match(/^(on|off|status)$/i)?.[1].toLowerCase();
+  if (toggle === "status") {
+    const on = await isCommandGroupEnabled(broadcasterId, "askme");
+    await sendChatMessage(`@${display} !askme is ${on ? "on — ask me anything, e.g. !askme how far away is the moon?" : "off"}.`, broadcasterId);
+    return true;
+  }
+  if (toggle) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can switch !askme ${toggle}.`, broadcasterId);
+      return true;
+    }
+    await setCommandGroupEnabled(broadcasterId, "askme", toggle === "on");
+    const note = toggle === "on" && !supportsWebSearch() ? " (heads up: it needs an OpenAI key on the bot before it can answer)" : "";
+    await sendChatMessage(`@${display} !askme is ${toggle}${note}.`, broadcasterId);
+    return true;
+  }
+  if (!await isCommandGroupEnabled(broadcasterId, "askme")) return false;
+
   if (question.length < MIN_QUESTION_LEN) {
     await sendChatMessage(`@${display} ask me anything, e.g. !askme how far away is the moon?`, broadcasterId);
     return true;

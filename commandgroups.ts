@@ -185,8 +185,10 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // Plain chat that @-tags the bot gets an AI reply as a sour Russian babushka
   // (babushka.ts checks this switch itself; there's no command word).
   mentionreply: { section: "Other", label: "Babushka replies when chat @-tags the bot (AI)", commands: [] },
-  // askme.ts: AI answers backed by a web search, with a source link (OpenAI only).
-  askme: { section: "Other", label: "Ask me anything (!askme <question> — AI answer with a source)", commands: ["askme"] },
+  // askme.ts: AI answers backed by a web search, with a source link (OpenAI
+  // only). askme.ts checks this switch itself so !askme on/off/status stays
+  // reachable while it's off, and a channel's own !askme custom command still works.
+  askme: { section: "Other", label: "Ask me anything (!askme <question> — AI answer with a source; !askme on/off)", commands: [] },
 };
 
 // ── Switches that depend on other switches ──────────────────────────────
