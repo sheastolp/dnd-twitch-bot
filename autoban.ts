@@ -49,10 +49,13 @@ import {
   isUserIgnored,
   learnFromBannedMessage,
   learnFromMessage,
+  listWords,
   normalizeText,
   phraseMatches,
   purgeAutoBanWordData,
   recordHit,
+  sanitizePhrase,
+  setWordStatus,
   suggestFromHistory,
 } from "./autoban_words.ts";
 
@@ -327,6 +330,23 @@ export async function handleAutoBanCommand(
   broadcasterId: string,
   baseUrl: string,
 ): Promise<boolean> {
+  // !autoban enable|disable <phrase> — the "Turn on / Turn off" buttons on the dashboard's auto-ban list.
+  const one = chatMessage.trim().match(/^!autoban\s+(enable|disable)\s+(.+)$/i);
+  if (one) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can change the auto-ban list.`, broadcasterId);
+      return true;
+    }
+    const phrase = sanitizePhrase(one[2].replace(/^"|"$/g, ""));
+    const word = phrase ? (await listWords(broadcasterId)).find((w) => w.phrase === phrase) : undefined;
+    if (!word) {
+      await sendChatMessage(`@${display} "${one[2].slice(0, 60)}" isn't on the auto-ban list — check the exact phrase on !dashboard.`, broadcasterId);
+      return true;
+    }
+    const r = await setWordStatus(broadcasterId, word.id, one[1].toLowerCase() === "enable" ? "active" : "off");
+    await sendChatMessage(`@${display} "${word.phrase}": ${r.ok ? r.message : r.error}`, broadcasterId);
+    return true;
+  }
   const match = chatMessage.trim().match(/^!autoban\s+(on|off|status)$/i);
   if (!match) return false;
   const action = match[1].toLowerCase();

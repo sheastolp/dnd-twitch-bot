@@ -52,6 +52,7 @@ import { handleNpcCommand, recordNpcChatterBotMessage } from "./npcs.ts";
 import { handleCustomCommandManagement } from "./customcommands.ts";
 import { handleTimedMessageCommand } from "./timedmessages.ts";
 import { handleDashboardCommand } from "./dashboard.ts";
+import { handleFeatureCommand } from "./feature_toggle.ts";
 import { handleCreationCommand } from "./characters.ts";
 import { handleDuelCommand, handleMonsterDuelCommand, handlePartyCommand, handlePartyDuelCommand, handleInitiativeCommand } from "./combat.ts";
 import { env, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
@@ -630,6 +631,9 @@ async function handleNotification(body: any): Promise<Response | void> {
     }
     return new Response("OK");
   }
+
+  // !feature <name> on|off|status — every dashboard switch from chat (feature_toggle.ts).
+  if (await handleFeatureCommand(chatMessage, display, broadcasterId, isModerator, channelOn)) return new Response("OK");
 
   if (!channelOn) return new Response("OK");
 

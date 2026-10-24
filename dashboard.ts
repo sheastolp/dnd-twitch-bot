@@ -722,7 +722,7 @@ export async function applyQuickSetup(channelId: string, form: FormData): Promis
 }
 
 /** Every dashboard switch's current state (COMMAND_GROUPS + the dedicated ones). */
-async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
+export async function loadSwitchStates(channelId: string): Promise<Record<string, boolean>> {
   const [groups, bot, market, chronicle, autoban, points, npc, npcchatter, pokeball, automod, checklist, botcheckauto] = await Promise.all([
     getCommandGroupToggles(channelId), isChannelEnabled(channelId), isMerchantEnabled(channelId), isChronicleEnabled(channelId),
     isAutoBanEnabled(channelId), isPointsEnabled(channelId), isNpcEnabled(channelId), isNpcChatterEnabled(channelId),
@@ -732,7 +732,7 @@ async function loadSwitchStates(channelId: string): Promise<Record<string, boole
 }
 
 /** Turns one dashboard switch on or off, dedicated or command group. */
-async function setSwitch(channelId: string, sw: string, on: boolean): Promise<void> {
+export async function setSwitch(channelId: string, sw: string, on: boolean): Promise<void> {
   switch (sw) {
     case "bot": return void await setChannelEnabled(channelId, on);
     case "market": return void await setMerchantEnabled(channelId, on, on ? Date.now() + await randomMerchantIntervalMs(channelId) : null);

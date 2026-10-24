@@ -564,6 +564,22 @@ export async function handleAutoModCommand(
   baseUrl: string,
 ): Promise<boolean> {
   const text = chatMessage.trim();
+  // !automod <filter|announce> on|off — the dashboard's per-filter checkboxes and "Say so in chat".
+  const one = text.match(/^!automod\s+(links|caps|symbols|emotes|repeats|length|announce)\s+(on|off)\s*$/i);
+  if (one) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can do that.`, broadcasterId);
+      return true;
+    }
+    const which = one[1].toLowerCase(), on = one[2].toLowerCase() === "on";
+    const { enabled, config } = await getAutoModSettings(broadcasterId);
+    if (which === "announce") config.announce = on;
+    else config.filters[which as FilterKey] = on;
+    await saveAutoModConfig(broadcasterId, config);
+    const label = which === "announce" ? "Spam-filter notices in chat" : `The ${FILTERS.find((f) => f.key === which)!.label.toLowerCase()} filter`;
+    await sendChatMessage(`@${display} ${label} ${on ? "on" : "off"}.${on && !enabled ? " (Spam filters as a whole are off — !automod on.)" : ""}`, broadcasterId);
+    return true;
+  }
   const permit = text.match(/^!permit(?:\s+@?(\S+))?(?:\s+(\d+)\s*s?)?\s*$/i);
   const am = text.match(/^!automod(?:\s+(on|off|status|pardon)(?:\s+@?(\S+))?)?\s*$/i);
   if (!permit && !am) return false;
