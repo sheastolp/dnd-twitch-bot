@@ -433,14 +433,14 @@ export async function setChannelEnabled(broadcasterId: string, enabled: boolean)
 }
 
 /** All command-group states for the dashboard's toggle list, defaulting any
- * group with no row (never touched) to off. */
+ * group with no row (never touched) to off, or on for `defaultOn` groups. */
 export async function getCommandGroupToggles(broadcasterId: string): Promise<Record<string, boolean>> {
   const res = await sqlite.execute("SELECT group_name, enabled FROM command_toggles WHERE broadcaster_id = ?", [broadcasterId]);
   const overrides = new Map<string, boolean>(res.rows.map((r: any) => [String(r.group_name), Number(r.enabled) === 1]));
   const out: Record<string, boolean> = {};
   for (const [group, def] of Object.entries(COMMAND_GROUPS)) {
     // Never switched since the split? Inherit the older group it came from.
-    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? false;
+    out[group] = overrides.get(group) ?? (def.parent ? overrides.get(def.parent) : undefined) ?? def.defaultOn === true;
   }
   return out;
 }
@@ -456,7 +456,7 @@ export async function isCommandGroupEnabled(broadcasterId: string, group: string
   );
   const row = res.rows.find((r: any) => String(r.group_name) === group) ??
     res.rows.find((r: any) => String(r.group_name) === parent);
-  return row ? Number(row.enabled) === 1 : false;
+  return row ? Number(row.enabled) === 1 : COMMAND_GROUPS[group]?.defaultOn === true;
 }
 
 export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {

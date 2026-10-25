@@ -44,7 +44,8 @@ import { findMonsterByName, type SoloMonster } from "./data.ts";
 // group check below because on/off/status are matched and returned first.
 //
 // Every group starts OFF in a channel until a steward switches it on (from
-// the dashboard or chat), so the bot stays quiet when it first joins.
+// the dashboard or chat), so the bot stays quiet when it first joins —
+// except the few marked `defaultOn` (harmless, ask-only commands).
 //
 // One group per Guild Codex card (pages.ts renderGuidePage), so every card
 // links to exactly one switch (#toggle-<key> on the dashboard, reached from
@@ -60,6 +61,8 @@ export interface CommandGroup {
   section: string;
   commands: string[];
   parent?: string;
+  /** Starts ON in a channel that has never switched it (the rest start off). */
+  defaultOn?: boolean;
 }
 
 /** Groups in this section are shown with the dedicated switches, not as a folder. */
@@ -90,6 +93,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   div2build: { section: "The Division 2", label: "Random agent build (!div2build)", commands: ["div2build"] },
   div2loot: { section: "The Division 2", label: "Loot drop & tonight's op (!div2loot, !div2mission)", commands: ["div2loot", "div2mission"] },
   div2lookup: { section: "The Division 2", label: "Knowledgebase (!div2lookup, !div2)", commands: ["div2lookup", "div2"] },
+  // World of Warcraft (wow_forever.ts).
+  wowforever: { section: "World of Warcraft", label: "WoW Forever launch countdown (!wow:forever)", commands: ["wow:forever", "wowforever"], defaultOn: true },
   // Guild archives
   rules: { section: "Guild archives", label: "Spells, classes & rules (!rules, !spell, !class, !feat, !monster)", commands: ["rules", "rule", "spell", "class", "feat", "monster"], parent: "archives" },
   items: { section: "Guild archives", label: "Equipment and abilities (!item, !ability)", commands: ["item", "ability"], parent: "archives" },
