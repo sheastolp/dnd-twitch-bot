@@ -224,3 +224,50 @@ export function renderShmash(
   const line = pick(SHMASH_LINES).replaceAll("%ACTOR%", actorDesc).replaceAll("%TARGET%", target);
   return `💥 ${line}`;
 }
+
+// !pog — Pot of Greed. Deliberately undocumented (not in help, guide, the
+// commands page or any command group) and only answers one chatter;
+// chat_builtin.ts does the gating. Purely cosmetic: draws two distinct
+// meme "cards" off a D&D-flavored deck. No game state touched.
+const POG_OPENERS: string[] = [
+  `"I activate POT OF GREED, which allows me to draw two new cards!"`,
+  `"I play POT OF GREED! It lets me draw two more cards from my deck!"`,
+  `slams down POT OF GREED. The DM sighs. The DM always sighs.`,
+  `"POT OF GREED! Don't ask what it does, the card text is right there!"`,
+  `activates POT OF GREED. The pot grins. Nobody knows why the pot grins.`,
+];
+
+const POG_CARDS: string[] = [
+  "Natural 20 — crits on literally nothing, still counts",
+  "Bag of Holding (contains: one smaller Bag of Holding)",
+  "Mimic — it was a chest. It is no longer a chest",
+  "Wish — DM is already writing the monkey's paw",
+  "Exodia's Left Leg (wrong game, keeping it anyway)",
+  "Inspiration — the DM liked your voice acting",
+  "Bardic Seduction Attempt — targets the dragon. Again",
+  "Rocks Fall — everyone dies (respawn at tavern)",
+  "Fireball — centered on the party, as is tradition",
+  "Healing Potion (it's just red Gatorade)",
+  "Goblin Union Contract — the goblins want dental",
+  "Tavern Tab — 47 gold, nobody remembers ordering",
+  "Polymorph — you are a sheep now. Baa",
+  "Sneak Attack — rolled a 1 and announced it out loud",
+  "Deck of Many Things — draws another Pot of Greed. Infinite loop",
+  "Counterspell — counters the Pot of Greed. Paradox",
+  "Silvery Barbs — the DM's d20 now hates you specifically",
+  "Bear Wild Shape — the druid is ALWAYS a bear",
+  "+1 Longsword — it's just a longsword with ambition",
+  "Rope (50 ft) — the only item that's ever useful",
+  "Lucky Feat — the dice gods owe you one",
+  "Suspicious Pie — cleric says don't. Rogue says do",
+  "Ten Foot Pole — pokes every tile before stepping",
+  "Hit Points Unknown — the boss \"has a few left\" for 3 hours",
+  "Dark Magician Girl, Level 3 Wizard (multiclassed into Rogue)",
+];
+
+export function rollPotOfGreed(display: string): string {
+  const first = pick(POG_CARDS);
+  let second = pick(POG_CARDS);
+  while (second === first) second = pick(POG_CARDS);
+  return `🏺 @${display} ${pick(POG_OPENERS)} 🃏 ${first} 🃏 ${second}`;
+}

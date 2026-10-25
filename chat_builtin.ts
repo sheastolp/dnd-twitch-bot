@@ -16,7 +16,7 @@ import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowTex
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
 import { getBossSaves } from "./boss_saves.ts";
-import { rollFate, rollHug, renderShmash } from "./flavor.ts";
+import { rollFate, rollHug, renderShmash, rollPotOfGreed } from "./flavor.ts";
 import { isGoodnightMessage, goodnightReply } from "./flavor_events.ts";
 import { mentionsBot, maybeReplyToMention } from "./babushka.ts";
 import { classes } from "./data.ts";
@@ -28,6 +28,8 @@ import { div2Index, rollDiv2Build, rollDiv2Loot, rollDiv2Mission, div2LookupRepl
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { delveHelpText, getDelveOptions } from "./idle.ts";
 
+/** The one chatter (Twitch login) who can use the hidden !pog. */
+const POG_USER = "xannyxia";
 const GOODNIGHT_COOLDOWN_MS = Math.max(30_000, Number(Deno.env.get("GOODNIGHT_COOLDOWN_MS") ?? "300000"));
 
 async function sendWelcomeMessage(display: string, broadcasterId: string) {
@@ -425,6 +427,10 @@ export async function handleBuiltinChatCommand(ctx: {
     const hugMatch = chatMessage.match(/^!hug(?:\s+@?(\S+))?$/i)!;
     const hugTarget = hugMatch[1] ? hugMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
     await sendChatMessage(rollHug(display, hugTarget), broadcasterId);
+  } else if (/^!pog$/i.test(chatMessage) && chatter === POG_USER) {
+    // Hidden Pot of Greed (flavor.ts). Anyone else falls through as if it
+    // weren't here, so a channel's own !pog custom command still works.
+    await sendChatMessage(rollPotOfGreed(display), broadcasterId);
   } else if (/^!shmash(?:\s+@?\S+)?$/i.test(chatMessage)) {
     // Purely cosmetic (no HP/game state touched) — pulls each side's
     // character (race/class) when they have one saved, plain username
