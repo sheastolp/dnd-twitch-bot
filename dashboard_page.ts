@@ -1,5 +1,5 @@
 // The per-channel web dashboard page (GET /dashboard), split out of pages.ts
-// to keep files well under Val Town's per-file size ceiling. Re-exported
+// to keep files a manageable size. Re-exported
 // from pages.ts, so importers don't change.
 
 import { QUICK_CSS, renderQuickSetup } from "./dashboard_quick.ts";

@@ -1,6 +1,6 @@
 // GuildScribe — the public /gold?channel=<id> page that !gold list links to:
 // every purse in the channel, richest first, like the /roster page but for
-// coin only. Its own module to keep pages.ts under Val Town's per-file size ceiling.
+// coin only. Its own module to keep pages.ts a manageable size.
 
 import { formatCoins } from "./coins.ts";
 import { escapeHtml } from "./utils.ts";

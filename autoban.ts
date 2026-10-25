@@ -103,7 +103,7 @@ const BAN_LINES: Array<(name: string) => string> = [
   (n) => `🪤 The bait worked and the trap snapped shut on ${n}. I just banned another one for you.`,
 ];
 
-// ── Persistence (own table — db.ts is already near Val Town's file-size cap)
+// ── Persistence (own table — db.ts is already large)
 
 export async function ensureAutoBanTables() {
   await sqlite.execute(

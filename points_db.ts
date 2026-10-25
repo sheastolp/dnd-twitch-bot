@@ -1,6 +1,6 @@
 // Persistence for points.ts — the coin (points) economy, its leaderboard, and
 // giveaways. Every amount in this file is an integer number of COPPER (see
-// coins.ts; 100 cp = 1 gp). Split out of db.ts (already near Val Town's per-file size cap),
+// coins.ts; 100 cp = 1 gp). Split out of db.ts (already large),
 // same as social_db.ts / ads_db.ts. Mirrors db.ts's conventions: every row is
 // scoped by broadcaster_id, usernames are stored lowercase, and "no row"
 // means the default (here: points ON — a mod can switch it off).

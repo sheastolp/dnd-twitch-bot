@@ -1,7 +1,7 @@
 // Timed messages — recurring announcements a mod/streamer schedules from
 // chat (or the web dashboard, see dashboard.ts/pages.ts), posted on a
-// rotating interval by timedmessages_cron.ts (a separate Val Town cron
-// trigger, same shape as merchant_cron.ts — see that file's header).
+// rotating interval by timedmessages_cron.ts (a separate scheduled
+// job in server.ts, same shape as merchant_cron.ts — see that file's header).
 //
 //   !timedmsg add <minutes> <message>   (mod) schedule a new recurring post
 //   !timedmsg edit <id> <message>       (mod) change an existing one's text

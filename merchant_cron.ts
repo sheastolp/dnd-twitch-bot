@@ -1,6 +1,5 @@
 // GuildScribe — open-stall merchant, periodic posting.
-// Val Town CRON TRIGGER. Set the schedule in the Val Town UI; every 5-10
-// minutes is a good tick rate. The actual per-channel posting cadence is
+// Run on an interval by server.ts (MERCHANT_CRON_MINUTES, default 5). The actual per-channel posting cadence is
 // randomized (see MERCHANT_MIN/MAX_INTERVAL_MINUTES in merchant.ts) and
 // tracked per-broadcaster in the merchant_settings table via next_post_at,
 // so a frequent tick here just checks who's due rather than posting on

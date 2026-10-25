@@ -1,5 +1,5 @@
 // Persistence for redemptions.ts — channel-point rewards that touch the game.
-// Split out of db.ts (near Val Town's per-file size cap), same as
+// Split out of db.ts (already large), same as
 // points_db.ts / social_db.ts. Every row is scoped by broadcaster_id and
 // usernames are stored lowercase, like the rest of the bot.
 //

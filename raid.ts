@@ -15,7 +15,7 @@
 //   !rally new           mod: post a fresh raid quest now (e.g. bot joined mid-stream)
 //
 // The temporary party is just the muster: whoever typed !rally within
-// RAID_MUSTER_SECONDS of the horn. Val Town has no always-on process, so a
+// RAID_MUSTER_SECONDS of the horn. There's no timer per muster, so a
 // muster whose time is up is launched by the next thing that looks at it — any
 // chat message in the channel (maybeLaunchRaid, called from main.ts), !rally
 // itself, or the autohunt cron as a fallback. A full muster launches at once.

@@ -1,5 +1,5 @@
-// Persistence for ads.ts — split out from db.ts (which is already near Val
-// Town's per-file size cap) rather than growing that file further. Mirrors
+// Persistence for ads.ts — split out from db.ts (which is already large)
+// rather than growing that file further. Mirrors
 // db.ts's own conventions (INSERT OR REPLACE, broadcaster_id-keyed rows).
 
 import { sqlite } from "./sqlite.ts";

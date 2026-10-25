@@ -1,6 +1,6 @@
 // Guild Codex cards for the Wandering Clerk's hunting game (hoard.ts), part of
 // "Arena, wilds & the company" and switched by "Monster hunts". Its own file
-// to keep guide_arena.ts under Val Town's per-file size ceiling; guide.ts
+// to keep guide_arena.ts a manageable size; guide.ts
 // splices these cards onto the end of the arena section's grid.
 
 const switchLink = (key: string, label: string) =>

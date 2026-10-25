@@ -1,7 +1,6 @@
 // Dashboard feature groups (COMMAND_GROUPS) and which group a chat command
 // belongs to (groupForMessage).
-// Split out of utils.ts to keep every file well under Val Town's per-file
-// size ceiling.
+// Split out of utils.ts to keep files a manageable size.
 
 import { resolveCheckWithDc } from "./utils.ts";
 import { findMonsterByName, type SoloMonster } from "./data.ts";

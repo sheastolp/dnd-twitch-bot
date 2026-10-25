@@ -1,6 +1,5 @@
 // Solo monster duels: !dndduel, !dndduel <monster>, !dndduel monster [classic].
-// Split out of combat.ts (which re-exports it) to keep every file well
-// under Val Town's per-file size ceiling.
+// Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";

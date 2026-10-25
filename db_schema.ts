@@ -1,6 +1,5 @@
 // Schema setup and migrations (ensureTables).
-// Split out of db.ts (which re-exports everything here) to keep every file
-// well under Val Town's per-file size ceiling.
+// Split out of db.ts (which re-exports everything here) to keep files a manageable size.
 
 import { sqlite } from "./sqlite.ts";
 import {
@@ -407,8 +406,8 @@ export async function ensureTables() {
     )`,
   );
   // Timed messages: broadcaster/mod-authored announcements posted on a
-  // recurring interval by timedmessages_cron.ts (a separate Val Town cron
-  // trigger, same shape as merchant_cron.ts). Each row schedules itself via
+  // recurring interval by timedmessages_cron.ts (a separate scheduled
+  // job in server.ts, same shape as merchant_cron.ts). Each row schedules itself via
   // next_post_at rather than the cron computing a shared schedule, so
   // messages with different intervals in the same channel rotate
   // independently instead of all firing together.

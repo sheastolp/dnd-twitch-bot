@@ -1,7 +1,7 @@
 // GuildScribe — the public /bestiary?channel=<id> page that !bestiary links to:
 // every monster the channel can hunt (core + learned), with its base stat
 // block, where it turns up, its fight record here and what it has learned.
-// Its own module to keep pages.ts under Val Town's per-file size ceiling.
+// Its own module to keep pages.ts a manageable size.
 
 import { randomEncounterMinLevel, type SoloMonster } from "./data.ts";
 import { type AdaptationRecord, describeTier, expectedHeroWinRate, type HuntableMonster } from "./bestiary.ts";

@@ -6,9 +6,8 @@
 //     records it as the channel's last ad, so !adcheck and the reminder below
 //     stay accurate without !adslogged.
 //   • Heads-up. A few minutes before Twitch's next scheduled ad break
-//     (Get Ad Schedule), the bot warns chat once. Val Town crons can't tick
-//     faster than every 15 minutes, so the check rides on chat activity
-//     instead: any message in a live channel runs it, at most every 30
+//     (Get Ad Schedule), the bot warns chat once. The crons only tick every
+//     few minutes, so the check rides on chat activity instead: any message in a live channel runs it, at most every 30
 //     seconds per channel, with the watch-time cron as a backstop for quiet
 //     chats.
 //   • Missed breaks. The same check compares Twitch's last_ad_at with the

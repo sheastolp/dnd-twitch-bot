@@ -5,8 +5,7 @@ import type { Character } from "./types.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import { activeWildForm } from "./wildshape_form.ts";
 
-// db.ts is split by area to stay well under Val Town's per-file size
-// ceiling; these modules are re-exported so importers keep using "./db.ts".
+// db.ts is split by area to keep files a manageable size; these modules are re-exported so importers keep using "./db.ts".
 export * from "./db_schema.ts";
 export * from "./db_custom.ts";
 export * from "./db_merchant.ts";

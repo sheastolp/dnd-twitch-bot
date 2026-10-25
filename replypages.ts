@@ -58,8 +58,8 @@ function newId(): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-// Cron vals (timed messages, autohunt, merchant) don't run main.ts's schema
-// setup, so make sure the table exists before the first save in an isolate.
+// Scheduled jobs (timed messages, autohunt, merchant) can run before main.ts's
+// schema setup, so make sure the table exists before the first save.
 let tablesReady = false;
 let lastCleanup = 0;
 

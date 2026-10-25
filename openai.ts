@@ -1,5 +1,4 @@
-// A tiny OpenAI-compatible chat client, standing in for Val Town's std/openai
-// with the same `new OpenAI().chat.completions.create(...)` shape.
+// A tiny OpenAI-compatible chat client with the official SDK's `new OpenAI().chat.completions.create(...)` shape.
 //
 // Point it at either:
 //   - OpenAI: set OPENAI_API_KEY (OPENAI_BASE_URL defaults to api.openai.com)

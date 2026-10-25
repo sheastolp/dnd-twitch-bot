@@ -2,8 +2,7 @@
 //
 // Serves main.ts's HTTP handler (EventSub webhooks, OAuth, dashboard, overlays,
 // guide) on 127.0.0.1:PORT, where the Cloudflare Tunnel delivers
-// guildscribe.tavernworks.dev, and runs the four scheduled jobs that used to
-// be Val Town cron triggers.
+// guildscribe.tavernworks.dev, and runs the scheduled jobs.
 //
 //   deno task start    (see deno.json; the systemd unit runs the same thing)
 

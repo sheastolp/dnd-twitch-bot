@@ -1,6 +1,5 @@
 // Player-vs-player duels: !dndduel @user (auto) and !dndduel classic @user.
-// Split out of combat.ts (which re-exports it) to keep every file well
-// under Val Town's per-file size ceiling.
+// Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { BattleLog } from "./battle.ts";
 import { classicText, heroFighter, heroTurn } from "./combat_abilities.ts";

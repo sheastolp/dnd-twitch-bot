@@ -1,5 +1,5 @@
 // GuildScribe — Twitch D&D bot entry point
-// Val Town / Deno HTTP handler
+// Deno HTTP handler (served by server.ts)
 
 import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
@@ -85,7 +85,7 @@ import { ensureMotdTables, purgeMotdData } from "./motd.ts";
 import { onStreamOffline, onStreamOnline } from "./stream_status.ts";
 import { handleFunCommand, maybeBotBanter } from "./funstuff.ts";
 
-// Public HTTP trigger URL for this val (used for guide links in chat).
+// Public URL for the bot (used for guide links in chat).
 // OAuth redirects and character page links still use the request origin dynamically.
 
 // Durable per-channel/user throttling is stored in SQLite so it survives restarts

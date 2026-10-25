@@ -2,7 +2,7 @@
 // sheet with wooden rollers at top and bottom, laid on a dark leather desk.
 // Used by the page() shell (page_shell.ts), the Guild Codex (guide.ts), the
 // how-to guides (howto.ts) and the channel dashboard (dashboard_page.ts).
-// Its own module so those files stay under Val Town's per-file size ceiling.
+// Its own module so those files stay a manageable size.
 //
 // Wrap a page's content with scrollOpen/scrollClose and put SCROLL_HEAD in
 // <head> plus SCROLL_CSS (and the page's own CSS) in a <style>.

@@ -457,7 +457,7 @@ export async function handleCreationCommand(
   return false;
 }
 
-/** !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only). Moved out of main.ts for Val Town's file-size limit. */
+/** !levelup [+/-N] | !levelup @user [+/-N] | !levelup [+/-N] @user (mod only). Moved out of main.ts to keep it a manageable size. */
 export async function handleLevelUpCommand(
   chatMessage: string,
   chatter: string,

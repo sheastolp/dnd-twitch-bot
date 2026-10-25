@@ -1,10 +1,8 @@
-// A local SQLite file with the same execute/batch interface as Val Town's
-// std/sqlite (which wraps @libsql/client), so the bot's queries run unchanged
-// on the Yoga laptop. Uses Deno's built-in node:sqlite: no download, no FFI.
+// A local SQLite file with a libsql-style execute/batch interface, so the
+// bot's queries run on the Yoga laptop. Uses Deno's built-in node:sqlite: no download, no FFI.
 //
-// rowMode "object" matches std/sqlite/main.ts (val-scoped: rows are objects
-// keyed by column name); "array" matches std/sqlite/global.ts (rows are
-// arrays of values).
+// rowMode "object" returns rows as objects keyed by column name; "array"
+// returns rows as arrays of values.
 
 import { DatabaseSync } from "node:sqlite";
 

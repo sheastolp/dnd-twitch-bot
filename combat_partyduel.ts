@@ -1,6 +1,5 @@
 // Party duels (!dndduel party A B) and party hunts (!dndduel party hunt …).
-// Split out of combat.ts (which re-exports it) to keep every file well
-// under Val Town's per-file size ceiling.
+// Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { findMonsterByName } from "./data.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";

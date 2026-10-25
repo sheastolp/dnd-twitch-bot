@@ -1,8 +1,7 @@
 // Shared auto-resolve battle engine for combat.ts (duels, party hunts, !rob)
 // and autohunt.ts: the swing-by-swing chat log (BattleLog) and the solo
 // hero-vs-monster fight (simulateMonsterFight). Split out of combat.ts, which
-// is close to Val Town's per-file size ceiling (a push with an oversized file
-// is rejected and the deploy silently stays on old code).
+// is already large.
 
 import { attackAbility, heroAc } from "./utils.ts";
 import { fighterAc, heroFighter, heroTurn, makeKit, kitLine, monsterFighter, monsterTurn } from "./combat_abilities.ts";

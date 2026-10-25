@@ -1,8 +1,7 @@
 // GuildScribe — timed messages, periodic posting.
-// Val Town CRON TRIGGER. Set the schedule in the Val Town UI; every 5-10
-// minutes is a good tick rate (Val Town's cron minimum is 15 minutes, which
-// caps how precisely any message's own interval can be honored — the same
-// slop already accepted for merchant.cron.ts). Each timed_messages row
+// Run on an interval by server.ts (TIMEDMESSAGES_CRON_MINUTES, default 5),
+// which caps how precisely any message's own interval can be honored — the
+// same slop already accepted for merchant_cron.ts. Each timed_messages row
 // schedules its own next_post_at (see db.ts), so a frequent tick here just
 // checks who's due rather than posting on every run, and messages with
 // different intervals in the same channel rotate independently.

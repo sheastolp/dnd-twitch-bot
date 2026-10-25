@@ -1,10 +1,9 @@
 // GuildScribe — watch-time chatters poll.
-// Val Town CRON TRIGGER. Set the schedule in the Val Town UI; every 15 minutes
-// is the fastest Val Town allows. Each tick reads every live channel's chat
+// Run on an interval by server.ts (WATCHTIME_CRON_MINUTES, default 5). Each tick reads every live channel's chat
 // list (Twitch Get Chatters, needs the broadcaster to have granted
 // moderator:read:chatters via /connect) and credits the time since the last
 // tick to everyone in it, lurkers included. The credit is computed from real
-// elapsed time, so a faster schedule (if the plan ever allows one) just makes
+// elapsed time, so a faster schedule just makes
 // the numbers more precise. See watchtime.ts for the full model.
 //
 // It also runs the ad-break check (adalerts.ts) for live channels, which

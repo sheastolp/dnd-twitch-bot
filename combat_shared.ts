@@ -1,7 +1,6 @@
 // Shared combat helpers: challenge/idle timeouts, idle-fight forfeits, the
 // PvP duel resolver used by duels and !rob.
-// Split out of combat.ts (which re-exports it) to keep every file well
-// under Val Town's per-file size ceiling.
+// Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { duelNarration } from "./narration.ts";
 import { BattleLog, fighterLine, type Strike } from "./battle.ts";

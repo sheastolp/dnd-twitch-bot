@@ -1,14 +1,11 @@
 // One-time move of a bot's data into its local SQLite file (DB_PATH).
 //
 //   deno task import-db --file ~/Downloads/export.sqlite
-//       Copies every table from a SQLite file (e.g. a database downloaded
-//       from Val Town).
-//   VAL_TOWN_API_KEY=... deno task import-db --valtown-global
-//       Reads every table from your Val Town account-wide SQLite database
-//       (std/sqlite global.ts) over Val Town's API.
+//       Copies every table from a SQLite file (e.g. a backup of the bot's
+//       database).
 //
 // Run it with the bot stopped, before its first start (or add --force to
-// replace an existing local database). Nothing on Val Town is changed.
+// replace an existing local database). The source file is opened read-only.
 
 import { DatabaseSync } from "node:sqlite";
 
@@ -20,7 +17,7 @@ const option = (name: string) => {
   const i = argv.indexOf(`--${name}`);
   return i >= 0 ? argv[i + 1] : undefined;
 };
-const args = { file: option("file"), "valtown-global": flag("valtown-global"), force: flag("force") };
+const args = { file: option("file"), force: flag("force") };
 const target = Deno.env.get("DB_PATH") || DEFAULT_DB;
 
 interface Source {
@@ -39,28 +36,11 @@ function fileSource(path: string): Source {
   };
 }
 
-function valTownGlobalSource(): Source {
-  const key = Deno.env.get("VAL_TOWN_API_KEY");
-  if (!key) throw new Error("Set VAL_TOWN_API_KEY (val.town → Settings → API tokens) to read your Val Town database.");
-  return {
-    async query(sql) {
-      const res = await fetch("https://api.val.town/v1/sqlite/execute", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ statement: { sql, args: [] } }),
-      });
-      if (!res.ok) throw new Error(`Val Town API: HTTP ${res.status} ${await res.text()}`);
-      const body = await res.json();
-      return { columns: body.columns, rows: body.rows };
-    },
-  };
-}
-
-if (!args.file && !args["valtown-global"]) {
-  console.error("Usage: deno task import-db --file <export.sqlite>   or   deno task import-db --valtown-global");
+if (!args.file) {
+  console.error("Usage: deno task import-db --file <export.sqlite> [--force]");
   Deno.exit(1);
 }
-const source = args.file ? fileSource(args.file) : valTownGlobalSource();
+const source = fileSource(args.file);
 
 try {
   Deno.statSync(target);

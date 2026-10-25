@@ -79,7 +79,7 @@ const SAFE_DOMAINS = new Set([
   "twitch.tv", "clips.twitch.tv", "youtube.com", "youtu.be", "discord.gg", "discord.com", "twitter.com", "x.com",
   "instagram.com", "tiktok.com", "reddit.com", "github.com", "google.com", "wikipedia.org", "dndbeyond.com",
   "imgur.com", "streamelements.com", "streamlabs.com", "ko-fi.com", "patreon.com", "throne.com", "amazon.com",
-  "steampowered.com", "store.steampowered.com", "val.run", "guildscribe.val.run", "tavernworks.dev",
+  "steampowered.com", "store.steampowered.com", "tavernworks.dev",
 ]);
 
 // ── Normalization ──

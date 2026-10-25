@@ -1,6 +1,5 @@
 // Dice expressions for !roll / !d20 (rollDice).
-// Split out of utils.ts to keep every file well under Val Town's per-file
-// size ceiling.
+// Split out of utils.ts to keep files a manageable size.
 
 import { modifier } from "./utils.ts";
 

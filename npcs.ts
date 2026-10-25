@@ -139,9 +139,8 @@ export async function generateNpcReply(
   const history = await getRecentNpcConversation(ownerKey, channelId, character.name, CONTEXT_TURN_PAIRS * 2);
 
   try {
-    // No `temperature` here: Val Town's free-tier std/openai routes to a
-    // reasoning-tier model (e.g. gpt-5-nano) that only accepts the default
-    // value of 1 — any explicit override 400s (see npc_generation_error in
+    // No `temperature` here: reasoning-tier models (e.g. gpt-5-nano) only
+    // accept the default value of 1 — any explicit override 400s (see npc_generation_error in
     // monitor_events for the exact message if this changes again).
     const completion = await openai.chat.completions.create({
       model: MODEL,

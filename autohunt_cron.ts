@@ -1,6 +1,6 @@
 // GuildScribe — autohunt settlement.
-// Val Town CRON TRIGGER (interval val). Set the schedule in the Val Town UI;
-// every 15 minutes is Val Town's minimum and is plenty: each run settles every
+// Run on an interval by server.ts (AUTOHUNT_CRON_MINUTES, default 5); each
+// run settles every
 // bout that has come due since the last one and whispers each hunter their
 // report (the default), or — when the dashboard's autohunt.reports is "chat" —
 // posts ONE chat message per channel: a lone hunter's full report, or for

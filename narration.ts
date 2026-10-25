@@ -1,6 +1,5 @@
 // Flavor lines for duels, hunts and fights (duelNarration).
-// Split out of utils.ts to keep every file well under Val Town's per-file
-// size ceiling.
+// Split out of utils.ts to keep files a manageable size.
 
 import { pick } from "./utils.ts";
 

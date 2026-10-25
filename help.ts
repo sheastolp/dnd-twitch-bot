@@ -1,7 +1,6 @@
 // Chat text for `!dndbothelp <chapter>`.
 //
-// Lives in its own module because Val Town refuses to push a file that is too
-// large and main.ts had grown to the edge of that limit. Pure data: no imports,
+// Lives in its own module to keep main.ts a manageable size. Pure data: no imports,
 // no side effects. `category` is the lowercased word after !dndbothelp (or
 // undefined for the bare command, which lists the chapters).
 

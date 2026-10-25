@@ -1,6 +1,5 @@
 // Part of the public Guild Codex page (GET /guide): the "Custom commands" through the end (maps, onboarding, page script) sections.
-// Split out of guide.ts to keep every file well under Val Town's per-file
-// size ceiling. Pure markup; guide.ts stitches the parts together.
+// Split out of guide.ts to keep files a manageable size. Pure markup; guide.ts stitches the parts together.
 
 import { escapeHtml } from "./utils.ts";
 import { MAP_TEMPLATES } from "./maps.ts";

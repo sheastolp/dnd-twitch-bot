@@ -1,6 +1,5 @@
 // GuildScribe — the built-in chat commands handled directly rather than by a
-// feature module. Split out of main.ts to keep files well under Val Town's
-// per-file size ceiling.
+// feature module. Split out of main.ts to keep files a manageable size.
 
 import { getCustomCommand, getCharacter, saveCharacter, adjustHp, backupCharacter, loadBackup, resetCharacter, getConnections, getRecentLogs, checkGoodnightCooldown, saveCreationSession, isCommandGroupEnabled, listCustomTriggers } from "./db.ts";
 import { recordDiceRollEvent, getDiceLeaderboard, getDiceStatsForUser, isChronicleEnabled } from "./social_db.ts";

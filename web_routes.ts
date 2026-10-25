@@ -1,7 +1,7 @@
 // GuildScribe — every web (non-EventSub) route: health check, static pages,
 // broadcaster OAuth connect/callback, character/map/roster pages, the
 // per-channel dashboard and the operator /admin routes. Split out of main.ts
-// to keep files well under Val Town's per-file size ceiling. Returns null
+// to keep files a manageable size. Returns null
 // when no route matched, so main.ts carries on to the EventSub webhook.
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
@@ -624,9 +624,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const recentEvents = await getMonitorEvents("merchant", 25);
     const now = Date.now();
     const lastRunAt = status ? Number((status as any).last_run_at ?? 0) : 0;
-    // No CRON schedule is stored here (that lives in Val Town's UI), so
-    // "stale" is a heuristic: no successful tick in the last 20 minutes,
-    // which comfortably exceeds any sane Val Town cron interval.
+    // No schedule is stored here (server.ts sets it), so "stale" is a
+    // heuristic: no successful tick in the last 20 minutes, which comfortably
+    // exceeds any sane cron interval.
     const staleMs = 20 * 60_000;
     const stale = !lastRunAt || now - lastRunAt > staleMs;
     return new Response(
@@ -643,7 +643,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
 
   // Operator-only, browser-viewable logs page: merchant cron health,
   // per-channel merchant diagnostics, and recent monitor_events, all in one
-  // place instead of digging through raw JSON or Val Town's run history.
+  // place instead of digging through raw JSON or the server logs.
   // Browsers can't set an Authorization header on a plain navigation, so
   // this accepts the same secret as a ?key= query param instead (still
   // requires ADMIN_API_SECRET, still never logged anywhere but here).

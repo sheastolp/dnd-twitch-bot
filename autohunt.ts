@@ -8,10 +8,9 @@
 //   !autohunt status              or !autohuntstatus — progress so far
 //   !autohunt stop                or !autohuntstop   — recall early, with a report
 //
-// How it runs on Val Town: there's no always-on process here, so a session is
-// just a row with a schedule, and bouts are *settled* — simulated with real
+// How it runs: a session is just a row with a schedule, and bouts are *settled* — simulated with real
 // dice, paid out, and reported in ONE chat message — whenever something looks
-// at the session: the autohunt cron (autohunt_cron.ts, ~every 15 min) or the
+// at the session: the autohunt cron (autohunt_cron.ts, every few minutes) or the
 // hero's own !autohunt / status / stop. Settling is claimed atomically
 // (claimAutohuntBouts), so the cron and a viewer can't both pay the same bout.
 //

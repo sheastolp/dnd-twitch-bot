@@ -1,7 +1,6 @@
 // Persistence for custom commands, custom variables, chat triggers and timed
 // messages.
-// Split out of db.ts (which re-exports everything here) to keep every file
-// well under Val Town's per-file size ceiling.
+// Split out of db.ts (which re-exports everything here) to keep files a manageable size.
 
 import { sqlite } from "./sqlite.ts";
 

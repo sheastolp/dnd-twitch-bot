@@ -25,7 +25,7 @@
 // broadcaster's own token and needs moderator:read:chatters — already
 // requested by /connect for !watchtime. Channels that connected before that
 // scope get a "broadcaster, please reconnect" reply instead.
-// Adapted from the standalone "Bot Viewer Detector" val.
+// Adapted from the standalone "Bot Viewer Detector" project.
 
 import { sqlite } from "./sqlite.ts";
 import { getAppToken, env, sendChatMessage } from "./twitch.ts";

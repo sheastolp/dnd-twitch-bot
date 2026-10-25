@@ -11,8 +11,8 @@
 //   - POLL (watchtime_cron.ts -> pollWatchtime). Each tick reads Twitch's Get
 //     Chatters list with the broadcaster's stored token (scope
 //     moderator:read:chatters) and credits everyone listed for the time since
-//     they were last seen. Val Town crons can't run more often than every 15
-//     minutes, so the join/leave edges are estimated instead of dropped: a
+//     they were last seen. Polls are minutes apart, so the
+//     join/leave edges are estimated instead of dropped: a
 //     viewer who appears for the first time in a poll gets half the window,
 //     and one who vanishes from the list gets half of the time since they
 //     were last seen. On average that is exact. The poll also reads the
@@ -123,7 +123,7 @@ export const FOLLOWAGE_LINES: Array<(whose: string, age: string, since: string) 
   (w, a, s) => `🔥 The hearth has warmed ${w} seat for ${a}, ever since ${s}.`,
 ];
 
-// ── Persistence (own table — db.ts is already near Val Town's file-size cap) ──
+// ── Persistence (own table — db.ts is already large) ──
 
 export async function ensureWatchtimeTables() {
   await sqlite.execute(

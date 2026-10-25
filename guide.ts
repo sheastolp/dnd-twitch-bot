@@ -1,6 +1,5 @@
 // The public Guild Codex page (GET /guide), split out of pages.ts to keep
-// that file under Val Town's per-file size ceiling (an oversized file makes
-// vt push fail and the deploy silently stays on old code).
+// that file a manageable size.
 // Re-exported from pages.ts, so importers don't change.
 
 import { GUIDE_ARENA_TO_GOLD_HTML } from "./guide_arena.ts";

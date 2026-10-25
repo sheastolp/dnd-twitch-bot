@@ -1,5 +1,5 @@
 // Persistence for chronicle.ts, npcs.ts, and the !rollcall dice leaderboard —
-// split out of db.ts (which is already near Val Town's per-file size cap)
+// split out of db.ts (which is already large)
 // rather than growing that file further. Mirrors db.ts's own conventions
 // (INSERT OR REPLACE, broadcaster_id-keyed rows).
 

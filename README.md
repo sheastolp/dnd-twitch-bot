@@ -106,7 +106,7 @@ Chat: `!guide` or `!link` posts that same URL; `!commands` posts the channel's o
 | **tips.ts** | **Tip page**, off by default (switch `tips`): up to 4 of the streamer's own https tip links (PayPal.me, Ko-fi, Cash App, Stripe Payment Link, StreamElements/Streamlabs tip page, …) and a note, set on `/dashboard/tips`, shown at `/tip/<login>` and posted by `!tip` / `!tips` / `!donate`. GuildScribe never handles money; tip alerts go on stream with `!alert tip` (alerts.ts). Own table `tip_pages` |
 | **channel_bots.ts** | The channel's **bot list** — `/dashboard/bots` (🧾 Bot list, behind the dashboard key + mod login): type usernames in (several at once), see who's listed and why, remove them. The bot viewer check (botdetect.ts) keeps it up to date: each scan adds chatters scoring 4+ of 7 (switch on the page, off by default) and its page has an *Add to bot list* button; removing one the check added puts it on the check's ignore list so it isn't re-added. `isChannelBot` (built-in rules + this list, cached 30 s per isolate) is what chat handling, sub/raid thank-yous, channel-point hexes, watch time, `!botcheck` and The Endless Delve use. Tables `channel_bots`, `channel_bot_settings`; purged by `!dndbot leave purge` |
 | **types.ts** | Shared types |
-| **sqlite.ts** / **local_sqlite.ts** / **openai.ts** | The database is a local SQLite file at `DB_PATH` (default `./data/guildscribe.sqlite`), opened through Deno's built-in `node:sqlite` with the same `execute`/`batch` interface Val Town's std/sqlite had, so queries didn't change. Every module imports `sqlite` from sqlite.ts. openai.ts is a small OpenAI-compatible chat client for `!haggle` and NPCs: OpenAI with `OPENAI_API_KEY`, or Ollama with `OPENAI_BASE_URL` |
+| **sqlite.ts** / **local_sqlite.ts** / **openai.ts** | The database is a local SQLite file at `DB_PATH` (default `./data/guildscribe.sqlite`), opened through Deno's built-in `node:sqlite` behind a small `execute`/`batch` interface. Every module imports `sqlite` from sqlite.ts. openai.ts is a small OpenAI-compatible chat client for `!haggle` and NPCs: OpenAI with `OPENAI_API_KEY`, or Ollama with `OPENAI_BASE_URL` |
 | **data.ts** | Races, classes, level-scaled monsters, lookup map |
 | **utils.ts** | Dice, formatting, narration |
 | **narration.ts** / **dice.ts** / **flavor.ts** / **flavor_events.ts** | Duel narration lines, `!roll` dice expressions, fate/oracle/hug/shmash flavor, and sub/raid thank-yous + goodnight replies |
@@ -151,14 +151,14 @@ Chat: `!guide` or `!link` posts that same URL; `!commands` posts the channel's o
 
 ## Hosting on the Yoga laptop
 
-GuildScribe runs as a normal Deno process on the Yoga laptop, alongside UndercoverBurn and The Wandering Clerk. The step-by-step laptop setup (Deno, systemd services, the Cloudflare Tunnel that brings `guildscribe.tavernworks.dev` to the laptop, auto-updates from GitHub, moving the data off Val Town) lives in the tavernworks repo: [`bot-host/README.md`](https://github.com/sheastolp/tavernworks/blob/main/bot-host/README.md).
+GuildScribe runs as a normal Deno process on the Yoga laptop, alongside UndercoverBurn and The Wandering Clerk. The step-by-step laptop setup (Deno, systemd services, the Cloudflare Tunnel that brings `guildscribe.tavernworks.dev` to the laptop, auto-updates from GitHub) lives in the tavernworks repo: [`bot-host/README.md`](https://github.com/sheastolp/tavernworks/blob/main/bot-host/README.md).
 
 In short:
 
 1. `deno task start` runs **server.ts**: the web side on `127.0.0.1:8801` plus the merchant, timed-message, autohunt and watchtime jobs every 5 minutes (change with `MERCHANT_CRON_MINUTES`, `TIMEDMESSAGES_CRON_MINUTES`, `AUTOHUNT_CRON_MINUTES`, `WATCHTIME_CRON_MINUTES`).
 2. Settings come from environment variables, kept on the laptop in `/etc/tavernworks/guildscribe.env` (see `.env.example`).
 3. Pushing to `main` deploys: the laptop checks GitHub every few minutes, pulls, and restarts the service.
-4. Data is the SQLite file at `DB_PATH`. `deno task import-db --file <export.sqlite>` brings in a copy of the old Val Town database once.
+4. Data is the SQLite file at `DB_PATH`. `deno task import-db --file <export.sqlite>` brings in a copy of an existing database once.
 
 3. Environment variables:
 

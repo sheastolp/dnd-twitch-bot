@@ -1,6 +1,6 @@
 // Duels, party combat, monster duels, and initiative tracker.
-// The command handlers live in combat_*.ts (split for Val Town's per-file
-// size ceiling); this module re-exports them and holds the initiative tracker.
+// The command handlers live in combat_*.ts (split to keep files a
+// manageable size); this module re-exports them and holds the initiative tracker.
 
 import { modifier } from "./utils.ts";
 import { getCharacter, getEncounter, saveEncounter, sqlite } from "./db.ts";

@@ -298,9 +298,8 @@ export async function generateHaggleReply(
   if (claimed !== "claimed") return { ok: false, error: "no_listing" };
 
   try {
-    // No `temperature` override here: Val Town's free-tier std/openai routes
-    // to a reasoning-tier model (e.g. gpt-5-nano) that only accepts the
-    // default value of 1 — see the same note in npcs.ts.
+    // No `temperature` override here: reasoning-tier models (e.g.
+    // gpt-5-nano) only accept the default value of 1 — see the same note in npcs.ts.
     // A reasoning model gets a low effort (a haggle needs a quip, not a
     // proof) and room to think, so it answers quickly instead of running
     // out of tokens; past HAGGLE_TIMEOUT_MS the built-in rules answer.

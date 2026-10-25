@@ -1,7 +1,6 @@
 // Parties: !party create/join/invite/accept/decline/list/leave/disband
 // (and the !party hunt alias).
-// Split out of combat.ts (which re-exports it) to keep every file well
-// under Val Town's per-file size ceiling.
+// Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { createPartyInvite, deletePartyInvite, getCharacter, getParty, getPartyInvite, getPartyInvites, getPartyMembers, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
