@@ -17,6 +17,7 @@ import { handleChronicleCommand, recordChronicleBotMessage } from "./chronicle.t
 import { handlePointsCommand, maybeAwardChatPoints } from "./points.ts";
 import { handleRobCommand } from "./rob.ts";
 import { handleBribeCommand } from "./bribe.ts";
+import { gambleWaiting, handleGambleCommand, handleGamblePick } from "./gamble.ts";
 import { handleSilenceCommand } from "./silence.ts";
 import { handlePeddlerAssault } from "./peddler_guard.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
@@ -748,6 +749,12 @@ async function handleNotification(body: any): Promise<Response | void> {
     })());
   }
 
+  // Dragon's Dice (gamble.ts): a plain "d6" from someone whose !gamble wager
+  // is waiting for its die throws it.
+  if (!chatMessage.startsWith("!") && gambleWaiting(broadcasterId, chatter) && (await isCommandGroupEnabled(broadcasterId, "gamble"))) {
+    if (await handleGamblePick(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  }
+
   // Swear jar (see swearjar.ts): plain chat only. Takes 2 cp of gold per
   // swear word and announces it; never consumes the message, so the rest of
   // the chat handling (triggers, goodnight, etc.) still runs. Failures here
@@ -788,6 +795,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleJarCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleRobCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleBribeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  if (await handleGambleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleSilenceCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleAbilitiesCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleWildShapeCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");

@@ -30,6 +30,7 @@ const ALIASES: Record<string, string> = {
   babushka: "mentionreply", hoard: "hunts", shop: "hunts", followers: "followthanks", subs: "subthanks",
   rally: "raid", shot: "shots", alert: "alerts", sr: "songrequests", songrequest: "songrequests", songs: "songrequests",
   tip: "tips", donate: "tips", donations: "tips",
+  gambling: "gamble", dragonsdice: "gamble", dragondice: "gamble",
 };
 
 const isSwitch = (key: string) => key in COMMAND_GROUPS || key in DEDICATED_LABELS;
