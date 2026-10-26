@@ -1171,7 +1171,7 @@ async function verifyMerchantSaleSession(token: string): Promise<{ viewerName: s
 
 /** Who's looking at the sale page and which connected channels they may sell
  * in — null when they have no grant at all (show the login). */
-async function merchantSaleAccess(cookieHeader: string | null): Promise<{ viewerName: string; channels: SaleChannel[] } | null> {
+async function merchantSaleAccess(cookieHeader: string | null): Promise<{ viewerName: string; channels: SaleChannel[]; viaDashboardOnly: boolean } | null> {
   const allowed = new Set<string>();
   let all = false;
   let viewerName = "";
@@ -1191,7 +1191,10 @@ async function merchantSaleAccess(cookieHeader: string | null): Promise<{ viewer
     .filter((r: any) => all || allowed.has(String(r.broadcaster_id)))
     .map((r: any) => ({ id: String(r.broadcaster_id), name: String(r.display_name || r.login || r.broadcaster_id) }));
   if (!channels.length) return null;
-  return { viewerName: viewerName || "a channel moderator", channels };
+  // viaDashboardOnly: let in by a dashboard session alone, without this page's
+  // own login — so a login on MERCHANT_SALE_EXTRA_LOGINS (or a mod of other
+  // channels) only sees that one channel until they log in here too.
+  return { viewerName: viewerName || "a channel moderator", channels, viaDashboardOnly: !sale };
 }
 
 function merchantSaleLoginGate(error?: string): Response {
@@ -1253,6 +1256,7 @@ export async function handleMerchantSalePage(url: URL, cookieHeader: string | nu
     channels: access.channels,
     selected,
     viewerName: access.viewerName,
+    viaDashboardOnly: access.viaDashboardOnly,
     notice: url.searchParams.get("notice") ?? undefined,
     error: url.searchParams.get("error") ?? undefined,
   });

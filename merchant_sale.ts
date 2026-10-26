@@ -117,6 +117,8 @@ export async function renderMerchantSalePage(d: {
   channels: SaleChannel[];
   selected: string;
   viewerName: string;
+  /** In through a dashboard session only — offer this page's own login. */
+  viaDashboardOnly?: boolean;
   notice?: string;
   error?: string;
 }): Promise<string> {
@@ -133,6 +135,7 @@ export async function renderMerchantSalePage(d: {
   const body = `<header class="dash-top"><div><span class="pill">Merchant · One-time sale</span><h1>${escapeHtml(current?.name ?? d.selected)}</h1></div><span class="muted small">Logged in as ${escapeHtml(d.viewerName)}</span></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 ${channelPicker}
+${d.viaDashboardOnly ? `<p class="banner">Only seeing the channel from your dashboard login. <a href="/dashboard/merchant/login">Log in with Twitch</a> to see every channel you can post sales in.</p>` : ""}
 <p>Make up a ware and the peddler posts it to chat <strong>right now</strong>, replacing whatever is on the stall. Viewers buy it with <code>!haggle</code> like any other ware, and the stat bonuses land on the buyer's character sheet. It's listed <strong>this one time only</strong>: anyone can buy it while it's up, and once the next regular ad replaces it, it's gone for good.</p>
 ${marketOn ? "" : `<p class="banner error">The market is off in this channel, so a sale can't be posted. Turn it on from the dashboard or with <code>!market on</code>.</p>`}
 ${goldOn ? "" : `<p class="banner error">Gold is off in this channel: viewers can haggle, but nobody pays, so nobody actually gets the item.</p>`}
