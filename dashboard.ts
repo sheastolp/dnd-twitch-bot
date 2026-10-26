@@ -51,6 +51,7 @@ import {
   setMerchantEnabled,
   getCommandGroupToggles,
   setCommandGroupEnabled,
+  getMerchantOverview,
 } from "./db.ts";
 import { isChronicleEnabled, setChronicleEnabled, isNpcEnabled, setNpcEnabled, isNpcChatterEnabled, setNpcChatterEnabled } from "./social_db.ts";
 import { hasBanPermission, isAutoBanEnabled, setAutoBanEnabled } from "./autoban.ts";
@@ -72,6 +73,7 @@ import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
 import { startNightbotConnect } from "./nightbot_import.ts";
 import { applyModCenterForm, renderModCenterPage } from "./mod_center.ts";
+import { applyMerchantSaleForm, renderMerchantSalePage, type SaleChannel } from "./merchant_sale.ts";
 import { COMMAND_GROUPS } from "./commandgroups.ts";
 import {
   sanitizeCommandName,
@@ -392,6 +394,7 @@ export async function handleDashboardCallback(
   const stateRow = await consumeDashboardOAuthState(state);
   if (!stateRow) return new Response("Invalid or expired login attempt. Get a fresh link in chat with !dashboard.", { status: 400 });
   if (String(stateRow.channel_id) === PICKER_CHANNEL) return await handlePickerCallback(code, oauthError, baseUrl);
+  if (String(stateRow.channel_id) === MERCHANT_SALE_STATE) return await handleMerchantSaleCallback(code, oauthError, baseUrl);
   const channelId = String(stateRow.channel_id);
   const key = String(stateRow.dashboard_key);
 
@@ -1124,4 +1127,148 @@ export async function handleNightbotConnect(url: URL, cookieHeader: string | nul
   if (to) return redirectTo(to);
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key, from: "nightbot", error: "Nightbot login isn't set up on this GuildScribe — fetch the public commands instead." });
   return redirectTo(`${PUBLIC_ORIGIN}/dashboard/import?${params.toString()}`);
+}
+
+// ── One-time merchant sale (merchant_sale.ts): /dashboard/merchant ──
+//
+// Login-first, like /dashboard/start, and no dashboard key: the Twitch login
+// itself is the check. The callback (state row channel_id =
+// MERCHANT_SALE_STATE) signs one gs_msale cookie listing the channels the
+// viewer broadcasts or moderates — or "*" (every connected channel) for a
+// login on MERCHANT_SALE_EXTRA_LOGINS, mod or not. That cookie only opens
+// this page: its payload has five parts, so verifyDashboardSession never
+// accepts it as a dashboard session. A mod already logged in to a channel's
+// dashboard (a gs_dash_<id> cookie) gets that channel here with no second
+// login.
+
+const MERCHANT_SALE_STATE = "msale";
+const MERCHANT_SALE_COOKIE = "gs_msale";
+/** Twitch logins (lowercase) that may post one-time sales in any connected
+ * channel, whether or not they moderate it. */
+const MERCHANT_SALE_EXTRA_LOGINS = new Set(["stonedsheamus"]);
+
+async function signMerchantSaleSession(viewerName: string, channels: string, expiresAt: number): Promise<string> {
+  const payload = `msale:${viewerName}:${expiresAt}:${channels}`;
+  return `${base64urlEncode(payload)}.${await hmacHex(payload)}`;
+}
+
+async function verifyMerchantSaleSession(token: string): Promise<{ viewerName: string; channels: string } | null> {
+  const dot = token.lastIndexOf(".");
+  if (dot < 0) return null;
+  let payload: string;
+  try {
+    payload = base64urlDecode(token.slice(0, dot));
+  } catch {
+    return null;
+  }
+  if (!timingSafeEqual(token.slice(dot + 1), await hmacHex(payload))) return null;
+  const parts = payload.split(":");
+  if (parts.length !== 4 || parts[0] !== "msale") return null;
+  const expiresAt = Number(parts[2]);
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+  return { viewerName: parts[1], channels: parts[3] };
+}
+
+/** Who's looking at the sale page and which connected channels they may sell
+ * in — null when they have no grant at all (show the login). */
+async function merchantSaleAccess(cookieHeader: string | null): Promise<{ viewerName: string; channels: SaleChannel[] } | null> {
+  const allowed = new Set<string>();
+  let all = false;
+  let viewerName = "";
+  const saleCookie = getCookie(cookieHeader, MERCHANT_SALE_COOKIE);
+  const sale = saleCookie ? await verifyMerchantSaleSession(saleCookie) : null;
+  if (sale) {
+    viewerName = sale.viewerName;
+    if (sale.channels === "*") all = true;
+    else for (const id of sale.channels.split(",")) if (id) allowed.add(id);
+  }
+  for (const part of (cookieHeader ?? "").split(";")) {
+    const m = part.trim().match(/^gs_dash_(\d+)=(.+)$/);
+    if (m && (await verifyDashboardSession(m[2], m[1]))) allowed.add(m[1]);
+  }
+  if (!all && !allowed.size) return null;
+  const channels = (await getMerchantOverview())
+    .filter((r: any) => all || allowed.has(String(r.broadcaster_id)))
+    .map((r: any) => ({ id: String(r.broadcaster_id), name: String(r.display_name || r.login || r.broadcaster_id) }));
+  if (!channels.length) return null;
+  return { viewerName: viewerName || "a channel moderator", channels };
+}
+
+function merchantSaleLoginGate(error?: string): Response {
+  return page(
+    "One-time merchant sale",
+    `<h1>One-time merchant sale</h1>${error ? `<p class="banner error">${escapeName(error)}</p>` : ""}<p>Post a made-up ware to a channel's market stall right now. Moderators and broadcasters only — log in with Twitch to continue.</p><p><a class="btn ember" href="/dashboard/merchant/login">Log in with Twitch</a></p><p><a href="/">Return to the Guild Hall</a></p>`,
+  );
+}
+
+export async function handleMerchantSaleLogin(baseUrl: string): Promise<Response> {
+  const state = crypto.randomUUID();
+  await saveDashboardOAuthState(state, MERCHANT_SALE_STATE, "", Date.now() + OAUTH_STATE_TTL_MS);
+  const auth = new URL("https://id.twitch.tv/oauth2/authorize");
+  auth.search = new URLSearchParams({
+    client_id: env("TWITCH_CLIENT_ID"),
+    redirect_uri: `${baseUrl}/dashboard/callback`,
+    response_type: "code",
+    scope: "user:read:moderated_channels",
+    state,
+  }).toString();
+  return redirectTo(auth.toString());
+}
+
+async function handleMerchantSaleCallback(code: string | null, oauthError: string | null, baseUrl: string): Promise<Response> {
+  if (oauthError) return merchantSaleLoginGate("Twitch login was cancelled.");
+  if (!code) return new Response("Missing OAuth code.", { status: 400 });
+  try {
+    const token = await exchangeCode(code, `${baseUrl}/dashboard/callback`);
+    const viewer = await getViewerIdentity(token.access_token);
+    if (!viewer) return merchantSaleLoginGate("Couldn't verify your Twitch account — try again.");
+    let channels: string;
+    if (MERCHANT_SALE_EXTRA_LOGINS.has(viewer.login.toLowerCase())) {
+      channels = "*";
+    } else {
+      const ids = new Set([viewer.id, ...(await listModeratedChannelIds(token.access_token, viewer.id))]);
+      const connected = (await getMerchantOverview()).map((r: any) => String(r.broadcaster_id)).filter((id: string) => ids.has(id));
+      if (!connected.length) {
+        return merchantSaleLoginGate(`${viewer.display_name} isn't the broadcaster or a moderator of any channel that has GuildScribe connected.`);
+      }
+      channels = connected.join(",");
+    }
+    const name = viewer.display_name.replace(/[^\w\- ]/g, "").slice(0, 25) || viewer.login;
+    const session = await signMerchantSaleSession(name, channels, Date.now() + SESSION_TTL_MS);
+    return redirectTo(`${baseUrl}/dashboard/merchant`, {
+      "Set-Cookie": `${MERCHANT_SALE_COOKIE}=${session}; Path=/dashboard; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; HttpOnly; Secure; SameSite=Lax`,
+    });
+  } catch (e) {
+    console.error("merchant sale oauth callback failed", e);
+    return merchantSaleLoginGate("Twitch login failed — try again.");
+  }
+}
+
+export async function handleMerchantSalePage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const access = await merchantSaleAccess(cookieHeader);
+  if (!access) return merchantSaleLoginGate(url.searchParams.get("error") ?? undefined);
+  const wanted = url.searchParams.get("channel") ?? "";
+  const selected = access.channels.find((c) => c.id === wanted)?.id ?? access.channels[0].id;
+  const html = await renderMerchantSalePage({
+    channels: access.channels,
+    selected,
+    viewerName: access.viewerName,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleMerchantSaleForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const access = await merchantSaleAccess(cookieHeader);
+  if (!access) return redirectTo(`${baseUrl}/dashboard/merchant`);
+  const channelId = String(form.get("channel") ?? "");
+  const params = new URLSearchParams({ channel: channelId });
+  if (!access.channels.some((c) => c.id === channelId)) {
+    params.set("error", "You can't post sales in that channel.");
+  } else {
+    const result = await applyMerchantSaleForm(channelId, form, access.viewerName);
+    params.set(result.ok ? "notice" : "error", result.message);
+  }
+  return redirectTo(`${baseUrl}/dashboard/merchant?${params.toString()}`);
 }

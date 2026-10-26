@@ -274,6 +274,11 @@ export async function ensureTables() {
       posted_at INTEGER, haggled_by TEXT NOT NULL DEFAULT '[]'
     )`,
   );
+  // A one-time sale pushed from /dashboard/merchant (merchant_sale.ts) carries
+  // its own ware (a MerchantItem as JSON) instead of a catalog item, and is
+  // sold to one buyer only — sold_to is set once someone pays for it.
+  try { await sqlite.execute(`ALTER TABLE merchant_listings ADD COLUMN custom_item TEXT`); } catch (_) {}
+  try { await sqlite.execute(`ALTER TABLE merchant_listings ADD COLUMN sold_to TEXT`); } catch (_) {}
   // Granular per-channel command-group toggles for the dashboard (see
   // COMMAND_GROUPS in commandgroups.ts). Missing row = off, so a channel the
   // bot has just joined stays quiet until a steward switches features on.

@@ -22,7 +22,7 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSongListPage, handleSongListForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
 import { renderTipPage } from "./tips.ts";
 import { renderSongQueuePage } from "./songrequests.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
@@ -550,6 +550,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Auto-ban word list + ignore list (autoban_page.ts) — same gate.
     return await handleAutoBanPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/merchant") {
+    // One-time merchant sale (merchant_sale.ts) — its own Twitch login (mods
+    // plus a few named logins); a dashboard mod session also lets you in.
+    return await handleMerchantSalePage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/dashboard/merchant/login") {
+    return await handleMerchantSaleLogin(PUBLIC_ORIGIN);
+  }
   if (req.method === "GET" && path === "/dashboard/mod") {
     // The Mod center (mod_center.ts) — same gate.
     return await handleModCenterPage(url, req.headers.get("Cookie"));
@@ -840,6 +848,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/autoban") {
     return await handleAutoBanForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/merchant") {
+    return await handleMerchantSaleForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/mod") {
     return await handleModCenterForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

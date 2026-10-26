@@ -3,6 +3,7 @@
 // Split out of db.ts (which re-exports everything here) to keep files a manageable size.
 
 import { sqlite } from "./sqlite.ts";
+import type { MerchantItem } from "./gear.ts";
 
 export async function isMerchantEnabled(broadcasterId: string) {
   const res = await sqlite.execute("SELECT enabled FROM merchant_settings WHERE broadcaster_id = ?", [broadcasterId]);
@@ -24,31 +25,61 @@ export interface MerchantListing {
   priceText: string;
   postedAt: number;
   haggledBy: string[];
+  /** The ware of a one-time sale (merchant_sale.ts); null for a catalog item. */
+  customItem: MerchantItem | null;
+  /** Who bought a one-time sale, once it's sold. */
+  soldTo: string | null;
 }
 
 /** Called right after a merchant ad successfully posts — records what's now
- * on offer for !haggle, replacing whatever was listed before. */
-export async function setMerchantListing(broadcasterId: string, merchantName: string, itemDesc: string, priceText: string) {
+ * on offer for !haggle, replacing whatever was listed before. Pass
+ * `customItem` for a one-time sale whose ware isn't in the gear.ts catalog. */
+export async function setMerchantListing(
+  broadcasterId: string,
+  merchantName: string,
+  itemDesc: string,
+  priceText: string,
+  customItem: MerchantItem | null = null,
+) {
   await sqlite.execute(
-    "INSERT OR REPLACE INTO merchant_listings (broadcaster_id, merchant_name, item_desc, price_text, posted_at, haggled_by) VALUES (?,?,?,?,?,'[]')",
-    [broadcasterId, merchantName, itemDesc, priceText, Date.now()],
+    "INSERT OR REPLACE INTO merchant_listings (broadcaster_id, merchant_name, item_desc, price_text, posted_at, haggled_by, custom_item, sold_to) VALUES (?,?,?,?,?,'[]',?,NULL)",
+    [broadcasterId, merchantName, itemDesc, priceText, Date.now(), customItem ? JSON.stringify(customItem) : null],
   );
 }
 
 export async function getMerchantListing(broadcasterId: string): Promise<MerchantListing | null> {
   const res = await sqlite.execute(
-    "SELECT merchant_name, item_desc, price_text, posted_at, haggled_by FROM merchant_listings WHERE broadcaster_id = ?",
+    "SELECT merchant_name, item_desc, price_text, posted_at, haggled_by, custom_item, sold_to FROM merchant_listings WHERE broadcaster_id = ?",
     [broadcasterId],
   );
   if (!res.rows.length) return null;
   const r: any = res.rows[0];
+  let customItem: MerchantItem | null = null;
+  try {
+    customItem = r.custom_item ? JSON.parse(r.custom_item) : null;
+  } catch {
+    customItem = null;
+  }
   return {
     merchantName: r.merchant_name,
     itemDesc: r.item_desc,
     priceText: r.price_text,
     postedAt: Number(r.posted_at),
     haggledBy: JSON.parse(r.haggled_by || "[]"),
+    customItem,
+    soldTo: r.sold_to ? String(r.sold_to) : null,
   };
+}
+
+/** Marks a one-time sale as bought by `username`. Only the first caller for
+ * that listing wins (false for everyone after, or if the listing moved on),
+ * so two buyers closing a deal at once can't both walk off with it. */
+export async function claimListingSale(broadcasterId: string, postedAt: number, username: string): Promise<boolean> {
+  const res = await sqlite.execute(
+    "UPDATE merchant_listings SET sold_to = ? WHERE broadcaster_id = ? AND posted_at = ? AND sold_to IS NULL",
+    [username, broadcasterId, postedAt],
+  );
+  return Number(res.rowsAffected) > 0;
 }
 
 /** How many haggle attempts `username` has already spent on a listing. */
