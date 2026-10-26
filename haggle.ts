@@ -43,7 +43,6 @@ import {
   countListingHaggles,
   getCharacter,
   getMerchantListing,
-  claimListingSale,
   isMerchantEnabled,
   markListingHaggled,
   type MerchantListing,
@@ -52,7 +51,7 @@ import {
   unmarkListingHaggled,
 } from "./db.ts";
 import { applyGear, effectText, findMerchantItem, type MerchantItem, ownsGear } from "./gear.ts";
-import { adjustBalance, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
+import { getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
 import { COPPER_PER_GOLD, COPPER_PER_SILVER, formatCoins, parseFirstPrice } from "./coins.ts";
 import { isAssaultOnPeddler, mockPeddlerAssailant } from "./peddler_guard.ts";
 
@@ -63,11 +62,6 @@ const MODEL = Deno.env.get("HAGGLE_MODEL") ?? "gpt-4o-mini";
 /** The ware a listing sells: a one-time sale's own item, else the catalog's. */
 export function listingWare(listing: MerchantListing): MerchantItem | null {
   return listing.customItem ?? findMerchantItem(listing.itemDesc);
-}
-
-/** "the stall is sold out" chat line for a one-time sale that's already gone. */
-function soldOutLine(display: string, listing: MerchantListing): string {
-  return `@${display} ${listing.merchantName}'s one-time offer is gone — @${listing.soldTo} already bought ${listing.customItem?.name ?? "it"}. Wait for the next stall to open.`;
 }
 const MAX_HAGGLE_LEN = 300;
 /** How many haggle attempts each viewer gets per listing (see markListingHaggled in db.ts). */
@@ -276,7 +270,7 @@ export function fallbackVerdict(listed: number, offer: number | null): { deal: b
 
 export interface HaggleError {
   ok: false;
-  error: "no_listing" | "already_haggled" | "empty_message" | "generation_failed" | "sold_out";
+  error: "no_listing" | "already_haggled" | "empty_message" | "generation_failed";
 }
 
 /** Core haggle call: looks up the channel's current listing, claims this
@@ -296,7 +290,6 @@ export async function generateHaggleReply(
 
   const listing = knownListing ?? await getMerchantListing(broadcasterId);
   if (!listing) return { ok: false, error: "no_listing" };
-  if (listing.soldTo) return { ok: false, error: "sold_out" };
   if (countListingHaggles(listing, username) >= HAGGLES_PER_LISTING) return { ok: false, error: "already_haggled" };
 
   const listedCopper = parseFirstPrice(listing.priceText);
@@ -387,10 +380,6 @@ export async function handleStallCommand(
     return true;
   }
 
-  if (listing.soldTo) {
-    await sendChatMessages(soldOutLine(display, listing), broadcasterId);
-    return true;
-  }
   const used = countListingHaggles(listing, chatter);
   const left = Math.max(0, HAGGLES_PER_LISTING - used);
   const attempts = left > 0
@@ -399,7 +388,7 @@ export async function handleStallCommand(
   const item = listingWare(listing);
   const effect = item ? effectText(item.effect) : "";
   const perk = effect ? ` (🎒 ${effect} on your sheet)` : "";
-  const once = listing.customItem ? " One-time offer, one buyer only!" : "";
+  const once = listing.customItem ? " One-time offer — gone when the next stall opens!" : "";
   await sendChatMessages(
     `🛒 ${listing.merchantName} is hawking ${listing.itemDesc} — ${listing.priceText}${perk}.${once} @${display} ${attempts}`,
     broadcasterId,
@@ -448,10 +437,6 @@ export async function handleHaggleCommand(
   // the peddler can't even start bargaining and nothing is used up.
   const useCoin = await isPointsEnabled(broadcasterId);
   const listing = await getMerchantListing(broadcasterId);
-  if (listing?.soldTo) {
-    await sendChatMessages(soldOutLine(display, listing), broadcasterId);
-    return true;
-  }
   if (useCoin) {
     const listed = listing ? parseFirstPrice(listing.priceText) : null;
     // The ware goes onto the buyer's character sheet, so they need one —
@@ -491,8 +476,6 @@ export async function handleHaggleCommand(
   if (!result.ok) {
     if (result.error === "no_listing") {
       await sendChatMessages(`@${display} nobody's hawking wares here right now — wait for the next stall to open.`, broadcasterId);
-    } else if (result.error === "sold_out") {
-      await sendChatMessages(`@${display} too late — that one-time offer has already been sold. Wait for the next stall to open.`, broadcasterId);
     } else if (result.error === "already_haggled") {
       await sendChatMessages(`@${display} you've used all ${HAGGLES_PER_LISTING} of your haggle attempts on this one — wait for the next stall to open.`, broadcasterId);
     } else {
@@ -506,20 +489,11 @@ export async function handleHaggleCommand(
   let note = "";
   if (useCoin && result.deal && result.agreedCopper !== null && result.listedCopper !== null) {
     const price = result.agreedCopper;
-    // A one-time sale goes to the first buyer only: whoever pays second
-    // (two deals closing at once) gets their coin straight back.
-    const oneTime = listing?.customItem ? listing : null;
     if (await trySpend(broadcasterId, chatter, price)) {
-      if (oneTime && !(await claimListingSale(broadcasterId, oneTime.postedAt, chatter))) {
-        await adjustBalance(broadcasterId, chatter, display, price);
-        note = ` 💨 But someone else just bought it first — your ${formatCoins(price)} stays in your purse.`;
-      } else {
-        const left = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
-        const saved = result.listedCopper - price;
-        note = ` 🪙 Sold for ${formatCoins(price)}${saved > 0 ? ` (listed ${formatCoins(result.listedCopper)}, you saved ${formatCoins(saved)})` : " (full price)"} — ${formatCoins(left)} left.`;
-        note += await giveGear(chatter, broadcasterId, listing ? listingWare(listing) : findMerchantItem(result.itemDesc));
-        if (oneTime) note += " The one-time offer is sold out!";
-      }
+      const left = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
+      const saved = result.listedCopper - price;
+      note = ` 🪙 Sold for ${formatCoins(price)}${saved > 0 ? ` (listed ${formatCoins(result.listedCopper)}, you saved ${formatCoins(saved)})` : " (full price)"} — ${formatCoins(left)} left.`;
+      note += await giveGear(chatter, broadcasterId, listing ? listingWare(listing) : findMerchantItem(result.itemDesc));
     } else {
       const have = (await getBalance(broadcasterId, chatter))?.balance ?? 0;
       note = ` 💸 But the price is ${formatCoins(price)} and you only carry ${formatCoins(have)} — no sale.`;

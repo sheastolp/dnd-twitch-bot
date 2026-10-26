@@ -5,9 +5,9 @@
 //
 // The ware is never added to the gear.ts catalog: it rides on the listing
 // itself (merchant_listings.custom_item), so !stall and !haggle sell it like
-// any other ware and a paid deal bakes its effect into the buyer's sheet. It
-// sells to ONE buyer only — the first paid deal marks it sold
-// (claimListingSale) and the stall reads "sold out" until the next ad.
+// any other ware and a paid deal bakes its effect into the buyer's sheet.
+// It's listed this ONE time only: anyone can buy it while it's up, and once
+// the next ad replaces it, it never comes back.
 //
 // Auth (Twitch login, the channel list, the extra logins) lives in
 // dashboard.ts handleMerchantSalePage/handleMerchantSaleForm.
@@ -101,7 +101,7 @@ export async function applyMerchantSaleForm(broadcasterId: string, form: FormDat
   const priceText = priceWords(copper);
   const item: MerchantItem = { name, desc, price: priceText, effect };
   const perk = effectText(effect);
-  const ad = `🛒 ✨ ${merchant} sets out a ONE-TIME offer: ${desc} — ${priceText}${perk ? ` (🎒 ${perk})` : ""}. One buyer only — !haggle to bargain for it, !stall to look.`;
+  const ad = `🛒 ✨ ${merchant} sets out a ONE-TIME offer: ${desc} — ${priceText}${perk ? ` (🎒 ${perk})` : ""}. One-time offer, gone when the next stall opens — !haggle to bargain for it, !stall to look.`;
   if (!(await sendChatMessage(ad, broadcasterId))) {
     return { ok: false, message: "Couldn't post to chat just now — nothing was listed. Try again in a moment." };
   }
@@ -110,7 +110,7 @@ export async function applyMerchantSaleForm(broadcasterId: string, form: FormDat
   // the sale isn't overwritten a minute after it goes up.
   await rescheduleMerchant(broadcasterId, Date.now() + await randomMerchantIntervalMs(broadcasterId));
   await recordMonitorEvent("merchant_sale", `${broadcasterId}: ${byName} listed "${name}" for ${priceText}${perk ? ` (${perk})` : ""}`).catch(() => {});
-  return { ok: true, message: `Posted! ${merchant} is selling ${name} for ${priceText}${perk ? ` (${perk})` : ""} — first paid !haggle deal takes it.` };
+  return { ok: true, message: `Posted! ${merchant} is selling ${name} for ${priceText}${perk ? ` (${perk})` : ""} — it's up until the next stall replaces it.` };
 }
 
 export async function renderMerchantSalePage(d: {
@@ -133,7 +133,7 @@ export async function renderMerchantSalePage(d: {
   const body = `<header class="dash-top"><div><span class="pill">Merchant · One-time sale</span><h1>${escapeHtml(current?.name ?? d.selected)}</h1></div><span class="muted small">Logged in as ${escapeHtml(d.viewerName)}</span></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 ${channelPicker}
-<p>Make up a ware and the peddler posts it to chat <strong>right now</strong>, replacing whatever is on the stall. Viewers buy it with <code>!haggle</code> like any other ware, and the stat bonuses land on the buyer's character sheet. It sells to <strong>one buyer only</strong>; the next regular ad replaces it if nobody bites.</p>
+<p>Make up a ware and the peddler posts it to chat <strong>right now</strong>, replacing whatever is on the stall. Viewers buy it with <code>!haggle</code> like any other ware, and the stat bonuses land on the buyer's character sheet. It's listed <strong>this one time only</strong>: anyone can buy it while it's up, and once the next regular ad replaces it, it's gone for good.</p>
 ${marketOn ? "" : `<p class="banner error">The market is off in this channel, so a sale can't be posted. Turn it on from the dashboard or with <code>!market on</code>.</p>`}
 ${goldOn ? "" : `<p class="banner error">Gold is off in this channel: viewers can haggle, but nobody pays, so nobody actually gets the item.</p>`}
 <form method="post" action="/dashboard/merchant" class="sale">
