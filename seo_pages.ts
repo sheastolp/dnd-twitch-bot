@@ -39,6 +39,7 @@ const FEATURES: Array<[string, string, string]> = [
   ["Giveaways", "", "Free or ticketed giveaways with weighted draws, rerolls and refunds."],
   ["Quotes", "", "Numbered quotes saved with the game and date. Imported quotes keep their numbers."],
   ["Watch time & followage", "", "<code>!watchtime</code> and <code>!followage</code>, including watch-time history from StreamElements."],
+  ["Replies that don't get buried", "", "Answers to <code>!commands</code> post in chat while it's quiet and come by whisper, a private message only that viewer sees, once chat gets busy. Viewers pick for themselves with <code>!whisperme on</code> or <code>off</code>, and can whisper the bot commands too."],
   ["OBS overlays", "", "Browser-source overlays for giveaways, leaderboards, the raid boss and the fight under way."],
   ["Spam filters & anti-bot moderation", "", "Link, caps, symbol and repeat filters, automatic bans for “AI viewers” spam, and a bot-viewer check."],
   ["Channel-point rewards", "Boons", "Link rewards to in-chat effects like a robbery shield or a hex."],
