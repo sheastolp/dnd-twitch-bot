@@ -20,11 +20,14 @@
 // only the chat summary and link are sent.
 //
 // Whisper mode: a viewer can ask for every reply to their !commands by
-// whisper (!whisperme, kept in whisper_prefs), and a channel can turn it on
-// for everyone (dashboard option replies.mode). main.ts resolves it once per
-// command with setWhisperReplies(); twitch.ts then whispers any reply
+// whisper, or in chat (!whisperme on/off, kept in whisper_prefs), and a
+// channel can whisper everyone who hasn't picked (dashboard option
+// replies.mode). main.ts resolves it once per command with
+// setWhisperReplies(); twitch.ts then whispers any reply
 // addressed to that chatter instead of posting it, falling back to chat for
-// the rest of the request if Twitch refuses the whisper. A command that
+// the rest of the request if Twitch refuses the whisper. A viewer whispered
+// only because of the channel's setting gets a one-time note first saying
+// why, and how to get chat replies (whisper_intro). A command that
 // itself arrived by whisper (whisper_inbox.ts) uses mode "all": everything
 // else it says in chat is whispered to the viewer as well.
 
@@ -44,7 +47,7 @@ const BOT_WHISPER_SCOPE = "user:manage:whispers";
 
 export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
-const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; deferred: Promise<unknown>[] }>();
+const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; whisperIntro?: boolean; deferred: Promise<unknown>[] }>();
 
 /** Runs one request with its own (initially empty) reply-initiator slot.
  * Work handed to defer() runs alongside the request and is awaited before
@@ -81,14 +84,42 @@ export function getReplyInitiator(): ReplyInitiator | undefined {
  * instead; "all" = that, plus a whispered copy of everything else posted. */
 export type WhisperMode = boolean | "all";
 
-/** Whisper mode for this request's replies to the chatter (see top of file). */
-export function setWhisperReplies(mode: WhisperMode) {
+/** Whisper mode for this request's replies to the chatter (see top of file).
+ * intro: whispered because of the channel's setting, not their own choice,
+ * so the first whisper they ever get says why (whisperIntroNeeded). */
+export function setWhisperReplies(mode: WhisperMode, opts?: { intro?: boolean }) {
   const store = requestScope.getStore();
-  if (store) store.whisperReplies = mode;
+  if (!store) return;
+  store.whisperReplies = mode;
+  store.whisperIntro = !!mode && !!opts?.intro;
 }
 
 export function whisperMode(): WhisperMode {
   return requestScope.getStore()?.whisperReplies ?? false;
+}
+
+/** The one-time note for a viewer whispered by the channel's setting. */
+export const WHISPER_INTRO =
+  "📜 Why a whisper? This channel sends the bot's answers to your !commands here, so they don't get lost in a busy chat (anything for the whole chat still posts there). Rather have them in chat? Type !whisperme off. You can also whisper me commands right here.";
+
+/** Whether this request's whisper should start with WHISPER_INTRO: the
+ * channel whispered this viewer without their asking and they haven't had
+ * the note yet. Claims it, so it's sent at most once. Never throws. */
+export async function whisperIntroNeeded(userId: string): Promise<boolean> {
+  const store = requestScope.getStore();
+  if (!store?.whisperIntro) return false;
+  store.whisperIntro = false;
+  try {
+    const r = await sqlite.execute("INSERT OR IGNORE INTO whisper_intro (user_id, at) VALUES (?, ?)", [userId, Date.now()]);
+    return Number((r as any).rowsAffected ?? 0) > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Lets a viewer get the note again (their whisper didn't go through). */
+export async function forgetWhisperIntro(userId: string) {
+  await sqlite.execute("DELETE FROM whisper_intro WHERE user_id = ?", [userId]).catch(() => {});
 }
 
 function env(name: string) {
@@ -121,13 +152,19 @@ export async function ensureWhisperTables() {
       at INTEGER NOT NULL, ok INTEGER NOT NULL, status INTEGER NOT NULL, detail TEXT NOT NULL DEFAULT ''
     )`,
   );
-  // Viewers who asked for their replies by whisper (!whisperme), in every channel.
+  // Viewers' own choice of where replies go (!whisperme), in every channel:
+  // mode 'whisper' or 'chat'; no row = whatever the channel does. Rows from
+  // before the mode column meant 'whisper'.
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS whisper_prefs (
       user_id TEXT PRIMARY KEY,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'whisper'
     )`,
   );
+  await sqlite.execute("ALTER TABLE whisper_prefs ADD COLUMN mode TEXT NOT NULL DEFAULT 'whisper'").catch(() => {});
+  // Viewers who've had the one-time "why a whisper?" note (WHISPER_INTRO).
+  await sqlite.execute("CREATE TABLE IF NOT EXISTS whisper_intro (user_id TEXT PRIMARY KEY, at INTEGER NOT NULL)");
 }
 
 /** Whether /connect-bot has been done (a bot whisper token is stored). */
@@ -139,28 +176,32 @@ export async function hasBotWhisperToken(): Promise<boolean> {
 
 // ── !whisperme preference ──
 
-const PREF_CACHE_MS = 60_000;
-const prefCache = new Map<string, { at: number; on: boolean }>();
+/** A viewer's own pick; null = they haven't picked (the channel decides). */
+export type WhisperPref = "whisper" | "chat" | null;
 
-/** Whether this viewer asked for replies by whisper. Never throws. */
-export async function prefersWhisperReplies(userId: string): Promise<boolean> {
-  if (!userId) return false;
+const PREF_CACHE_MS = 60_000;
+const prefCache = new Map<string, { at: number; pref: WhisperPref }>();
+
+/** Where this viewer asked for their replies. Never throws. */
+export async function whisperPref(userId: string): Promise<WhisperPref> {
+  if (!userId) return null;
   const hit = prefCache.get(userId);
-  if (hit && Date.now() - hit.at < PREF_CACHE_MS) return hit.on;
+  if (hit && Date.now() - hit.at < PREF_CACHE_MS) return hit.pref;
   try {
-    const on = (await sqlite.execute("SELECT 1 FROM whisper_prefs WHERE user_id = ?", [userId])).rows.length > 0;
-    prefCache.set(userId, { at: Date.now(), on });
+    const row: any = (await sqlite.execute("SELECT mode FROM whisper_prefs WHERE user_id = ?", [userId])).rows[0];
+    const pref: WhisperPref = !row ? null : String(row.mode) === "chat" ? "chat" : "whisper";
+    prefCache.set(userId, { at: Date.now(), pref });
     if (prefCache.size > 2000) prefCache.delete(prefCache.keys().next().value!);
-    return on;
+    return pref;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 
-export async function setWhisperPref(userId: string, on: boolean) {
-  if (on) await sqlite.execute("INSERT OR REPLACE INTO whisper_prefs (user_id, updated_at) VALUES (?, ?)", [userId, Date.now()]);
+export async function setWhisperPref(userId: string, pref: WhisperPref) {
+  if (pref) await sqlite.execute("INSERT OR REPLACE INTO whisper_prefs (user_id, updated_at, mode) VALUES (?, ?, ?)", [userId, Date.now(), pref]);
   else await sqlite.execute("DELETE FROM whisper_prefs WHERE user_id = ?", [userId]);
-  prefCache.set(userId, { at: Date.now(), on });
+  prefCache.set(userId, { at: Date.now(), pref });
 }
 
 export type WhisperResult = { ok: boolean; status: number; detail: string };

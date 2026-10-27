@@ -32,6 +32,11 @@ export type QuickBundle = {
   /** The module's own master switch: while it's off the whole bundle is off,
    * whatever its sub-switches say (the module and its sub-switches all start off). */
   master?: string;
+  /** More plain-words detail, one short paragraph each, under `what`. */
+  more?: string[];
+  /** Options-only card: a choice option shown as its own one-click switch,
+   * with the picked choice on the card's pill (label per choice). */
+  choice?: { key: string; labels: Record<string, string> };
 };
 
 export const QUICK_BUNDLES: QuickBundle[] = [
@@ -132,9 +137,14 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "replies", icon: "💬", name: "Bot replies",
-    what: "Where the bot answers a viewer's !command: in chat (the default) or by whisper. Whispers keep a busy chat readable and suit viewers on the mobile app; anything meant for the whole chat (fight results, giveaways…) is still posted. Viewers can pick whispers for themselves with !whisperme.",
-    yourPart: "Nothing — whispers need the bot connected once at /connect-bot.",
+    what: "Where the bot answers when a viewer types a !command (!gold, !char, !roll…). In chat, the default: the answer is posted in chat for everyone to see. By whisper: the answer goes only to that viewer as a Twitch whisper — a private message that lands in their Twitch whispers instead of chat.",
+    more: [
+      "Why whisper? A busy chat buries the bot's answers, and viewers on the mobile app can lose them in seconds. Whispers keep chat for people talking, and each viewer still gets their answer. Anything meant for the whole chat (fight results, giveaways, the raid boss…) is still posted either way.",
+      "Viewers always have the last word: !whisperme on or !whisperme off picks for themselves (kept in every channel), and anyone whispered because of this setting gets a one-time note with their first whisper saying why and how to switch back to chat. Mods can flip this setting in chat with !whisperall on/off.",
+    ],
+    yourPart: "Pick one below and press Save changes.",
     switches: [],
+    choice: { key: "replies.mode", labels: { chat: "💬 In chat", whisper: "✉️ By whisper" } },
   },
 ];
 
@@ -229,19 +239,39 @@ function optionField(o: OptionDef, value: string): string {
 <small id="${id}-hint">${escapeHtml([o.help, kind, `blank = ${defaultText(o)}`].filter(Boolean).join(" "))}</small></label>`;
 }
 
-/** The Quick setup form (posts intent=quick to /dashboard/features). */
-export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Record<string, string> = {}): string {
+/** An options-only card's choice switch (QuickBundle.choice). */
+function choiceSwitch(b: QuickBundle, opts: Record<string, string>): { pill: string; seg: string; was: string } {
+  const o = OPTIONS.find((x) => x.key === b.choice!.key)!;
+  const was = opts[o.key] || String(o.def);
+  const labels = b.choice!.labels;
+  // The default posts blank, so saving the form never pins it as a custom value.
+  const field = (v: string) => (v === String(o.def) ? "" : v);
+  const seg = `<div class="seg" role="radiogroup" aria-label="${escapeHtml(o.label)}">${(o.choices ?? []).map((v) =>
+    `<label><input type="radio" name="opt_${escapeHtml(o.key)}" value="${escapeHtml(field(v))}" data-pill="${escapeHtml(labels[v] ?? v)}"${v === was ? " checked" : ""}><span>${escapeHtml(labels[v] ?? v)}</span></label>`
+  ).join("")}</div>`;
+  return { pill: `<span class="pill">${escapeHtml(labels[was] ?? was)}</span>`, seg, was: field(was) };
+}
+
+/** The Quick setup form (posts intent=quick to /dashboard/features).
+ * extra.whisperReady: the bot can send whispers (/connect-bot done), for the Bot replies card. */
+export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Record<string, string> = {}, extra: { whisperReady?: boolean } = {}): string {
   const byKey = Object.fromEntries(QUICK_BUNDLES.map((b) => [b.key, b]));
   const optionsBox = (b: QuickBundle) => {
-    const list = OPTIONS.filter((o) => o.bundle === b.key);
+    const list = OPTIONS.filter((o) => o.bundle === b.key && o.key !== b.choice?.key);
     if (!list.length) return "";
     const custom = list.filter((o) => opts[o.key]).length;
     return `<details class="qopts"><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
   };
   const cards = QUICK_BUNDLES.map((b) => {
+    const more = (b.more ?? []).map((t) => `<p class="what">${escapeHtml(t)}</p>`).join("");
     if (!b.switches.length) {
-      return `<details class="qcard" id="qcard-${b.key}" data-bundle="${b.key}" data-options-only><summary><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3><span class="pill">Options</span></summary>
-<div class="qbody"><p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${optionsBox(b)}</div></details>`;
+      const c = b.choice ? choiceSwitch(b, opts) : null;
+      // Whispers go nowhere until the bot account has granted them once.
+      const warn = b.key === "replies" && extra.whisperReady === false
+        ? `<p class="needs warn">Whispers aren't set up yet, so replies stay in chat whatever you pick: the bot account has to be connected once at <a href="/connect-bot">/connect-bot</a> (log in to Twitch as the bot first). <a href="/connect-bot/status">Check whisper status</a>.</p>`
+        : "";
+      return `<details class="qcard" id="qcard-${b.key}" data-bundle="${b.key}" data-options-only${c ? ` data-was="${escapeHtml(c.was)}"` : ""}><summary><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3>${c ? c.pill : `<span class="pill">Options</span>`}</summary>
+<div class="qbody"><p class="what">${escapeHtml(b.what)}</p>${more}<p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${warn}${c ? c.seg : ""}${optionsBox(b)}</div></details>`;
     }
     const st = bundleState(b, s);
     const opt = (v: string, label: string) =>
@@ -251,7 +281,7 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
       : "";
     // Collapsed, a card is just its name and an On/Off pill (kept in step with the picked choice by the script below).
     return `<details class="qcard" id="qcard-${b.key}" data-bundle="${b.key}" data-was="${st}"><summary><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3>${statePill(st)}</summary>
-<div class="qbody"><p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
+<div class="qbody"><p class="what">${escapeHtml(b.what)}</p>${more}<p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
 <div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div>${optionsBox(b)}</div></details>`;
   }).join("");
   const features = QUICK_BUNDLES.filter((b) => b.switches.length);
@@ -267,7 +297,9 @@ function sync(){var n=0,o=0,on={};cards.forEach(function(c){var v=val(c),was=c.g
   var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;
   c.classList.toggle("changed",ch||oc>0);if(ch)n++;
   var p=c.querySelector("summary .pill"),st=v==="keep"?was:v;p.className="pill "+st+(ch?" pending":"");p.textContent=st==="mixed"?"Mixed":st==="on"?"On":"Off";p.title=ch?"Not saved yet":"";on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
-  all.forEach(function(c){if(!c.hasAttribute("data-options-only"))return;var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;c.classList.toggle("changed",oc>0)});
+  all.forEach(function(c){if(!c.hasAttribute("data-options-only"))return;var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;
+    var r=c.querySelector(".seg input:checked");if(r){var rc=r.value!==c.getAttribute("data-was");if(rc)oc++;var p=c.querySelector("summary .pill");p.textContent=r.getAttribute("data-pill");p.classList.toggle("pending",rc);p.title=rc?"Not saved yet":""}
+    o+=oc;c.classList.toggle("changed",oc>0)});
   cards.forEach(function(c){var nd=c.querySelector(".needs");if(!nd)return;var miss=nd.getAttribute("data-needs").split(",").filter(function(k){return!on[k]});nd.classList.toggle("warn",on[c.getAttribute("data-bundle")]&&miss.length>0)});
   var parts=[];if(n)parts.push(n+" feature"+(n===1?"":"s"));if(o)parts.push(o+" option"+(o===1?"":"s"));
   document.getElementById("quick-count").textContent=parts.length?parts.join(" and ")+" will change.":"No changes yet."}

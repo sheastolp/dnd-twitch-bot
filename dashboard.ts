@@ -88,6 +88,7 @@ import { PUBLIC_ORIGIN } from "./config.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
 import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
+import { hasBotWhisperToken } from "./whisper.ts";
 import { getChannelStatus } from "./channel_status.ts";
 
 export async function handleDashboardCommand(
@@ -260,7 +261,7 @@ export async function renderDashboard(
     isReminderEnabled(channelId),
     isBotCheckAutoAdd(channelId),
   ]);
-  const [options, connection] = await Promise.all([optionInputs(channelId), getChannelStatus(channelId)]);
+  const [options, connection, whisperReady] = await Promise.all([optionInputs(channelId), getChannelStatus(channelId), hasBotWhisperToken().catch(() => true)]);
   const data: DashboardData = {
     broadcasterId: channelId,
     broadcasterName,
@@ -287,6 +288,7 @@ export async function renderDashboard(
     checklistEnabled,
     botCheckAutoAdd,
     options,
+    whisperReady,
     connection,
   };
   return new Response(renderDashboardPage(data), {

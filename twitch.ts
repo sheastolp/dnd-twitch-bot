@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperMode } from "./whisper.ts";
+import { defer, forgetWhisperIntro, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_INTRO, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -85,7 +85,9 @@ function logReply(broadcasterId: string, summary: string, detail = summary) {
  * this is ("@Name …") is whispered to them, without the @, instead of
  * posted. In mode "all" anything else is posted and also whispered to them.
  * Returns false — post in chat — unless the reply was whispered instead;
- * after a failed whisper the rest of this request's replies go to chat. */
+ * after a failed whisper the rest of this request's replies go to chat.
+ * The first whisper to a viewer the channel whispers without their asking
+ * starts with WHISPER_INTRO (why, and how to get chat replies). */
 async function whisperReplyInstead(text: string, broadcasterId: string, opts?: { log?: boolean; detail?: string; whisper?: boolean }): Promise<boolean> {
   const i = getReplyInitiator();
   const mode = whisperMode();
@@ -95,7 +97,10 @@ async function whisperReplyInstead(text: string, broadcasterId: string, opts?: {
   if (!addressed && mode !== "all") return false;
   const body = (addressed ? m![1] + text.slice(m![0].length) : text).trim();
   if (!body) return false;
-  if (!(await sendWhisperParts(i.userId, splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim())))) {
+  const intro = addressed && await whisperIntroNeeded(i.userId);
+  const parts = splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim());
+  if (!(await sendWhisperParts(i.userId, intro ? [WHISPER_INTRO, ...parts] : parts))) {
+    if (intro) await forgetWhisperIntro(i.userId);
     setWhisperReplies(false);
     return false;
   }

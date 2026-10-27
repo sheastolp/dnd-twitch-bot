@@ -570,7 +570,11 @@ async function handleNotification(body: any): Promise<Response | void> {
   // whispers every reply addressed to this chatter instead.
   if (chatMessage.trim().startsWith("!")) {
     setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
-    setWhisperReplies(viaWhisper ? "all" : await wantsWhisperReplies(broadcasterId, chatterId));
+    if (viaWhisper) setWhisperReplies("all");
+    else {
+      const w = await wantsWhisperReplies(broadcasterId, chatterId);
+      setWhisperReplies(w.on, { intro: w.intro });
+    }
   }
 
   // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.

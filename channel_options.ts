@@ -55,7 +55,7 @@ const env = (name: string, fallback: number, min: number, max: number) => {
 
 export const OPTIONS: OptionDef[] = [
   // Bot replies (whisperme.ts)
-  { key: "replies.mode", bundle: "replies", label: "Answer viewers' !commands in", help: "whisper = a reply addressed to the viewer who ran the command is whispered to them instead of posted (chat if Twitch refuses the whisper). Viewers can also choose whispers for themselves with !whisperme. Mods can switch it in chat with !whisperall on/off.", kind: "word",
+  { key: "replies.mode", bundle: "replies", label: "Answer viewers' !commands in", help: "whisper = the answer to a viewer's !command goes to them as a Twitch whisper (a private message only they see) instead of being posted in chat (chat if Twitch refuses the whisper). Viewers can pick for themselves either way with !whisperme on/off. Mods can switch it in chat with !whisperall on/off.", kind: "word",
     def: "chat", choices: ["chat", "whisper"], suggest: ["chat", "whisper"] },
   // Gold & giveaways
   { key: "gold.perMessage", bundle: "gold", label: "Copper per chat message", kind: "number", int: true,

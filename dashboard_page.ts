@@ -42,6 +42,8 @@ export interface DashboardData {
   botCheckAutoAdd: boolean;
   /** Per-channel options as typed ("" = default), for Quick setup (channel_options.ts). */
   options?: Record<string, string>;
+  /** The bot can send whispers (/connect-bot done, whisper.ts), for the Bot replies card. */
+  whisperReady?: boolean;
   /** Connection health card (channel_status.ts); omitted = no card. */
   connection?: ChannelStatus | null;
 }
@@ -376,7 +378,7 @@ export function renderDashboardPage(d: DashboardData): string {
   <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/pokeballs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔴 Pokéballs</a><a class="btn ghost" href="/dashboard/swearjar?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🫙 Swear jar words</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/songs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎶 Song request list</a><a class="btn ghost" href="/dashboard/tips?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🪙 Tip page</a><a class="btn ghost" href="/dashboard/stats?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎮 Game stats</a><a class="btn ghost" href="/dashboard/mod?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🛡️ Mod center</a><a class="btn ghost" href="/dashboard/merchant?channel=${encodeURIComponent(d.broadcasterId)}">🛒 One-time merchant sale</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban &amp; spam filters</a><a class="btn ghost" href="/dashboard/quotes?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">📜 Quotes</a><a class="btn ghost" href="/dashboard/import?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">⇪ Import from StreamElements / Nightbot</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
   ${banner}
   ${d.connection !== undefined ? renderChannelStatusCard(d.connection, "/connect") : ""}
-  ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {})}
+  ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {}, { whisperReady: d.whisperReady })}
   ${renderDashboardIndex()}
   <div class="board-row">
     ${features.switches}
