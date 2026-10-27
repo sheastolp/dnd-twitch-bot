@@ -72,6 +72,20 @@ export function generateCharacter(username: string): Character {
   };
 }
 
+/**
+ * Explains the !newchar score step: the 6 numbers are assigned in the class's
+ * priority order (see customCharacterFromSession), so spell out which slot
+ * lands on which ability.
+ */
+function scoresHelp(cls: string): string {
+  const order = classes[cls].priority.map((a: Ability, i: number) => `#${i + 1}→${a}`).join(" ");
+  return (
+    `Easiest: !answer standard (gives 15 14 13 12 10 8). ` +
+    `Or pick your own 6 numbers (3-18, 10 is average, higher is better), biggest first, e.g. !answer 16 14 13 12 10 8. ` +
+    `They're assigned to your ${cls}'s most important abilities in order: ${order}. Race bonuses are added after.`
+  );
+}
+
 export function customCharacterFromSession(s: any): Character {
   const raceData = races[s.race];
   const bonuses: Partial<Record<Ability, number>> = {
@@ -356,10 +370,7 @@ export async function handleCreationCommand(
     s.cls = cls;
     s.step = "scores";
     await saveCreationSession(s, broadcasterId);
-    await sendChatMessage(
-      `@${display} Enter 6 scores in order of importance, or use standard: !answer 15 14 13 12 10 8. ${cls} priority: ${classes[cls].priority.join(", ")}.`,
-      broadcasterId,
-    );
+    await sendChatMessage(`@${display} Now your ability scores! ${scoresHelp(cls)}`, broadcasterId);
     return true;
   }
 
@@ -370,7 +381,7 @@ export async function handleCreationCommand(
         : answer.split(/[ ,]+/).map(Number);
     if (scores.length !== 6 || scores.some((n: number) => !Number.isInteger(n) || n < 3 || n > 18)) {
       await sendChatMessage(
-        `@${display} Enter exactly 6 whole-number scores from 3 to 18, such as !answer 15 14 13 12 10 8.`,
+        `@${display} That didn't work — you need exactly 6 whole numbers, each from 3 to 18. ${scoresHelp(s.cls)}`,
         broadcasterId,
       );
       return true;
