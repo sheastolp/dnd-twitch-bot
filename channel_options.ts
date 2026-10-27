@@ -55,8 +55,10 @@ const env = (name: string, fallback: number, min: number, max: number) => {
 
 export const OPTIONS: OptionDef[] = [
   // Bot replies (whisperme.ts)
-  { key: "replies.mode", bundle: "replies", label: "Answer viewers' !commands in", help: "whisper = the answer to a viewer's !command goes to them as a Twitch whisper (a private message only they see) instead of being posted in chat (chat if Twitch refuses the whisper). Viewers can pick for themselves either way with !whisperme on/off. Mods can switch it in chat with !whisperall on/off.", kind: "word",
-    def: "chat", choices: ["chat", "whisper"], suggest: ["chat", "whisper"] },
+  { key: "replies.mode", bundle: "replies", label: "Answer viewers' !commands in", help: "auto = in chat while it's quiet, by whisper once chat gets busy (see the next option); whisper = always as a Twitch whisper (a private message only that viewer sees); chat = always in chat. A whisper Twitch refuses goes to chat. Viewers can pick for themselves either way with !whisperme on/off. Mods can switch it in chat with !whisperall auto/on/off.", kind: "word",
+    def: "auto", choices: ["auto", "chat", "whisper"], suggest: ["auto", "chat", "whisper"] },
+  { key: "replies.busyAt", bundle: "replies", label: "Auto: whisper once chat has this many messages a minute", help: "Viewers' messages in the last minute (bots and the bot's own replies don't count). Below this, auto answers in chat.", kind: "number", int: true,
+    def: 10, min: 2, max: 500, suggest: ["5", "10", "20", "40"] },
   // Gold & giveaways
   { key: "gold.perMessage", bundle: "gold", label: "Copper per chat message", kind: "number", int: true,
     def: env("POINTS_PER_MESSAGE", 1, 1, 1000), min: 1, max: 1000, suggest: ["1", "2", "5", "10"] },

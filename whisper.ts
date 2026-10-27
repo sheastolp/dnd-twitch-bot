@@ -20,14 +20,15 @@
 // only the chat summary and link are sent.
 //
 // Whisper mode: a viewer can ask for every reply to their !commands by
-// whisper, or in chat (!whisperme on/off, kept in whisper_prefs), and a
-// channel can whisper everyone who hasn't picked (dashboard option
-// replies.mode). main.ts resolves it once per command with
+// whisper, or in chat (!whisperme on/off, kept in whisper_prefs); for
+// everyone who hasn't picked, the channel decides (dashboard option
+// replies.mode: by default "auto", which whispers only while chat is busy —
+// chat_pace.ts). main.ts resolves it once per command with
 // setWhisperReplies(); twitch.ts then whispers any reply
 // addressed to that chatter instead of posting it, falling back to chat for
 // the rest of the request if Twitch refuses the whisper. A viewer whispered
-// only because of the channel's setting gets a one-time note first saying
-// why, and how to get chat replies (whisper_intro). A command that
+// only because of the channel's setting (or a busy chat) gets a one-time
+// note first saying why, and how to get chat replies (whisper_intro). A command that
 // itself arrived by whisper (whisper_inbox.ts) uses mode "all": everything
 // else it says in chat is whispered to the viewer as well.
 
@@ -47,7 +48,7 @@ const BOT_WHISPER_SCOPE = "user:manage:whispers";
 
 export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
-const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; whisperIntro?: boolean; deferred: Promise<unknown>[] }>();
+const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; whisperIntro?: WhisperIntro; deferred: Promise<unknown>[] }>();
 
 /** Runs one request with its own (initially empty) reply-initiator slot.
  * Work handed to defer() runs alongside the request and is awaited before
@@ -84,36 +85,45 @@ export function getReplyInitiator(): ReplyInitiator | undefined {
  * instead; "all" = that, plus a whispered copy of everything else posted. */
 export type WhisperMode = boolean | "all";
 
+/** Why a viewer is whispered without having asked: the channel whispers
+ * everyone ("channel"), or its chat is busy right now ("busy"). */
+export type WhisperIntro = "channel" | "busy";
+
 /** Whisper mode for this request's replies to the chatter (see top of file).
- * intro: whispered because of the channel's setting, not their own choice,
- * so the first whisper they ever get says why (whisperIntroNeeded). */
-export function setWhisperReplies(mode: WhisperMode, opts?: { intro?: boolean }) {
+ * intro: whispered by the channel's setting, not their own choice, so the
+ * first whisper they ever get says why (whisperIntroNeeded). */
+export function setWhisperReplies(mode: WhisperMode, opts?: { intro?: WhisperIntro }) {
   const store = requestScope.getStore();
   if (!store) return;
   store.whisperReplies = mode;
-  store.whisperIntro = !!mode && !!opts?.intro;
+  store.whisperIntro = mode ? opts?.intro : undefined;
 }
 
 export function whisperMode(): WhisperMode {
   return requestScope.getStore()?.whisperReplies ?? false;
 }
 
-/** The one-time note for a viewer whispered by the channel's setting. */
-export const WHISPER_INTRO =
-  "📜 Why a whisper? This channel sends the bot's answers to your !commands here, so they don't get lost in a busy chat (anything for the whole chat still posts there). Rather have them in chat? Type !whisperme off. You can also whisper me commands right here.";
+/** The one-time note for a viewer whispered without having asked. */
+export const WHISPER_INTRO: Record<WhisperIntro, string> = {
+  channel:
+    "📜 Why a whisper? This channel sends the bot's answers to your !commands here, so they don't get lost in a busy chat (anything for the whole chat still posts there). Rather have them in chat? Type !whisperme off. You can also whisper me commands right here.",
+  busy:
+    "📜 Why a whisper? Chat's busy right now, so the bot answers your !commands here where they won't get buried — it goes back to answering in chat when things calm down (anything for the whole chat still posts there). Always want chat? Type !whisperme off; always whispers? !whisperme on.",
+};
 
-/** Whether this request's whisper should start with WHISPER_INTRO: the
- * channel whispered this viewer without their asking and they haven't had
- * the note yet. Claims it, so it's sent at most once. Never throws. */
-export async function whisperIntroNeeded(userId: string): Promise<boolean> {
+/** The note this request's whisper should start with (WHISPER_INTRO), if
+ * the channel whispered this viewer without their asking and they haven't
+ * had one yet. Claims it, so it's sent at most once. Never throws. */
+export async function whisperIntroNeeded(userId: string): Promise<string | null> {
   const store = requestScope.getStore();
-  if (!store?.whisperIntro) return false;
-  store.whisperIntro = false;
+  const kind = store?.whisperIntro;
+  if (!store || !kind) return null;
+  store.whisperIntro = undefined;
   try {
     const r = await sqlite.execute("INSERT OR IGNORE INTO whisper_intro (user_id, at) VALUES (?, ?)", [userId, Date.now()]);
-    return Number((r as any).rowsAffected ?? 0) > 0;
+    return Number((r as any).rowsAffected ?? 0) > 0 ? WHISPER_INTRO[kind] : null;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 

@@ -25,6 +25,7 @@ import { handleWhisperAllCommand, handleWhisperMeCommand, wantsWhisperReplies } 
 import { ensureWhisperInboxSubscription, ensureWhisperInboxTables, forgetWhisperInboxSubscription, noteViewerChannel, whisperedCommand, whisperOffline } from "./whisper_inbox.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
+import { noteChatMessage } from "./chat_pace.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
 import { ensureSavingThrowTables, purgeSavingThrowData } from "./savingthrows.ts";
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
@@ -505,7 +506,10 @@ async function handleNotification(body: any): Promise<Response | void> {
 
   // Whispered commands run in the channel the viewer last chatted in
   // (whisper_inbox.ts); the bot's whisper subscription is (re)made lazily.
-  if (!viaWhisper) defer(noteViewerChannel(chatterId, broadcasterId));
+  if (!viaWhisper) {
+    defer(noteViewerChannel(chatterId, broadcasterId));
+    noteChatMessage(broadcasterId); // chat pace for auto bot replies (chat_pace.ts)
+  }
   defer(ensureWhisperInboxSubscription().catch(() => false));
 
   // A whispered command never reaches chat, so the spam filters below skip it.
@@ -566,8 +570,9 @@ async function handleNotification(body: any): Promise<Response | void> {
   // A "!command" reply long enough to need 3+ chat messages is whispered
   // to this chatter instead, with a one-line summary in chat (whisper.ts).
   // Plain chat (triggers, chronicle, NPC chatter) always replies in chat.
-  // Whisper mode (!whisperme or the channel's replies.mode, whisperme.ts)
-  // whispers every reply addressed to this chatter instead.
+  // Whisper mode (!whisperme, or the channel's replies.mode — by default
+  // "auto": only while chat is busy; whisperme.ts) whispers every reply
+  // addressed to this chatter instead.
   if (chatMessage.trim().startsWith("!")) {
     setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
     if (viaWhisper) setWhisperReplies("all");
