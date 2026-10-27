@@ -26,12 +26,16 @@
 // subscription existed get it created lazily here on their next live chat
 // message, so nobody has to reconnect. Dashboard switch: "adalerts" (on by
 // default), in the same Codex card as !adcheck.
+//
+// Every notice is posted as a chat announcement (the boxed "Announcement"
+// message) from the bot — that needs the bot's /connect-bot grant to include
+// moderator:manage:announcements; without it they fall back to plain chat.
 
 import { sqlite } from "./sqlite.ts";
 import { getValidAdToken } from "./ads.ts";
 import { getAdTracking, getBroadcasterAdToken } from "./ads_db.ts";
 import { getBroadcaster, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent, saveExtraEventSubSubscription } from "./db.ts";
-import { type AdSchedule, createAdBreakEventSubscription, fetchAdSchedule, sendChatMessage } from "./twitch.ts";
+import { type AdSchedule, createAdBreakEventSubscription, fetchAdSchedule, sendChatAnnouncement } from "./twitch.ts";
 import { pick } from "./utils.ts";
 
 const ADS_SCOPE = "channel:read:ads";
@@ -129,7 +133,7 @@ export async function onAdBreakBegin(event: any) {
   if (!connection || Number(connection.connected) !== 1 || Number(connection.is_live) !== 1) return;
   if (!(await alertsAllowed(broadcasterId))) return;
   const duration = Number(event?.duration_seconds ?? 0);
-  await sendChatMessage(pick(START_LINES)(formatLength(duration)), broadcasterId);
+  await sendChatAnnouncement(pick(START_LINES)(formatLength(duration)), broadcasterId);
   await scheduleEndNotice(broadcasterId, startedAt + Math.max(duration, 30) * 1000);
 }
 
@@ -157,7 +161,7 @@ async function maybeAdEndNotice(broadcasterId: string, endsAt: number, now: numb
   const clear = await sqlite.execute("UPDATE ad_alerts SET ad_ends_at = 0 WHERE broadcaster_id = ? AND ad_ends_at = ?", [broadcasterId, endsAt]);
   if (Number((clear as any)?.rowsAffected ?? 1) === 0) return;
   if (now - endsAt > END_NOTICE_STALE_MS) return;
-  await sendChatMessage(pick(END_LINES), broadcasterId);
+  await sendChatAnnouncement(pick(END_LINES), broadcasterId);
 }
 
 // ── Missed breaks (Get Ad Schedule's last_ad_at) ──
@@ -199,7 +203,7 @@ async function backfillMissedBreak(broadcasterId: string, schedule: AdSchedule, 
   // long over by the time we noticed); only fill in for channels without it.
   const stillRunningMs = Math.max(schedule.durationSeconds || 0, 90) * 1000;
   if (!subscribed && now - lastAt < stillRunningMs) {
-    await sendChatMessage(pick(MISSED_START_LINES), broadcasterId);
+    await sendChatAnnouncement(pick(MISSED_START_LINES), broadcasterId);
     await scheduleEndNotice(broadcasterId, lastAt + stillRunningMs);
   }
   return true;
@@ -257,7 +261,7 @@ export async function maybeAdHeadsUp(broadcasterId: string, baseUrl?: string): P
     if (Number((mark as any)?.rowsAffected ?? 1) === 0) return;
     const inMin = Math.max(1, Math.round(minutes));
     const snooze = schedule.snoozeCount > 0 ? ` (Streamer: ${schedule.snoozeCount} snooze${schedule.snoozeCount === 1 ? "" : "s"} left if now's a bad moment.)` : "";
-    await sendChatMessage(
+    await sendChatAnnouncement(
       `📺 Heads up: a ${formatLength(schedule.durationSeconds)} ad break is due in ~${inMin} min.${snooze}`,
       broadcasterId,
     );

@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { defer, forgetWhisperIntro, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
+import { defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -179,6 +179,39 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
     console.error("sendChatMessage failed", err);
     return false;
   }
+}
+
+/** Posts `text` as a chat announcement (the highlighted "Announcement" box)
+ * from the bot account, via Helix Send Chat Announcement. Needs the bot's
+ * user token with moderator:manage:announcements (/connect-bot) and the bot
+ * modded in the channel; on any failure it's posted as a normal chat
+ * message instead, so the notice still goes out. */
+export async function sendChatAnnouncement(text: string, broadcasterId: string, color: "primary" | "blue" | "green" | "orange" | "purple" = "primary") {
+  const message = text.slice(0, 500);
+  if (!message.trim()) return true;
+  try {
+    const send = (token: string) =>
+      fetch(`https://api.twitch.tv/helix/chat/announcements?${new URLSearchParams({ broadcaster_id: broadcasterId, moderator_id: env("TWITCH_BOT_ID") })}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Client-Id": env("TWITCH_CLIENT_ID"), "Content-Type": "application/json" },
+        body: JSON.stringify({ message, color }),
+      });
+    let token = await getBotUserToken();
+    if (token) {
+      await waitForChatSlot(broadcasterId);
+      let res = await send(token);
+      if (res.status === 401) {
+        token = await getBotUserToken(true);
+        if (token) res = await send(token);
+      }
+      if (res.ok) return true;
+      const detail = (await res.text().catch(() => "")).slice(0, 200);
+      await recordMonitorEvent("chat_announcement_failed", `${broadcasterId} ${res.status}: ${detail}`).catch(() => {});
+    }
+  } catch (err) {
+    console.error("sendChatAnnouncement failed", err);
+  }
+  return await sendChatMessage(message, broadcasterId, [], { log: false, whisper: false });
 }
 
 export async function sendChatMessages(

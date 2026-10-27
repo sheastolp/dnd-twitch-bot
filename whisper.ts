@@ -45,6 +45,9 @@ export const WHISPER_MAX = 500;
 const MAX_WHISPER_PARTS = 10;
 const WHISPER_DELAY_MS = 400; // Twitch allows 3 whispers/second
 const BOT_WHISPER_SCOPE = "user:manage:whispers";
+// Lets the bot post ad-break notices as boxed chat announcements (adalerts.ts)
+// in channels where it's a moderator.
+export const BOT_ANNOUNCE_SCOPE = "moderator:manage:announcements";
 
 export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
@@ -252,7 +255,7 @@ async function saveBotToken(botId: string, token: any) {
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-async function getBotUserToken(forceRefresh = false): Promise<string | null> {
+export async function getBotUserToken(forceRefresh = false): Promise<string | null> {
   const botId = env("TWITCH_BOT_ID");
   if (!forceRefresh && cachedToken && cachedToken.expiresAt - 60_000 > Date.now()) return cachedToken.token;
   const res = await sqlite.execute("SELECT * FROM bot_user_tokens WHERE bot_id = ?", [botId]);
@@ -366,6 +369,7 @@ export async function whisperDiagnostics(): Promise<string[]> {
         const scopes: string[] = info.scopes ?? [];
         out.push(`${String(info.user_id) === botId ? "✅" : "❌"} Token belongs to ${info.login} (${info.user_id})${String(info.user_id) === botId ? "" : ` — NOT the bot (${botId})`}.`);
         out.push(`${scopes.includes(BOT_WHISPER_SCOPE) ? "✅" : "❌"} Scopes: ${scopes.join(", ") || "none"}.`);
+        if (!scopes.includes(BOT_ANNOUNCE_SCOPE)) out.push(`❌ Missing ${BOT_ANNOUNCE_SCOPE} — ad-break notices post as plain chat instead of announcements until /connect-bot is redone.`);
       }
     }
   }
@@ -410,7 +414,7 @@ export function hpLeft(entries: Array<[string, number, number]>): string {
   return entries.map(([name, hp, max]) => `${name} ${Math.max(0, hp)}/${max}`).join(", ");
 }
 
-// ── /connect-bot: grant the bot account's whisper scope once ──
+// ── /connect-bot: grant the bot account's whisper + announcement scopes once ──
 
 /** Handles GET /connect-bot and /connect-bot/callback; null for any other path. */
 export async function handleBotConnectRoute(req: Request, url: URL, path: string): Promise<Response | null> {
@@ -430,7 +434,7 @@ export async function handleBotConnectRoute(req: Request, url: URL, path: string
       client_id: env("TWITCH_CLIENT_ID"),
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: BOT_WHISPER_SCOPE,
+      scope: `${BOT_WHISPER_SCOPE} ${BOT_ANNOUNCE_SCOPE}`,
       force_verify: "true",
       state,
     }).toString();
@@ -478,7 +482,7 @@ export async function handleBotConnectRoute(req: Request, url: URL, path: string
     const inbox = await (await import("./whisper_inbox.ts")).ensureWhisperInboxSubscription(true).catch((e) => String(e));
     return html(
       "Bot connected",
-      `Whispers enabled for ${String(user.display_name ?? user.login)}. Long replies will now be whispered.` +
+      `Whispers and announcements enabled for ${String(user.display_name ?? user.login)}. Long replies will now be whispered, and ad-break notices post as chat announcements.` +
         (inbox === true ? " Viewers can also whisper the bot commands." : ` Commands by whisper couldn't be set up yet (${String(inbox).replace(/&/g, "&amp;").replace(/</g, "&lt;")}); it retries on its own.`),
     );
   }
