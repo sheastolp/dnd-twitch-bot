@@ -22,8 +22,9 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSteamPage, handleSteamForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
 import { renderTipPage } from "./tips.ts";
+import { handleSteamUpload } from "./steam.ts";
 import { renderSongQueuePage } from "./songrequests.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { handleNightbotCallback } from "./nightbot_import.ts";
@@ -523,6 +524,15 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Tip page links (tips.ts) — same gate.
     return await handleTipsPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/steam") {
+    // Steam picker setup (steam.ts) — same gate.
+    return await handleSteamPage(url, req.headers.get("Cookie"));
+  }
+  if (req.method === "GET" && path === "/steam/uploader.ts") {
+    // The installed-games uploader the streamer runs on their gaming PC (steam.ts).
+    const script = await Deno.readTextFile(new URL("./tools/steam_upload.ts", import.meta.url));
+    return new Response(script, { headers: { "Content-Type": "application/typescript; charset=utf-8", "Cache-Control": "no-cache" } });
+  }
   if (req.method === "GET" && path === "/dashboard/music/spotify") {
     return await handleSpotifyConnect(url, req.headers.get("Cookie"));
   }
@@ -830,6 +840,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/tips") {
     return await handleTipsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/steam") {
+    return await handleSteamForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/steam/installed") {
+    // From tools/steam_upload.ts on the streamer's PC; trusted by the channel's uploader key.
+    return await handleSteamUpload(req);
   }
   if (req.method === "POST" && path === "/dashboard/music") {
     return await handleNowPlayingForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

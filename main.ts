@@ -53,6 +53,7 @@ import { ensureHoardTables, purgeHoardData } from "./hoard_db.ts";
 import { ensureAdAlertTables, maybeAdHeadsUp, onAdBreakBegin, purgeAdAlertData } from "./adalerts.ts";
 import { ensureFollowThanksTables, onFollow, purgeFollowThanksData } from "./follow_thanks.ts";
 import { ensureTipTables, handleTipCommand, purgeTipData } from "./tips.ts";
+import { ensureSteamTables, handleSteamCommand, purgeSteamData } from "./steam.ts";
 import { ensureSongRequestTables, handleSongRequestCommand, purgeSongRequestData } from "./songrequests.ts";
 import { ensureSongListTables, purgeSongListData } from "./songlist.ts";
 import { ensureAlertTables, handleAlertCommand, onCheerAlert, onFollowAlert, purgeAlertData, pushAlert } from "./alerts.ts";
@@ -160,6 +161,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureSongRequestTables,
   ensureSongListTables,
   ensureTipTables,
+  ensureSteamTables,
   ensureSocialTables,
   ensurePointsTables,
   ensureSwearJarTables,
@@ -632,6 +634,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeSongRequestData(broadcasterId);
       await purgeSongListData(broadcasterId);
       await purgeTipData(broadcasterId);
+      await purgeSteamData(broadcasterId);
       await purgeFollowBotData(broadcasterId);
       await purgeModLogData(broadcasterId);
       await purgePointsData(broadcasterId);
@@ -890,6 +893,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleSongRequestCommand(chatMessage, chatter, display, broadcasterId, String(connection.login || broadcasterId), isModerator, modEvent.badges)) return new Response("OK");
   if (await handleTipCommand(chatMessage, display, broadcasterId, String(connection.login || broadcasterId), String(connection.display_name || connection.login || "this channel"))) return new Response("OK");
+  if (await handleSteamCommand(chatMessage, display, broadcasterId, String(connection.display_name || connection.login || "this channel"), isModerator)) return new Response("OK");
   if (await handleAlertCommand(chatMessage, display, broadcasterId, String(connection.login || broadcasterId), isModerator)) return new Response("OK");
   if (await handleQuoteCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   // !stats (game_stats.ts): the game the dashboard picked, Warframe by default.

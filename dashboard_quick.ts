@@ -98,6 +98,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["tips"],
   },
   {
+    key: "steam", icon: "🎮", name: "Steam picker",
+    what: "Can't decide what to play? Chat types !steam and GuildScribe rolls a random game from your Steam library, with its store link.",
+    yourPart: "Type !steam link <your Steam profile link> in chat (your profile's Game details must be Public). Want it to pick only installed games? Run the uploader from the dashboard's 🎮 Steam picker page on your gaming PC.",
+    switches: ["steam"],
+  },
+  {
     key: "chatreader", icon: "🗣️", name: "Chat Reader",
     what: "Reads your chat out loud to you — handy when streaming straight from a console with no second screen. Skips bots and !commands, drops messages mods delete, and never goes out on stream.",
     yourPart: "Type !chatreader in chat (or open it from !overlays), open the link on your phone or PC near you and tap Start. Pick the voice and speed under Settings.",

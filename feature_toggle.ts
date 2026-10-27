@@ -30,6 +30,7 @@ const ALIASES: Record<string, string> = {
   babushka: "mentionreply", hoard: "hunts", shop: "hunts", followers: "followthanks", subs: "subthanks",
   rally: "raid", shot: "shots", alert: "alerts", sr: "songrequests", songrequest: "songrequests", songs: "songrequests",
   tip: "tips", donate: "tips", donations: "tips",
+  steampicker: "steam", randomgame: "steam",
   gambling: "gamble", dragonsdice: "gamble", dragondice: "gamble",
 };
 

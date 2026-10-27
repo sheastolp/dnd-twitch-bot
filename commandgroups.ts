@@ -184,6 +184,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   songrequests: { section: "Stream overlays", label: "Song requests (!sr <song> adds it to your Spotify queue, or YouTube/other links to the mods' request list; !song, !queue, !skip)", commands: [] },
   // tips.ts: !tip / !donate post the channel's tip page; checks its switch itself.
   tips: { section: "Stream overlays", label: "Tip page (!tip — your tip/donation links on one GuildScribe page)", commands: [] },
+  // steam.ts: !steam rolls a random game from the streamer's Steam library; checks its switch itself.
+  steam: { section: "Stream overlays", label: "Steam picker (!steam — a random game from your Steam library; mods: !steam link <profile>)", commands: [] },
   shots: { section: "Stream overlays", label: "Shot counter (!shot — mods add one, !shots shows the count; Shots taken overlay)", commands: [] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },

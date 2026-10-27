@@ -68,6 +68,7 @@ import { applyGameStatsForm, renderGameStatsPage } from "./game_stats_page.ts";
 import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { applyTipsForm, renderTipsDashboardPage } from "./tips.ts";
+import { applySteamForm, renderSteamDashboardPage } from "./steam.ts";
 import { applySongListForm, getSongList, renderSongListPage } from "./songlist.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
@@ -972,6 +973,31 @@ export async function handleTipsForm(form: FormData, baseUrl: string, cookieHead
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/tips?${params.toString()}`);
+}
+
+// ── Steam picker (steam.ts), behind the same key + login ──
+
+export async function handleSteamPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderSteamDashboardPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleSteamForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applySteamForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/steam?${params.toString()}`);
 }
 
 // ── Song request list (songlist.ts), behind the same key + login ──
