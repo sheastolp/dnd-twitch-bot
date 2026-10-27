@@ -19,6 +19,7 @@
 //     the other still answers. ASKME_WEB_SEARCH=off leaves the web out;
 //     ASKME_SEARCH_URL sends the searches through the Local AI search server
 //     instead of straight to DuckDuckGo (see websearch.ts).
+//   - ASKME_DEBUG=1 logs every lookup's passages and the AI's raw reply.
 //   - Thinking models answer without thinking first (think: false in
 //     openai.ts), and the AI gets ASKME_AI_TIMEOUT_S (default 90) to reply. Sending a handful of matching
 //     passages instead of whole intros keeps the prompt small (fast on a CPU
@@ -76,6 +77,10 @@ const ANSWER_MAX_TOKENS = 1000;
 const WIKI_TIMEOUT_MS = 8_000;
 // A laptop GPU can take a while, more so when Ollama has to load the model first.
 const AI_TIMEOUT_MS = Math.max(10, Number(Deno.env.get("ASKME_AI_TIMEOUT_S") ?? "90")) * 1000;
+// ASKME_DEBUG=1 logs each question's lookup and the AI's raw reply, to see
+// why an answer came out wrong or not at all.
+const DEBUG = /^(1|true|yes|on)$/i.test(Deno.env.get("ASKME_DEBUG") ?? "");
+const debug = (...args: unknown[]) => DEBUG && console.log("askme debug:", ...args);
 const USER_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_USER_COOLDOWN_S") ?? "30")) * 1000;
 const CHANNEL_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_CHANNEL_COOLDOWN_S") ?? "5")) * 1000;
 
@@ -578,6 +583,8 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
     return null;
   }
+  debug(`"${question}" → searched as "${query}"${games.length ? ` (games: ${games.join(", ")})` : ""}`);
+  debug(`${passages.length} passages:\n` + passages.map((p, i) => `  [${i + 1}] ${p.article.kind} · ${p.article.site} · ${p.article.title}: ${p.text.slice(0, 160)}`).join("\n"));
   if (!passages.length) return null;
 
   try {
@@ -599,6 +606,7 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
       ],
     }, { timeoutMs: AI_TIMEOUT_MS });
     const raw = String(completion.choices?.[0]?.message?.content ?? "");
+    debug(`AI replied: ${JSON.stringify(raw)}`);
     // The passage it cited; the best-matching one if it didn't say.
     const cited = Number(raw.match(/\[(\d)\]/)?.[1] ?? 0);
     const article = (passages[cited - 1] ?? passages[0]).article;
