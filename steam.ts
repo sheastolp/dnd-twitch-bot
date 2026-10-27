@@ -2,6 +2,7 @@
 //
 //   !steam                                         anyone: picks a random game
 //   !steam link <profile link or ID> · !steam unlink   mods: link the channel's Steam account from chat
+//   !steam family [add <profile> | remove <name, profile or all>]   mods: Steam Family members whose games join in
 //   GET  /dashboard/steam · POST /dashboard/steam  Steam ID, Web API key, uploader key, games to leave out (dashboard key + mod login; dashboard.ts)
 //   POST /steam/installed                          the uploader sends the installed list here (JSON, channel + uploader key)
 //   GET  /steam/uploader.ts                        the uploader script itself (tools/steam_upload.ts)
@@ -20,6 +21,11 @@
 //     games); if nothing overlaps (all family-shared, say) the installed list
 //   • installed list only          → the installed list, minus Steam's own tools
 //   • owned games only             → every owned game, installed or not
+// Steam Families: Steam has no keyed Web API for a family's shared library
+// (only the Steam client sees it), so family members' profiles are linked
+// too and their owned games join the owned pool. That can include games a
+// member keeps out of sharing; installed family games are kept by the
+// installed ∩ owned filter as long as some member owns them.
 // The streamer's "leave out" list (e.g. OBS, Wallpaper Engine) applies to all.
 //
 // Dashboard switch "steam" (off by default). A channel's own !steam custom
@@ -38,21 +44,30 @@ const PICK_COOLDOWN_MS = 5_000;
 const MAX_GAMES = 3000;
 const MAX_NAME = 120;
 const MAX_SKIP = 1000;
+const MAX_FAMILY = 5; // a Steam Family is up to 6 accounts: the streamer and 5 others
 const KEY_RE = /^[0-9A-F]{32}$/i; // Steam Web API keys are 32 hex characters
 const STEAMID_RE = /^7656119\d{10}$/;
 /** Installed things that aren't games: Steam's own runtimes and redistributables. */
 const STEAM_TOOLS_RE = /^(Steamworks Common Redistributables|Steamworks SDK Redist|Steam Linux Runtime|Proton|SteamVR)\b/i;
 
 type Game = { appid: number; name: string };
-type SteamSettings = { steamId: string; apiKey: string; uploadKey: string; skip: string };
+/** A Steam Family member whose owned games join the pool (name: their Steam display name when added). */
+type FamilyMember = { id: string; name: string };
+type SteamSettings = { steamId: string; apiKey: string; uploadKey: string; skip: string; family: FamilyMember[] };
 
 export async function ensureSteamTables() {
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS steam_settings (
       broadcaster_id TEXT PRIMARY KEY, steam_id TEXT NOT NULL DEFAULT '', api_key TEXT NOT NULL DEFAULT '',
-      upload_key TEXT NOT NULL DEFAULT '', skip TEXT NOT NULL DEFAULT '', updated_at INTEGER
+      upload_key TEXT NOT NULL DEFAULT '', skip TEXT NOT NULL DEFAULT '', family TEXT NOT NULL DEFAULT '[]', updated_at INTEGER
     )`,
   );
+  // Tables created before family existed.
+  try {
+    await sqlite.execute(`ALTER TABLE steam_settings ADD COLUMN family TEXT NOT NULL DEFAULT '[]'`);
+  } catch (_) {
+    /* column already exists */
+  }
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS steam_installed (
       broadcaster_id TEXT PRIMARY KEY, games TEXT NOT NULL DEFAULT '[]', uploaded_at INTEGER NOT NULL
@@ -63,20 +78,25 @@ export async function ensureSteamTables() {
 export async function purgeSteamData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM steam_settings WHERE broadcaster_id = ?", [broadcasterId]);
   await sqlite.execute("DELETE FROM steam_installed WHERE broadcaster_id = ?", [broadcasterId]);
-  ownedCache.delete(broadcasterId);
 }
 
 async function getSettings(broadcasterId: string): Promise<SteamSettings> {
-  const r = (await sqlite.execute("SELECT steam_id, api_key, upload_key, skip FROM steam_settings WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
-  return { steamId: String(r?.steam_id ?? ""), apiKey: String(r?.api_key ?? ""), uploadKey: String(r?.upload_key ?? ""), skip: String(r?.skip ?? "") };
+  const r = (await sqlite.execute("SELECT steam_id, api_key, upload_key, skip, family FROM steam_settings WHERE broadcaster_id = ?", [broadcasterId])).rows[0] as any;
+  let family: FamilyMember[] = [];
+  try {
+    family = (JSON.parse(String(r?.family ?? "[]")) as any[])
+      .map((m) => ({ id: String(m?.id ?? ""), name: String(m?.name ?? "").slice(0, 40) }))
+      .filter((m) => STEAMID_RE.test(m.id));
+  } catch (_) { /* corrupt JSON — no family */ }
+  return { steamId: String(r?.steam_id ?? ""), apiKey: String(r?.api_key ?? ""), uploadKey: String(r?.upload_key ?? ""), skip: String(r?.skip ?? ""), family };
 }
 
 async function saveSettings(broadcasterId: string, s: SteamSettings) {
   await sqlite.execute(
-    `INSERT INTO steam_settings (broadcaster_id, steam_id, api_key, upload_key, skip, updated_at) VALUES (?,?,?,?,?,?)
+    `INSERT INTO steam_settings (broadcaster_id, steam_id, api_key, upload_key, skip, family, updated_at) VALUES (?,?,?,?,?,?,?)
      ON CONFLICT(broadcaster_id) DO UPDATE SET steam_id = excluded.steam_id, api_key = excluded.api_key,
-       upload_key = excluded.upload_key, skip = excluded.skip, updated_at = excluded.updated_at`,
-    [broadcasterId, s.steamId, s.apiKey, s.uploadKey, s.skip, Date.now()],
+       upload_key = excluded.upload_key, skip = excluded.skip, family = excluded.family, updated_at = excluded.updated_at`,
+    [broadcasterId, s.steamId, s.apiKey, s.uploadKey, s.skip, JSON.stringify(s.family), Date.now()],
   );
 }
 
@@ -114,6 +134,7 @@ export const steamUploaderUrl = () => `${PUBLIC_BASE_URL}/steam/uploader.ts`;
 
 // ── Steam Web API ───────────────────────────────────────────────────────────
 
+/** Owned games by SteamID64 (the streamer and each family member are cached separately). */
 const ownedCache = new Map<string, { at: number; games: Game[] }>();
 
 /** Owned games, or why Steam wouldn't say. "private" = the profile hides its game details. */
@@ -131,14 +152,43 @@ async function fetchOwnedGames(steamId: string, apiKey: string): Promise<{ games
   }
 }
 
-async function ownedGamesFor(broadcasterId: string, s: SteamSettings): Promise<Game[] | null> {
-  if (!s.steamId || !apiKeyFor(s)) return null;
-  const hit = ownedCache.get(broadcasterId);
+/** One account's owned games through the cache, or null when Steam won't say (private, or down with nothing cached). */
+async function ownedGamesOf(steamId: string, apiKey: string): Promise<Game[] | null> {
+  const hit = ownedCache.get(steamId);
   if (hit && Date.now() - hit.at < OWNED_CACHE_MS) return hit.games;
-  const got = await fetchOwnedGames(s.steamId, apiKeyFor(s));
+  const got = await fetchOwnedGames(steamId, apiKey);
   if ("error" in got) return hit?.games ?? null; // Steam hiccup: keep using the last list we had
-  ownedCache.set(broadcasterId, { at: Date.now(), games: got.games });
+  ownedCache.set(steamId, { at: Date.now(), games: got.games });
   return got.games;
+}
+
+/** Each linked account (the streamer, then family) with its owned games; games is null for one Steam won't share. */
+async function libraries(s: SteamSettings): Promise<Array<{ id: string; games: Game[] | null }>> {
+  const apiKey = apiKeyFor(s);
+  if (!apiKey) return [];
+  const ids = [s.steamId, ...s.family.map((m) => m.id)].filter(Boolean);
+  return await Promise.all(ids.map(async (id) => ({ id, games: await ownedGamesOf(id, apiKey) })));
+}
+
+/** Owned games across the streamer and their family (each game once), or null with nothing linked. */
+async function ownedGamesFor(s: SteamSettings): Promise<Game[] | null> {
+  const libs = await libraries(s);
+  if (!libs.length) return null;
+  const all = new Map<number, Game>();
+  for (const lib of libs) for (const g of lib.games ?? []) if (!all.has(g.appid)) all.set(g.appid, g);
+  return [...all.values()];
+}
+
+/** A Steam account's display name, or "" (GetPlayerSummaries; used when adding a family member). */
+async function personaName(steamId: string, apiKey: string): Promise<string> {
+  try {
+    const qs = new URLSearchParams({ key: apiKey, steamids: steamId });
+    const res = await fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?${qs}`, { signal: AbortSignal.timeout(8_000) });
+    const body = await res.json();
+    return String(body?.response?.players?.[0]?.personaname ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  } catch (_) {
+    return "";
+  }
 }
 
 /** A typed Steam ID, profile link or custom URL name → a SteamID64, or why not. */
@@ -165,10 +215,10 @@ async function resolveSteamId(raw: string, apiKey: string): Promise<{ steamId: s
 
 // ── Picking ─────────────────────────────────────────────────────────────────
 
-/** The pool !steam picks from, and what it's made of ("installed" / "owned"). */
-async function gamePool(broadcasterId: string): Promise<{ games: Game[]; kind: "installed" | "owned" } | null> {
+/** The pool !steam picks from, and what it's made of ("installed" / "owned" / "family library"). */
+async function gamePool(broadcasterId: string): Promise<{ games: Game[]; kind: "installed" | "owned" | "family library" } | null> {
   const s = await getSettings(broadcasterId);
-  const [installed, owned] = await Promise.all([getInstalled(broadcasterId), ownedGamesFor(broadcasterId, s)]);
+  const [installed, owned] = await Promise.all([getInstalled(broadcasterId), ownedGamesFor(s)]);
   const skip = skipNames(s.skip);
   const keep = (g: Game) => !skip.has(g.name.toLowerCase());
   if (installed?.games.length) {
@@ -180,14 +230,59 @@ async function gamePool(broadcasterId: string): Promise<{ games: Game[]; kind: "
     }
     return { games: games.filter(keep), kind: "installed" };
   }
-  if (owned) return { games: owned.filter(keep), kind: "owned" };
+  if (owned) return { games: owned.filter(keep), kind: s.family.length ? "family library" : "owned" };
   return null;
+}
+
+// ── Family members ──────────────────────────────────────────────────────────
+
+/** Adds a family member's profile, once Steam shows their games. */
+async function addFamilyMember(broadcasterId: string, profile: string): Promise<{ ok: boolean; message: string }> {
+  const s = await getSettings(broadcasterId);
+  const apiKey = apiKeyFor(s);
+  if (!apiKey) return { ok: false, message: "Link your own Steam account first (with your Web API key on the dashboard's 🎮 Steam picker page)." };
+  if (s.family.length >= MAX_FAMILY) return { ok: false, message: `That's already ${MAX_FAMILY} family members, the most a Steam Family can have besides you.` };
+  const id = await resolveSteamId(profile, apiKey);
+  if ("error" in id) return { ok: false, message: id.error };
+  if (id.steamId === s.steamId) return { ok: false, message: "That's the channel's own Steam account — it's already in." };
+  if (s.family.some((m) => m.id === id.steamId)) return { ok: false, message: "They're already in the family." };
+  const owned = await fetchOwnedGames(id.steamId, apiKey);
+  if ("error" in owned) {
+    return {
+      ok: false,
+      message: owned.error === "private"
+        ? "Steam won't share their games. They need Edit Profile → Privacy Settings → \"Game details\" set to Public."
+        : "Couldn't reach Steam just now. Try again in a minute.",
+    };
+  }
+  const name = (await personaName(id.steamId, apiKey)) || id.steamId;
+  await saveSettings(broadcasterId, { ...s, family: [...s.family, { id: id.steamId, name }] });
+  ownedCache.set(id.steamId, { at: Date.now(), games: owned.games });
+  return { ok: true, message: `Added ${name} to the family (${owned.games.length} games).` };
+}
+
+/** Removes a family member by name, profile link or Steam ID; "all" clears the family. */
+async function removeFamilyMember(broadcasterId: string, who: string): Promise<{ ok: boolean; message: string }> {
+  const s = await getSettings(broadcasterId);
+  const text = who.trim();
+  if (/^all$/i.test(text)) {
+    await saveSettings(broadcasterId, { ...s, family: [] });
+    return { ok: true, message: "Removed everyone from the family." };
+  }
+  let member = s.family.find((m) => m.id === text || m.name.toLowerCase() === text.toLowerCase());
+  if (!member && apiKeyFor(s)) {
+    const id = await resolveSteamId(text, apiKeyFor(s));
+    if (!("error" in id)) member = s.family.find((m) => m.id === id.steamId);
+  }
+  if (!member) return { ok: false, message: `"${text.slice(0, 40)}" isn't in the family.` };
+  await saveSettings(broadcasterId, { ...s, family: s.family.filter((m) => m.id !== member.id) });
+  return { ok: true, message: `Removed ${member.name} from the family.` };
 }
 
 const lastPick = new Map<string, number>();
 
 export async function handleSteamCommand(chatMessage: string, display: string, broadcasterId: string, channelName: string, isModerator: boolean): Promise<boolean> {
-  const match = chatMessage.trim().match(/^!steam(?:\s+(link|unlink)\b\s*(.*))?$/i);
+  const match = chatMessage.trim().match(/^!steam(?:\s+(link|unlink|family)\b\s*(.*))?$/i);
   if (!match) return false;
   const [on, custom] = await Promise.all([isCommandGroupEnabled(broadcasterId, "steam"), getCustomCommand(broadcasterId, "steam")]);
   if (custom) return false;
@@ -195,10 +290,23 @@ export async function handleSteamCommand(chatMessage: string, display: string, b
   if (sub) {
     // Mods set it up from chat, even while !steam is still switched off.
     if (!isModerator) return true;
+    if (sub === "family") {
+      const [verb, ...rest] = match[2].split(/\s+/);
+      const who = rest.join(" ");
+      let reply: string;
+      if (/^add$/i.test(verb) && who) reply = (await addFamilyMember(broadcasterId, who)).message;
+      else if (/^(remove|rm|del)$/i.test(verb) && who) reply = (await removeFamilyMember(broadcasterId, who)).message;
+      else {
+        const s = await getSettings(broadcasterId);
+        const list = s.family.length ? `Family: ${s.family.map((m) => m.name).join(", ")}.` : "No family members yet.";
+        reply = `${list} Mods: !steam family add <Steam profile link> · !steam family remove <name or link | all>`;
+      }
+      await sendChatMessage(`@${display} ${reply}`, broadcasterId);
+      return true;
+    }
     if (sub === "unlink") {
       const s = await getSettings(broadcasterId);
       await saveSettings(broadcasterId, { ...s, steamId: "", apiKey: "" });
-      ownedCache.delete(broadcasterId);
       await sendChatMessage(`@${display} Unlinked the Steam account.`, broadcasterId);
       return true;
     }
@@ -269,7 +377,6 @@ export async function applySteamForm(broadcasterId: string, form: FormData): Pro
   }
   if (intent === "api_clear") {
     await saveSettings(broadcasterId, { ...s, steamId: "", apiKey: "" });
-    ownedCache.delete(broadcasterId);
     return { ok: true, message: "Unlinked your Steam account." };
   }
   if (intent === "skip") {
@@ -278,6 +385,8 @@ export async function applySteamForm(broadcasterId: string, form: FormData): Pro
     const n = skip ? skip.split("\n").length : 0;
     return { ok: true, message: n ? `Saved — ${n} game${n === 1 ? "" : "s"} left out.` : "Saved — nothing left out." };
   }
+  if (intent === "family_add") return await addFamilyMember(broadcasterId, String(form.get("member") ?? ""));
+  if (intent === "family_remove") return await removeFamilyMember(broadcasterId, String(form.get("member") ?? ""));
   if (intent === "api") return await linkSteamAccount(broadcasterId, String(form.get("steam_id") ?? "") || s.steamId, String(form.get("api_key") ?? ""));
   return { ok: false, message: "Unknown action." };
 }
@@ -303,7 +412,7 @@ async function linkSteamAccount(broadcasterId: string, profile: string, typedKey
     };
   }
   await saveSettings(broadcasterId, { ...s, steamId: id.steamId, apiKey: ownKey.toUpperCase() }); // the server-wide key is never copied into a channel
-  ownedCache.set(broadcasterId, { at: Date.now(), games: owned.games });
+  ownedCache.set(id.steamId, { at: Date.now(), games: owned.games });
   return { ok: true, message: `Linked — Steam lists ${owned.games.length} owned game${owned.games.length === 1 ? "" : "s"}.` };
 }
 
@@ -317,7 +426,9 @@ const ago = (ms: number) => {
 
 export async function renderSteamDashboardPage(d: { broadcasterId: string; broadcasterName: string; key: string; notice?: string; error?: string }): Promise<string> {
   const [s, installed, on] = await Promise.all([getSettings(d.broadcasterId), getInstalled(d.broadcasterId), isCommandGroupEnabled(d.broadcasterId, "steam")]);
-  const owned = await ownedGamesFor(d.broadcasterId, s);
+  const libs = await libraries(s);
+  const own = libs.find((l) => l.id === s.steamId)?.games ?? null;
+  const owned = libs.length ? await ownedGamesFor(s) : null;
   const pool = await gamePool(d.broadcasterId);
   const qs = `channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.key)}`;
   const name = escapeHtml(d.broadcasterName);
@@ -325,11 +436,13 @@ export async function renderSteamDashboardPage(d: { broadcasterId: string; broad
   const hidden = `<input type="hidden" name="channel" value="${escapeHtml(d.broadcasterId)}"><input type="hidden" name="key" value="${escapeHtml(d.key)}">`;
   const btn = (intent: string, label: string, cls: string, confirm = "") =>
     `<form method="post" action="/dashboard/steam" class="inline"${confirm ? ` onsubmit="return confirm('${confirm}')"` : ""}>${hidden}<input type="hidden" name="intent" value="${intent}"><button type="submit" class="${cls}">${label}</button></form>`;
+  const btnWith = (intent: string, field: string, value: string, label: string, cls: string) =>
+    `<form method="post" action="/dashboard/steam" class="inline">${hidden}<input type="hidden" name="intent" value="${intent}"><input type="hidden" name="${field}" value="${escapeHtml(value)}"><button type="submit" class="${cls}">${label}</button></form>`;
   const command = s.uploadKey
     ? `deno run --allow-read --allow-net ${steamUploaderUrl()} --channel ${d.broadcasterId} --key ${s.uploadKey} --every 30`
     : "";
   const status = pool
-    ? `<p class="ok-line">✓ <code>!steam</code> picks from ${pool.games.length} ${pool.kind} game${pool.games.length === 1 ? "" : "s"}${pool.kind === "installed" && owned?.length ? " (the installed games your account owns)" : ""}.</p>`
+    ? `<p class="ok-line">✓ <code>!steam</code> picks from ${pool.games.length} ${pool.kind} game${pool.games.length === 1 ? "" : "s"}${pool.kind === "installed" && owned?.length ? ` (the installed games ${s.family.length ? "your family owns" : "your account owns"})` : ""}.</p>`
     : `<p class="note">Nothing to pick from yet — set up either step below.</p>`;
   const body = `<header class="dash-top"><div><span class="pill">Stream · Steam picker</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
@@ -339,13 +452,23 @@ ${status}
 
 <h2>1 · Your Steam profile</h2>
 <p>Paste your profile link (or your 17-digit Steam ID). Your profile's <strong>Game details</strong> must be Public: on Steam, Edit Profile → Privacy Settings.${serverKey ? "" : ` Get a free Web API key at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">steamcommunity.com/dev/apikey</a> (any domain name will do).`}</p>
-${s.steamId ? `<p class="ok-line">✓ Steam account <a href="https://steamcommunity.com/profiles/${escapeHtml(s.steamId)}" target="_blank" rel="noopener">${escapeHtml(s.steamId)}</a>${s.apiKey ? ` with your key ${mask(s.apiKey)}` : ""}${owned ? ` — ${owned.length} owned games` : ""}. ${btn("api_clear", "Unlink", "ghost", "Unlink your Steam account?")}</p>` : ""}
+${s.steamId ? `<p class="ok-line">✓ Steam account <a href="https://steamcommunity.com/profiles/${escapeHtml(s.steamId)}" target="_blank" rel="noopener">${escapeHtml(s.steamId)}</a>${s.apiKey ? ` with your key ${mask(s.apiKey)}` : ""}${own ? ` — ${own.length} owned games` : ""}. ${btn("api_clear", "Unlink", "ghost", "Unlink your Steam account?")}</p>` : ""}
 <form method="post" action="/dashboard/steam" class="grid2">${hidden}<input type="hidden" name="intent" value="api">
 <label>Steam profile link or ID<input name="steam_id" value="${escapeHtml(s.steamId)}" maxlength="100" placeholder="steamcommunity.com/id/yourname" required autocomplete="off" spellcheck="false"></label>
 <label>Web API key${serverKey ? ` <span class="muted small">(optional)</span>` : ""}<input name="api_key" placeholder="${s.apiKey ? `saved (${mask(s.apiKey)}) — leave blank to keep` : serverKey ? "not needed — GuildScribe has one" : "32 letters and numbers"}" maxlength="40" ${s.apiKey || serverKey ? "" : "required"} autocomplete="off" spellcheck="false"></label>
 <p><button type="submit" class="ember">Save and check with Steam</button></p></form>
 
-<h2>2 · Only installed games <span class="muted small">(optional)</span></h2>
+<h2>2 · Family library <span class="muted small">(optional)</span></h2>
+<p>In a Steam Family? Add the other members' profiles and <code>!steam</code> rolls from everyone's games together. Steam doesn't let outside apps read a family's shared library, so this goes by what each member owns: their <strong>Game details</strong> must be Public too, and a game they've kept out of sharing (or one that can't be shared) can still come up. Mods can do this in chat too: <code>!steam family add &lt;profile link&gt;</code>.</p>
+${s.family.length ? `<ul class="family">${s.family.map((m) => {
+    const games = libs.find((l) => l.id === m.id)?.games;
+    return `<li><a href="https://steamcommunity.com/profiles/${escapeHtml(m.id)}" target="_blank" rel="noopener">${escapeHtml(m.name)}</a> <span class="muted small">${games ? `${games.length} games` : "games hidden — their Game details aren't Public"}</span> ${btnWith("family_remove", "member", m.id, "Remove", "ghost")}</li>`;
+  }).join("")}</ul>${owned ? `<p class="muted small">${owned.length} different games across the family.</p>` : ""}` : ""}
+${s.family.length < MAX_FAMILY ? `<form method="post" action="/dashboard/steam" class="grid2">${hidden}<input type="hidden" name="intent" value="family_add">
+<label>Family member's profile link or ID<input name="member" maxlength="100" placeholder="steamcommunity.com/id/theirname" required autocomplete="off" spellcheck="false"></label>
+<p><button type="submit" class="ember">Add to family</button></p></form>` : ""}
+
+<h2>3 · Only installed games <span class="muted small">(optional)</span></h2>
 <p>Steam only tells the internet which games you <em>own</em>, so <code>!steam</code> can roll one you'd have to download first. Which games are <em>installed</em> only lives on your gaming PC. To pick from those, run a small script there: it reads Steam's install list (<code>libraryfolders.vdf</code> and each library's <code>appmanifest_*.acf</code>) and sends just the game names and IDs here. It needs <a href="https://deno.com" target="_blank" rel="noopener">Deno</a> on that PC.</p>
 ${installed ? `<p class="ok-line">✓ ${installed.games.length} installed game${installed.games.length === 1 ? "" : "s"}, last sent ${ago(installed.uploadedAt)}. ${btn("installed_clear", "Forget list", "ghost", "Forget the installed list?")}</p>` : ""}
 ${command
@@ -364,7 +487,7 @@ ${command
     width: 860,
     css: `${LEDGER_CSS}.dash-top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--rule)}.dash-top h1{margin:8px 0 0}
 .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin:10px 0}.grid2 label{display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:.9rem}.grid2 input{padding:9px 12px;font-weight:400;min-width:0}.grid2 p{grid-column:1/-1;margin:0}
-form.inline{display:inline}textarea{width:100%;padding:9px 12px;font:inherit}pre.cmd{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px 14px;background:#f3ead0;border:1px solid var(--edge);border-radius:6px;font-size:.85rem}
+form.inline{display:inline}ul.family{padding-left:20px}ul.family li{margin:6px 0}textarea{width:100%;padding:9px 12px;font:inherit}pre.cmd{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px 14px;background:#f3ead0;border:1px solid var(--edge);border-radius:6px;font-size:.85rem}
 .ok-line{color:var(--ok);font-weight:600;overflow-wrap:anywhere}.muted{color:var(--ink-3)}.small{font-size:.86rem}
 @media (max-width:560px){.grid2{grid-template-columns:1fr}}`,
   });
