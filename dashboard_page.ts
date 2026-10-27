@@ -363,6 +363,14 @@ export function renderDashboardLoginGate(d: { broadcasterName: string; loginUrl:
   </body></html>`;
 }
 
+// What the simplified view hides (see the toggle in renderDashboardPage's script).
+const SIMPLE_HIDDEN = "#sec-groups,.index,.conn.ok,.head-links>:not(.keep)";
+const SIMPLE_CSS = `#simple-toggle{margin-top:0}.simple-note{display:none}
+.simple .simple-note{display:block;margin:12px 0 16px;padding:8px 12px;border:1px dashed var(--edge);border-radius:6px;font-size:.9rem;color:var(--ink-3)}
+.simple ${SIMPLE_HIDDEN.split(",").join(",.simple ")},
+.simple .dash-head .intro,.simple .folder>p.muted,.simple .folder>.muted,.simple .tile-meta,
+.simple .qbody p.what~p.what,.simple .qopts,.simple .guide-link{display:none}`;
+
 export function renderDashboardPage(d: DashboardData): string {
   const features = renderFeaturesSection(d);
   const banner = d.error
@@ -370,12 +378,13 @@ export function renderDashboardPage(d: DashboardData): string {
     : d.notice
     ? `<p class="banner ok">${escapeHtml(d.notice)}</p>`
     : "";
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}${QUICK_CSS}${CHANNEL_STATUS_CSS}</style></head><body>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${SCROLL_HEAD}<title>${escapeHtml(d.broadcasterName)} — GuildScribe Dashboard</title><style>${SCROLL_CSS}${DASH_CSS}${LINKS_CSS}${QUICK_CSS}${CHANNEL_STATUS_CSS}${SIMPLE_CSS}</style><script>try{if(localStorage.getItem("gs-dash-simple")==="1")document.documentElement.classList.add("simple")}catch(e){}</script></head><body>
   ${scrollOpen()}
   <header class="dash-head"><div><span class="pill">GuildScribe · Channel dashboard</span>
   <h1>${escapeHtml(d.broadcasterName)}'s Dashboard</h1>
-  <p class="muted">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
-  <span class="head-links"><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/pokeballs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔴 Pokéballs</a><a class="btn ghost" href="/dashboard/swearjar?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🫙 Swear jar words</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/songs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎶 Song request list</a><a class="btn ghost" href="/dashboard/tips?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🪙 Tip page</a><a class="btn ghost" href="/dashboard/steam?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎮 Steam picker</a><a class="btn ghost" href="/dashboard/stats?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎮 Game stats</a><a class="btn ghost" href="/dashboard/mod?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🛡️ Mod center</a><a class="btn ghost" href="/dashboard/merchant?channel=${encodeURIComponent(d.broadcasterId)}">🛒 One-time merchant sale</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban &amp; spam filters</a><a class="btn ghost" href="/dashboard/quotes?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">📜 Quotes</a><a class="btn ghost" href="/dashboard/import?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">⇪ Import from StreamElements / Nightbot</a><a class="btn ghost" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
+  <p class="muted intro">Manage this channel's bot settings, custom commands, chat triggers, and timed messages. This link is private — anyone holding it can edit this channel; get a fresh one in chat with <code>!dashboard reset</code>.</p></div>
+  <span class="head-links"><button type="button" class="btn ghost keep" id="simple-toggle" aria-pressed="false" title="Hide the extra detail and show just the essentials">🧘 Simplified view</button><a class="btn ghost" href="/dashboard/botcheck?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🤖 Bot viewer check</a><a class="btn ghost" href="/dashboard/bots?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🧾 Bot list</a><a class="btn ghost" href="/dashboard/pokeballs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔴 Pokéballs</a><a class="btn ghost" href="/dashboard/swearjar?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🫙 Swear jar words</a><a class="btn ghost" href="/dashboard/music?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎵 Now playing</a><a class="btn ghost" href="/dashboard/songs?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎶 Song request list</a><a class="btn ghost" href="/dashboard/tips?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🪙 Tip page</a><a class="btn ghost" href="/dashboard/steam?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎮 Steam picker</a><a class="btn ghost" href="/dashboard/stats?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🎮 Game stats</a><a class="btn ghost keep" href="/dashboard/mod?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🛡️ Mod center</a><a class="btn ghost" href="/dashboard/merchant?channel=${encodeURIComponent(d.broadcasterId)}">🛒 One-time merchant sale</a><a class="btn ghost" href="/dashboard/autoban?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">🔨 Auto-ban &amp; spam filters</a><a class="btn ghost" href="/dashboard/quotes?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">📜 Quotes</a><a class="btn ghost" href="/dashboard/import?channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.channelKey)}">⇪ Import from StreamElements / Nightbot</a><a class="btn ghost keep" href="/guide" target="_blank" rel="noopener">Guild Codex ↗</a></span></header>
+  <p class="simple-note">Simplified view: just the essentials. Press <strong>Show everything</strong> up top for every switch, option and tool.</p>
   ${banner}
   ${d.connection !== undefined ? renderChannelStatusCard(d.connection, "/connect") : ""}
   ${renderQuickSetup(dashHidden(d.broadcasterId, d.channelKey), switchStates(d), d.options ?? {}, { whisperReady: d.whisperReady })}
@@ -437,6 +446,14 @@ export function renderDashboardPage(d: DashboardData): string {
     // close whatever window is open and open the linked switch instead.
     document.addEventListener("click",function(e){if(e.defaultPrevented)return;var a=e.target.closest&&e.target.closest("a.req-link");if(!a)return;var id=a.getAttribute("href").slice(1),el=document.getElementById(id);if(!el)return;e.preventDefault();document.querySelectorAll("dialog[open]").forEach(function(dl){dl.close()});try{history.replaceState(null,"","#"+id)}catch(x){}show(el);if(el.classList.contains("tile")){el.classList.add("flash");setTimeout(function(){el.classList.remove("flash")},1600)}});
     document.querySelectorAll("[data-all]").forEach(function(b){b.addEventListener("click",function(){var o=b.getAttribute("data-all")==="open";all.forEach(function(d){d.open=o});save()})});
+    // Simplified view: hides the extra detail (descriptions, counts, the index, the long tool list,
+    // command groups, per-feature options) for anyone the full page overwhelms. Remembered per browser.
+    var root=document.documentElement,sbtn=document.getElementById("simple-toggle");
+    function setSimple(on){root.classList.toggle("simple",on);sbtn.setAttribute("aria-pressed",on?"true":"false");sbtn.textContent=on?"📖 Show everything":"🧘 Simplified view";try{localStorage.setItem("gs-dash-simple",on?"1":"0")}catch(e){}lay()}
+    setSimple(root.classList.contains("simple"));
+    sbtn.addEventListener("click",function(){setSimple(!root.classList.contains("simple"))});
+    // A link into something the simplified view hides (e.g. /dashboard/go#toggle-…) switches back to the full page.
+    var show0=show;show=function(el){if(root.classList.contains("simple")&&el.closest(${JSON.stringify(SIMPLE_HIDDEN)}))setSimple(false);show0(el)};
     goHash();
   })();</script>
   ${scrollClose}
