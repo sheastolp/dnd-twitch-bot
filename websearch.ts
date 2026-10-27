@@ -11,9 +11,15 @@
 //     so a link in a search result can't reach the bot host's own network.
 //   - ASKME_WEB_SEARCH=off turns it off; SEARCH_REGION picks DuckDuckGo's
 //     region (default wt-wt, none; e.g. us-en).
+//   - ASKME_SEARCH_URL: the Local AI search server
+//     (tavernworks/local-ai/web-search, e.g. https://<ai-laptop>.<tailnet>.ts.net:8444).
+//     DuckDuckGo can refuse one machine's searches (a captcha every time)
+//     while answering another's, so searches can go through the server
+//     instead; if it fails, DuckDuckGo is tried directly.
 
 const UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
 const REGION = Deno.env.get("SEARCH_REGION") || "wt-wt";
+const SEARCH_SERVER = (Deno.env.get("ASKME_SEARCH_URL") || "").trim().replace(/\/+$/, "");
 export const WEB_SEARCH_ON = !/^(off|false|0|no)$/i.test(Deno.env.get("ASKME_WEB_SEARCH") ?? "");
 const SEARCH_TIMEOUT_MS = 8_000;
 const PAGE_TIMEOUT_MS = 6_000;
@@ -107,19 +113,28 @@ async function ddg(endpoint: string, query: string, parse: (page: string) => Sea
   return parse(page);
 }
 
-/** The top `n` DuckDuckGo results for `query`. Tries the HTML page, then the
- * plainer lite page, which sometimes answers when the other won't. */
+/** The top `n` DuckDuckGo results for `query`: through the search server if
+ * there is one, else (or if it fails) from DuckDuckGo's HTML page, then its
+ * plainer lite page, which sometimes answers when the other won't. The first
+ * failure is the one reported. */
 export function webSearch(query: string, n = 5): Promise<SearchResult[]> {
   const key = `${n}:${query.toLowerCase()}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
   const value = (async () => {
     let first: unknown;
+    if (SEARCH_SERVER) {
+      try {
+        return await viaServer(query, n);
+      } catch (e) {
+        first = e;
+      }
+    }
     try {
       const results = await ddg("https://html.duckduckgo.com/html/", query, parseHtmlResults);
       if (results.length) return results.slice(0, n);
     } catch (e) {
-      first = e;
+      first ??= e;
     }
     try {
       return (await ddg("https://lite.duckduckgo.com/lite/", query, parseLiteResults)).slice(0, n);
@@ -131,6 +146,19 @@ export function webSearch(query: string, n = 5): Promise<SearchResult[]> {
   value.catch(() => cache.delete(key));
   if (cache.size > 300) cache.delete(cache.keys().next().value!);
   return value;
+}
+
+/** The search, through the Local AI search server. */
+async function viaServer(query: string, n: number): Promise<SearchResult[]> {
+  const res = await fetch(`${SEARCH_SERVER}/search?${new URLSearchParams({ q: query, n: String(n) })}`, {
+    signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS + 4_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Search server: ${data.error ?? `HTTP ${res.status}`}`);
+  return (data.results ?? [])
+    .filter((r: any) => /^https?:\/\//i.test(String(r?.url ?? "")))
+    .map((r: any) => ({ title: String(r.title ?? ""), url: String(r.url), snippet: String(r.snippet ?? "") }))
+    .slice(0, n);
 }
 
 /** True for loopback, private, link-local, CGNAT (Tailscale) and multicast addresses. */

@@ -16,7 +16,11 @@
 //     bot uses — answers from those passages only and names the one it used,
 //     whose page becomes the source link. The web covers what Wikipedia
 //     doesn't: news, release dates, patches, prices. If one source is down,
-//     the other still answers. ASKME_WEB_SEARCH=off leaves the web out. Sending a handful of matching
+//     the other still answers. ASKME_WEB_SEARCH=off leaves the web out;
+//     ASKME_SEARCH_URL sends the searches through the Local AI search server
+//     instead of straight to DuckDuckGo (see websearch.ts).
+//   - Thinking models answer without thinking first (think: false in
+//     openai.ts), and the AI gets ASKME_AI_TIMEOUT_S (default 90) to reply. Sending a handful of matching
 //     passages instead of whole intros keeps the prompt small (fast on a CPU
 //     Ollama) and puts the specific fact in front of the model. If the AI
 //     call fails, the best passage itself is posted. ASKME_MODEL picks the
@@ -70,7 +74,8 @@ const MIN_FALLBACK_COVERAGE = 0.6;
 // llama3.2 and the like stop after a sentence or two anyway.
 const ANSWER_MAX_TOKENS = 1000;
 const WIKI_TIMEOUT_MS = 8_000;
-const AI_TIMEOUT_MS = 45_000;
+// A laptop GPU can take a while, more so when Ollama has to load the model first.
+const AI_TIMEOUT_MS = Math.max(10, Number(Deno.env.get("ASKME_AI_TIMEOUT_S") ?? "90")) * 1000;
 const USER_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_USER_COOLDOWN_S") ?? "30")) * 1000;
 const CHANNEL_COOLDOWN_MS = Math.max(0, Number(Deno.env.get("ASKME_CHANNEL_COOLDOWN_S") ?? "5")) * 1000;
 
@@ -583,6 +588,8 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     const completion = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: ANSWER_MAX_TOKENS,
+      // Answering from passages needs no thinking, and on Ollama it's the slow part.
+      think: false,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {

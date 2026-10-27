@@ -8,6 +8,10 @@
 //
 // A caller may pass `reasoning_effort`; it is only forwarded to OpenAI
 // reasoning models (gpt-5*, o3*, o4*), which are the only ones that accept it.
+// A caller may also pass `think: false`: on Ollama, "thinking" models (qwen3,
+// deepseek-r1…) then answer straight away instead of spending the reply's
+// time and tokens thinking first. It's sent as reasoning_effort "none"; a
+// server that won't take that gets the request again without it.
 
 const BASE_URL = (Deno.env.get("OPENAI_BASE_URL") || "https://api.openai.com/v1").replace(/\/+$/, "");
 const API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
@@ -32,22 +36,33 @@ export class OpenAI {
       create: async (body: Record<string, any>, opts: { timeoutMs?: number } = {}): Promise<any> => {
         if (IS_OPENAI && !API_KEY) throw new Error("AI replies need OPENAI_API_KEY (or OPENAI_BASE_URL pointing at Ollama)");
         const req: Record<string, any> = { ...body, stream: false };
+        const noThinking = req.think === false;
+        delete req.think;
         if (MODEL_OVERRIDE) req.model = MODEL_OVERRIDE;
         if (req.reasoning_effort !== undefined && !isReasoningModel(String(req.model ?? ""))) delete req.reasoning_effort;
+        if (noThinking && !IS_OPENAI) req.reasoning_effort = "none";
         // Ollama and most other OpenAI-compatible servers read max_tokens.
         if (!IS_OPENAI && req.max_completion_tokens !== undefined && req.max_tokens === undefined) {
           req.max_tokens = req.max_completion_tokens;
           delete req.max_completion_tokens;
         }
-        const res = await fetch(`${BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
-          },
-          body: JSON.stringify(req),
-          signal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
-        });
+        const signal = AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS);
+        const post = () =>
+          fetch(`${BASE_URL}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+            },
+            body: JSON.stringify(req),
+            signal,
+          });
+        let res = await post();
+        if (res.status === 400 && noThinking && !IS_OPENAI) {
+          await res.body?.cancel();
+          delete req.reasoning_effort;
+          res = await post();
+        }
         if (!res.ok) throw new Error(`AI request failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
         return await res.json();
       },
