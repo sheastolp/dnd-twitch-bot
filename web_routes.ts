@@ -115,7 +115,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
 <li>Server logs and error records for troubleshooting.</li>
 </ul>
 <h2>Who it's shared with</h2>
-<p>Some features write their replies with an AI model: <code>!haggle</code>, NPC chatter, and replies when someone @-tags the bot. For those, the message (and, for @-tags, the last few exchanges) and the chatter's display name are sent to OpenAI or to an AI model the operator runs themselves. Lookups go to public reference APIs (D&amp;D 5e SRD, PokeAPI, emote services) without viewer data. Nothing is sold or used for ads.</p>
+<p>Some features write their replies with an AI model: <code>!haggle</code>, NPC chatter, <code>!askme</code>, and replies when someone @-tags the bot. For those, the message (and, for @-tags, the last few exchanges) and the chatter's display name are sent to OpenAI or to an AI model the operator runs themselves. Lookups go to public reference APIs (D&amp;D 5e SRD, PokeAPI, emote services); <code>!askme</code> questions are searched on Wikipedia, game wikis and DuckDuckGo. None of these get viewer names. Nothing is sold or used for ads.</p>
 <h2>How it is used</h2>
 <p>Only to run the bot in channels that connected it, keep characters and games working, show broadcasters and their moderators their channel's logs and tools, and troubleshoot abuse and errors.</p>
 <h2>Retention</h2>
