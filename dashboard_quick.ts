@@ -99,7 +99,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
   },
   {
     key: "steam", icon: "🎮", name: "Steam picker",
-    what: "Can't decide what to play? Chat types !steam and GuildScribe rolls a random game from your Steam library, with its store link.",
+    what: "Can't decide what to play? Chat types !steam and GuildScribe rolls a random game from your Steam library, with its store link. !steam with <a friend's Steam profile> picks one you both own.",
     yourPart: "Type !steam link <your Steam profile link> in chat (your profile's Game details must be Public). Want it to pick only installed games? Run the uploader from the dashboard's 🎮 Steam picker page on your gaming PC.",
     switches: ["steam"],
   },

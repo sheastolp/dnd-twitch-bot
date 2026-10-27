@@ -1,6 +1,7 @@
 // GuildScribe — !steam: chat rolls a random game from the streamer's Steam library.
 //
 //   !steam                                         anyone: picks a random game
+//   !steam with <profile> [<profile>…]             anyone: a random game the channel (with its family) and all of them own (up to 4; no setup on their side)
 //   !steam link <profile link or ID> · !steam unlink   mods: link the channel's Steam account from chat
 //   !steam family [add <profile> | remove <name, profile or all>]   mods: Steam Family members whose games join in
 //   GET  /dashboard/steam · POST /dashboard/steam  Steam ID, Web API key, uploader key, games to leave out (dashboard key + mod login; dashboard.ts)
@@ -45,6 +46,7 @@ const MAX_GAMES = 3000;
 const MAX_NAME = 120;
 const MAX_SKIP = 1000;
 const MAX_FAMILY = 5; // a Steam Family is up to 6 accounts: the streamer and 5 others
+const MAX_SHARED = 4; // !steam with: people besides the channel, each a Steam lookup or two
 const KEY_RE = /^[0-9A-F]{32}$/i; // Steam Web API keys are 32 hex characters
 const STEAMID_RE = /^7656119\d{10}$/;
 /** Installed things that aren't games: Steam's own runtimes and redistributables. */
@@ -258,7 +260,7 @@ async function addFamilyMember(broadcasterId: string, profile: string): Promise<
   const name = (await personaName(id.steamId, apiKey)) || id.steamId;
   await saveSettings(broadcasterId, { ...s, family: [...s.family, { id: id.steamId, name }] });
   ownedCache.set(id.steamId, { at: Date.now(), games: owned.games });
-  return { ok: true, message: `Added ${name} to the family (${owned.games.length} games).` };
+  return { ok: true, message: `Added ${name} to the family (${owned.games.length} game${owned.games.length === 1 ? "" : "s"}).` };
 }
 
 /** Removes a family member by name, profile link or Steam ID; "all" clears the family. */
@@ -281,12 +283,56 @@ async function removeFamilyMember(broadcasterId: string, who: string): Promise<{
 
 const lastPick = new Map<string, number>();
 
+/**
+ * !steam with <profile> [<profile>…] — a random game the channel's library
+ * (its own Steam account plus linked family members) and every named profile
+ * all own. The others need no setup, only public game details; a bare word is
+ * their steamcommunity.com/id/<word>. Naming a family member adds nothing:
+ * they're already on the channel's side.
+ */
+export async function sharedGamePick(broadcasterId: string, channelName: string, profilesText: string): Promise<string> {
+  const s = await getSettings(broadcasterId);
+  const apiKey = apiKeyFor(s);
+  if (!s.steamId || !apiKey) return `${channelName} hasn't linked a Steam account yet. A mod can type !steam link <Steam profile link>.`;
+  const typed = [...new Set(profilesText.split(/[\s,]+/).map((p) => p.replace(/^@/, "")).filter(Boolean))];
+  if (!typed.length) return "Usage: !steam with <Steam profile link or name> [more…] — picks a game you all own, e.g. !steam with steamcommunity.com/id/friday";
+  if (typed.length > MAX_SHARED) return `That's a lot of libraries — up to ${MAX_SHARED} people besides ${channelName}.`;
+  const others: Array<{ id: string; name: string; games: Game[] }> = [];
+  for (const p of typed) {
+    const id = await resolveSteamId(p, apiKey);
+    if ("error" in id) return id.error;
+    if (id.steamId === s.steamId || s.family.some((m) => m.id === id.steamId) || others.some((o) => o.id === id.steamId)) continue;
+    const [games, name] = await Promise.all([ownedGamesOf(id.steamId, apiKey), personaName(id.steamId, apiKey)]);
+    if (!games) return `Steam won't share ${name || p}'s games — their profile's "Game details" must be Public.`;
+    others.push({ id: id.steamId, name: name || p, games });
+  }
+  const mine = await ownedGamesFor(s); // the channel's own games and its family's, each once
+  if (!mine?.length) return `Steam won't share ${channelName}'s games right now — the profile's "Game details" must be Public.`;
+  const side = s.family.length ? `${channelName}'s family` : channelName;
+  if (!others.length) return `Name someone outside ${side}, e.g. !steam with steamcommunity.com/id/friday`;
+  const skip = skipNames(s.skip);
+  const sets = others.map((o) => new Set(o.games.map((g) => g.appid)));
+  const shared = mine.filter((g) => sets.every((set) => set.has(g.appid)) && !skip.has(g.name.toLowerCase()));
+  const names = [side, ...others.map((o) => o.name)];
+  const who = names.length === 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  if (!shared.length) return `${who} don't own any of the same games. 😢`;
+  const game = shared[Math.floor(Math.random() * shared.length)];
+  return `🎲 ${who} share ${shared.length} game${shared.length === 1 ? "" : "s"} — the dice chose: ${game.name}! https://store.steampowered.com/app/${game.appid}`;
+}
+
 export async function handleSteamCommand(chatMessage: string, display: string, broadcasterId: string, channelName: string, isModerator: boolean): Promise<boolean> {
-  const match = chatMessage.trim().match(/^!steam(?:\s+(link|unlink|family)\b\s*(.*))?$/i);
+  const match = chatMessage.trim().match(/^!steam(?:\s+(link|unlink|family|with)\b\s*(.*))?$/i);
   if (!match) return false;
   const [on, custom] = await Promise.all([isCommandGroupEnabled(broadcasterId, "steam"), getCustomCommand(broadcasterId, "steam")]);
   if (custom) return false;
   const sub = match[1]?.toLowerCase();
+  if (sub === "with") {
+    if (!on) return false;
+    if (Date.now() - (lastPick.get(broadcasterId) ?? 0) < PICK_COOLDOWN_MS) return true;
+    lastPick.set(broadcasterId, Date.now());
+    await sendChatMessage(`@${display} ${await sharedGamePick(broadcasterId, channelName, match[2])}`, broadcasterId);
+    return true;
+  }
   if (sub) {
     // Mods set it up from chat, even while !steam is still switched off.
     if (!isModerator) return true;
@@ -446,7 +492,7 @@ export async function renderSteamDashboardPage(d: { broadcasterId: string; broad
     : `<p class="note">Nothing to pick from yet — set up either step below.</p>`;
   const body = `<header class="dash-top"><div><span class="pill">Stream · Steam picker</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
-<p>Can't decide what to play? Chat types <code>!steam</code> and GuildScribe rolls a random game from your Steam library. ${serverKey ? "All it needs is your Steam profile link" : "It needs your Steam profile link and a free Steam Web API key"}. ${serverKey ? `A mod can even do that from chat: <code>!steam link steamcommunity.com/id/yourname</code>.` : ""}</p>
+<p>Can't decide what to play? Chat types <code>!steam</code> and GuildScribe rolls a random game from your Steam library. ${serverKey ? "All it needs is your Steam profile link" : "It needs your Steam profile link and a free Steam Web API key"}. ${serverKey ? `A mod can even do that from chat: <code>!steam link steamcommunity.com/id/yourname</code>.` : ""} Playing with friends? <code>!steam with &lt;their profile link or name&gt;</code> picks a game you (with your family) and they all own; they don't need to set anything up, only have public game details.</p>
 ${on ? "" : `<p class="note"><code>!steam</code> is off. Turn on "Steam picker" on the dashboard (or type <code>!feature steam on</code>).</p>`}
 ${status}
 
