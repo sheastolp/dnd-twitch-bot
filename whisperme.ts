@@ -2,14 +2,15 @@
 // !commands by whisper instead of in chat — handy on the mobile app, where
 // a busy chat buries the bot's answer. Kept per viewer across all channels
 // (whisper_prefs, whisper.ts). A channel can also whisper every viewer's
-// replies with the dashboard option replies.mode (Bot replies card).
+// replies with the dashboard option replies.mode (Bot replies card), or a
+// mod's !whisperall on/off in chat.
 //
 // Only replies addressed to the viewer ("@Name …") are whispered; anything
 // meant for the whole chat (fight results, giveaways, the finished !newchar
 // hero…) is still posted there.
 
 import { sendChatMessage } from "./twitch.ts";
-import { optWord } from "./channel_options.ts";
+import { optWord, saveOptionsFromForm } from "./channel_options.ts";
 import { explainWhisperFailure, prefersWhisperReplies, sendWhisperPartsDetailed, setWhisperPref, setWhisperReplies, whisperMode } from "./whisper.ts";
 
 /** Whether replies to this chatter's command go by whisper: their own
@@ -18,6 +19,32 @@ export async function wantsWhisperReplies(broadcasterId: string, userId: string)
   if (!userId) return false;
   const [mine, channel] = await Promise.all([prefersWhisperReplies(userId), optWord(broadcasterId, "replies.mode")]);
   return mine || channel === "whisper";
+}
+
+/** !whisperall [on|off|status] (mods): the channel-wide replies.mode, same
+ * as the dashboard's Bot replies card. */
+export async function handleWhisperAllCommand(chatMessage: string, display: string, broadcasterId: string, isModerator: boolean): Promise<boolean> {
+  const m = chatMessage.trim().match(/^!whisperall(?:\s+(on|off|status))?$/i);
+  if (!m) return false;
+  const arg = (m[1] ?? "status").toLowerCase();
+  if (arg !== "status" && !isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can change where replies go.`, broadcasterId);
+    return true;
+  }
+  if (arg !== "status") {
+    const form = new FormData();
+    form.set("opt_replies.mode", arg === "on" ? "whisper" : ""); // blank = default (chat)
+    await saveOptionsFromForm(broadcasterId, form);
+  }
+  const on = (await optWord(broadcasterId, "replies.mode")) === "whisper";
+  // Not addressed to anyone, so it posts in chat even in whisper mode.
+  await sendChatMessage(
+    on
+      ? `📜 Replies to everyone's !commands are now whispered here (anything for the whole chat still posts). !whisperall off to switch back.`
+      : `📜 Replies to !commands are posted in chat here. Viewers can still pick whispers for themselves with !whisperme on.`,
+    broadcasterId,
+  );
+  return true;
 }
 
 export async function handleWhisperMeCommand(chatMessage: string, chatterId: string, display: string, broadcasterId: string): Promise<boolean> {

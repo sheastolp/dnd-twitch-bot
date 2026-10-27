@@ -21,7 +21,7 @@ import { gambleWaiting, handleGambleCommand, handleGamblePick } from "./gamble.t
 import { handleSilenceCommand } from "./silence.ts";
 import { handlePeddlerAssault } from "./peddler_guard.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator, setWhisperReplies } from "./whisper.ts";
-import { handleWhisperMeCommand, wantsWhisperReplies } from "./whisperme.ts";
+import { handleWhisperAllCommand, handleWhisperMeCommand, wantsWhisperReplies } from "./whisperme.ts";
 import { ensureWhisperInboxSubscription, ensureWhisperInboxTables, forgetWhisperInboxSubscription, noteViewerChannel, whisperedCommand, whisperOffline } from "./whisper_inbox.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
@@ -869,6 +869,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (!chatMessage.startsWith("!") && await isCommandGroupEnabled(broadcasterId, "funstuff") && await maybeBotBanter(chatMessage, broadcasterId)) return new Response("OK");
   if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (await handleWhisperMeCommand(chatMessage, chatterId, display, broadcasterId)) return new Response("OK");
+  if (await handleWhisperAllCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (
     await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
   ) return new Response("OK");
