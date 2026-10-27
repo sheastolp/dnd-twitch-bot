@@ -126,7 +126,7 @@ Chat: `!guide` or `!link` posts that same URL; `!commands` posts the channel's o
 | **combat.ts** | Duels, parties, hunts, initiative |
 | **combat_shared.ts** / **combat_duel.ts** / **combat_monster.ts** / **combat_party.ts** / **combat_partyduel.ts** | Shared timeouts/forfeits/PvP resolver, PvP duels, solo monster duels, `!party`, party duels + party hunts — re-exported from `combat.ts`, which keeps the initiative tracker |
 | **bestiary.ts** / **bestiary_page.ts** | The living bestiary: per-channel roster (core + learned monsters), monster adaptation from fight outcomes, `!bestiary`, and the `/bestiary?channel=<id>` page |
-| **raid.ts** | The stream's raid quest — posted on `stream.online`, `!rally` musters a temporary party against a high-level boss whose HP persists between raids, with a per-channel raid cooldown |
+| **raid.ts** | The stream's raid quest — posted on `stream.online`, `!rally` musters a temporary party (dragging the rallier's `!party` along unless `raid.partyDrag` is off) against a high-level boss whose HP persists between raids, with a per-channel raid cooldown |
 | **customcommands.ts** | `!dndbot add/edit/remove/cooldown/enable/disable/list` custom commands and `!trigger` passive keyword auto-responses |
 | **timedmessages.ts** | `!timedmsg add/edit/interval/enable/disable/remove/list` recurring announcements |
 | **timedmessages_cron.ts** | Posts every timed message that's due — run every 5 minutes by server.ts, same shape as `merchant_cron.ts` |
@@ -383,6 +383,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!rally go` / `!rally status` | Launch the muster early (its leader or a mod) / boss HP, muster and cooldown |
 | `!rally cooldown [time\|off]` | Show the raid cooldown; **mods** set it (`90s`, `10m`, `1h`, `off`; max 2 hours, default 10m) |
 | `!rally new` | **Mod:** post a fresh raid quest now (e.g. the bot joined mid-stream) |
+| `!rally partydrag [on\|off]` | Show whether `!rally` drags the rallier's whole `!party` into the muster (default **on**); **mods** switch it. Same as the Raid card's option on the dashboard |
 | `!rob @user` | **Robbery duel:** your saved character fights theirs (same auto engine as `!dndduel @user`, no accept step). The loser pays the winner a random **1–9%** of the loser's coin (min 1 cp) — so a failed robbery costs the robber. Needs coin on; see *Robbing* under Gold, leaderboard & giveaways |
 | `!turn start` … `!turn end` | Initiative tracker *(start/add/show/next/prev/remove/end are mod-only; `!turn roll` is open to any player, rolls 1d20+DEX)* |
 

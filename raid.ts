@@ -13,6 +13,11 @@
 //   !rally status        the boss, its HP, the muster and the cooldown
 //   !rally cooldown [t]  show it; mods set it (90s, 10m, 1h, off; max 2h)
 //   !rally new           mod: post a fresh raid quest now (e.g. bot joined mid-stream)
+//   !rally partydrag [on|off]  show it; mods switch party rallies (default on)
+//
+// Party rallies (raid.partyDrag, on by default): whoever types !rally drags
+// every member of their !party (combat_party.ts) who has a saved hero into the
+// muster with them, while there's room — a party raids together.
 //
 // The temporary party is just the muster: whoever typed !rally within
 // RAID_MUSTER_SECONDS of the horn. There's no timer per muster, so a
@@ -51,7 +56,7 @@ import { formatCoins } from "./coins.ts";
 import { parseCooldown, waitText } from "./huntcooldown.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
-import { forgetOptionCache, optNum } from "./channel_options.ts";
+import { forgetOptionCache, optNum, optWord, saveOptionsFromForm } from "./channel_options.ts";
 
 const envNumber = (name: string, fallback: number, min: number, max: number) => {
   const n = Number(Deno.env.get(name) ?? "");
@@ -590,6 +595,36 @@ function musterText(members: Member[], partyMax: number): string {
   return `${members.length}/${partyMax}: ${members.map((m) => m.d).join(", ")}`;
 }
 
+/** True when !rally drags the rallier's party along (raid.partyDrag, default on). */
+const partyDragOn = async (broadcasterId: string) => (await optWord(broadcasterId, "raid.partyDrag")) !== "off";
+
+/**
+ * The rallier's party mates (every !party they belong to, earliest joiners
+ * first) who have a saved hero and aren't in the muster yet, added to it while
+ * there's room. Returns the new muster and who was dragged in.
+ */
+async function withPartyMates(broadcasterId: string, members: Member[], user: string, partyMax: number) {
+  if (!(await partyDragOn(broadcasterId))) return { next: members, dragged: [] as string[] };
+  const res = await sqlite.execute(
+    `SELECT username FROM party_members WHERE broadcaster_id = ? AND username != ? AND party_name IN
+       (SELECT party_name FROM party_members WHERE broadcaster_id = ? AND username = ?)
+     GROUP BY username ORDER BY MIN(joined_at) ASC`,
+    [broadcasterId, user, broadcasterId, user],
+  );
+  const next = [...members];
+  const dragged: string[] = [];
+  for (const r of res.rows as any[]) {
+    if (next.length >= partyMax) break;
+    const u = String(r.username).toLowerCase();
+    if (next.some((x) => x.u === u) || !(await getCharacter(u, broadcasterId))) continue;
+    next.push({ u, d: u });
+    dragged.push(u);
+  }
+  return { next, dragged };
+}
+
+const draggedText = (dragged: string[]) => dragged.length ? ` and drags their party along: ${dragged.join(", ")}` : "";
+
 /** Handles !rally and its subcommands. Returns true if it consumed the message. */
 export async function handleRaidCommand(
   chatMessage: string,
@@ -627,6 +662,35 @@ export async function handleRaidCommand(
     await say(
       `@${display} raid cooldown: ${seconds ? waitText(seconds * 1000) : "off"}. ${wait > 0 ? `Next raid can muster in ${waitText(wait)}.` : "A raid can muster now."}` +
         (isModerator ? " Change it with !rally cooldown <time|off>." : ""),
+    );
+    return true;
+  }
+
+  if (sub === "partydrag" || sub === "parties") {
+    const want = arg.toLowerCase();
+    if (want === "on" || want === "off") {
+      if (!isModerator) {
+        await say(`@${display} only the broadcaster or a moderator can change party rallies.`);
+        return true;
+      }
+      const form = new FormData();
+      form.set("opt_raid.partyDrag", want === "on" ? "" : "off"); // blank = default (on)
+      await saveOptionsFromForm(broadcasterId, form);
+      await say(
+        want === "on"
+          ? `📯 Party rallies are ON — typing !rally now drags your whole !party into the raid with you.`
+          : `📯 Party rallies are OFF — !rally only brings the hero who types it.`,
+      );
+      return true;
+    }
+    if (want && want !== "status") {
+      await say(`@${display} usage: !rally partydrag [on|off|status]`);
+      return true;
+    }
+    const on = await partyDragOn(broadcasterId);
+    await say(
+      `@${display} party rallies are ${on ? "ON: !rally drags the rallier's whole !party along" : "OFF: !rally only brings the hero who types it"}.` +
+        (isModerator ? ` Switch with !rally partydrag ${on ? "off" : "on"}.` : ""),
     );
     return true;
   }
@@ -681,7 +745,11 @@ export async function handleRaidCommand(
   }
 
   if (sub) {
-    await say(`@${display} raid commands: !rally (sound the horn or join) | !rally go | !rally status | !rally cooldown${isModerator ? " [time|off] | !rally new" : ""}`);
+    await say(
+      `@${display} raid commands: !rally (sound the horn or join, with your !party) | !rally go | !rally status | !rally cooldown${isModerator ? " [time|off]" : ""} | !rally partydrag${
+        isModerator ? " [on|off] | !rally new" : ""
+      }`,
+    );
     return true;
   }
 
@@ -693,15 +761,22 @@ export async function handleRaidCommand(
   }
 
   if (q.muster_ends_at) {
-    if (members.some((x) => x.u === user)) {
-      await say(`@${display} you're already in the raid party (${musterText(members, RAID_PARTY_MAX)}).`);
-      return true;
-    }
-    if (members.length >= RAID_PARTY_MAX) {
+    const already = members.some((x) => x.u === user);
+    if (!already && members.length >= RAID_PARTY_MAX) {
       await say(`@${display} the raid party is full — catch the next one.`);
       return true;
     }
-    const next = [...members, { u: user, d: display }];
+    // A hero dragged in by someone else can still type !rally to bring their own party.
+    const { next, dragged } = await withPartyMates(
+      broadcasterId,
+      already ? members.map((x) => (x.u === user ? { u: user, d: display } : x)) : [...members, { u: user, d: display }],
+      user,
+      RAID_PARTY_MAX,
+    );
+    if (already && !dragged.length) {
+      await say(`@${display} you're already in the raid party (${musterText(members, RAID_PARTY_MAX)}).`);
+      return true;
+    }
     const res = await sqlite.execute(
       "UPDATE raid_quests SET muster_members = ? WHERE broadcaster_id = ? AND muster_ends_at = ? AND muster_members = ?",
       [JSON.stringify(next), broadcasterId, q.muster_ends_at, q.muster_members],
@@ -711,11 +786,12 @@ export async function handleRaidCommand(
       await say(`@${display} the raid party shifted as you joined — type !rally again.`);
       return true;
     }
+    const joins = `${display} ${already ? "rallies" : "joins"}${draggedText(dragged)}`;
     if (next.length >= RAID_PARTY_MAX) {
-      await say(`🛡️ ${display} joins — the raid party is full! (${musterText(next, RAID_PARTY_MAX)})`);
+      await say(`🛡️ ${joins} — the raid party is full! (${musterText(next, RAID_PARTY_MAX)})`);
       await maybeLaunchRaid(broadcasterId, { force: true });
     } else {
-      await say(`🛡️ ${display} joins the raid (${musterText(next, RAID_PARTY_MAX)}). Launching in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`);
+      await say(`🛡️ ${joins} (${musterText(next, RAID_PARTY_MAX)}). Launching in ${waitText(Math.max(1000, q.muster_ends_at - Date.now()))}.`);
     }
     return true;
   }
@@ -726,7 +802,7 @@ export async function handleRaidCommand(
     return true;
   }
   const endsAt = Date.now() + MUSTER_MS;
-  const first = [{ u: user, d: display }];
+  const { next: first, dragged } = await withPartyMates(broadcasterId, [{ u: user, d: display }], user, RAID_PARTY_MAX);
   const res = await sqlite.execute(
     `UPDATE raid_quests SET muster_ends_at = ?, muster_leader = ?, muster_members = ?
      WHERE broadcaster_id = ? AND status = 'active' AND muster_ends_at = 0`,
@@ -736,13 +812,14 @@ export async function handleRaidCommand(
     await say(`@${display} someone just sounded the horn — type !rally again to join.`);
     return true;
   }
-  if (RAID_PARTY_MAX <= 1) {
+  if (first.length >= RAID_PARTY_MAX) {
+    if (dragged.length) await say(`📯 ${display} sounds the war horn${draggedText(dragged)} — the raid party is full! (${musterText(first, RAID_PARTY_MAX)})`);
     await maybeLaunchRaid(broadcasterId, { force: true });
     return true;
   }
   await say(
-    `📯 ${display} sounds the war horn against ${q.monster_name} (HP ${q.monster_hp}/${q.monster_hp_max})! ` +
-      `Type !rally within ${waitText(MUSTER_MS)} to join the raid party (up to ${RAID_PARTY_MAX} heroes). ${display}: !rally go to charge early.`,
+    `📯 ${display} sounds the war horn against ${q.monster_name} (HP ${q.monster_hp}/${q.monster_hp_max})${draggedText(dragged)}! ` +
+      `Type !rally within ${waitText(MUSTER_MS)} to join the raid party (${musterText(first, RAID_PARTY_MAX)}). ${display}: !rally go to charge early.`,
   );
   return true;
 }
