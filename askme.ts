@@ -39,7 +39,7 @@
 //   - Per-chatter cooldown (ASKME_USER_COOLDOWN_S, default 30 s, mods skip it)
 //     and a channel-wide one (ASKME_CHANNEL_COOLDOWN_S, default 5 s).
 
-import { OpenAI } from "./openai.ts";
+import { isReasoningModel, OpenAI } from "./openai.ts";
 import { mainContent, readPage, WEB_SEARCH_ON, webSearch } from "./websearch.ts";
 import { getChannelInfo, sendChatMessage } from "./twitch.ts";
 import { compactText } from "./utils.ts";
@@ -592,11 +592,14 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
     const excerpts = passages.map((p, i) => `[${i + 1}] (${p.article.site}: ${p.article.title}) ${p.text}`).join("\n\n");
     // No `temperature` override: some OpenAI models only accept the default.
-    const completion = await openai.chat.completions.create({
+    const ask = (retry: boolean) => openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: ANSWER_MAX_TOKENS,
       // Answering from passages needs no thinking, and on Ollama it's the slow part.
       think: false,
+      // The second try, after the model got stuck repeating itself, is
+      // steered away from repeating (reasoning models don't take these).
+      ...(retry && !isReasoningModel(MODEL) ? { frequency_penalty: 0.6, presence_penalty: 0.3 } : {}),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -605,6 +608,16 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
         },
       ],
     }, { timeoutMs: AI_TIMEOUT_MS });
+    let completion;
+    try {
+      completion = await ask(false);
+    } catch (e) {
+      // Ollama aborts a reply that loops on the same words ("token repeat
+      // limit reached", HTTP 500); one more go usually comes out fine.
+      if (!/HTTP 5\d\d/.test(String(e))) throw e;
+      console.warn("askme AI answer failed, trying once more:", String(e).slice(0, 200));
+      completion = await ask(true);
+    }
     const raw = String(completion.choices?.[0]?.message?.content ?? "");
     debug(`AI replied: ${JSON.stringify(raw)}`);
     // The passage it cited; the best-matching one if it didn't say.
@@ -621,13 +634,18 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     console.error("askme AI answer failed", e);
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
   }
-  // The AI is down or said nothing: let the best passage speak for itself —
-  // but only if it covers most of what was asked, so an unrelated paragraph
-  // isn't posted as the answer.
-  const top = passages[0];
+  // The AI is down or said nothing: let a passage speak for itself — the one
+  // that covers the most of what was asked (the best-ranked of those), and
+  // only if it covers most of it, so an unrelated paragraph isn't posted as
+  // the answer.
   const wanted = [...keywords(query)];
-  const covered = wanted.filter((w) => top.words.has(w) || keywords(top.article.title).has(w)).length;
-  if (!wanted.length || covered / wanted.length < MIN_FALLBACK_COVERAGE) return null;
+  if (!wanted.length) return null;
+  const coverage = (p: Passage) => {
+    const title = keywords(p.article.title);
+    return wanted.filter((w) => p.words.has(w) || title.has(w)).length / wanted.length;
+  };
+  const top = passages.reduce((best, p) => coverage(p) > coverage(best) ? p : best);
+  if (coverage(top) < MIN_FALLBACK_COVERAGE) return null;
   return {
     text: fitSentences(top.text, MAX_ANSWER_LEN),
     source: { url: top.article.url, title: top.article.title, site: top.article.site },
