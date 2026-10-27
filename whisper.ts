@@ -24,7 +24,9 @@
 // for everyone (dashboard option replies.mode). main.ts resolves it once per
 // command with setWhisperReplies(); twitch.ts then whispers any reply
 // addressed to that chatter instead of posting it, falling back to chat for
-// the rest of the request if Twitch refuses the whisper.
+// the rest of the request if Twitch refuses the whisper. A command that
+// itself arrived by whisper (whisper_inbox.ts) uses mode "all": everything
+// else it says in chat is whispered to the viewer as well.
 
 import { scrollDoc } from "./scroll_theme.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
@@ -42,7 +44,7 @@ const BOT_WHISPER_SCOPE = "user:manage:whispers";
 
 export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
 
-const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: boolean; deferred: Promise<unknown>[] }>();
+const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; deferred: Promise<unknown>[] }>();
 
 /** Runs one request with its own (initially empty) reply-initiator slot.
  * Work handed to defer() runs alongside the request and is awaited before
@@ -75,14 +77,18 @@ export function getReplyInitiator(): ReplyInitiator | undefined {
   return requestScope.getStore()?.initiator;
 }
 
+/** false = chat; true = replies addressed to the chatter are whispered
+ * instead; "all" = that, plus a whispered copy of everything else posted. */
+export type WhisperMode = boolean | "all";
+
 /** Whisper mode for this request's replies to the chatter (see top of file). */
-export function setWhisperReplies(on: boolean) {
+export function setWhisperReplies(mode: WhisperMode) {
   const store = requestScope.getStore();
-  if (store) store.whisperReplies = on;
+  if (store) store.whisperReplies = mode;
 }
 
-export function whisperRepliesOn(): boolean {
-  return requestScope.getStore()?.whisperReplies === true;
+export function whisperMode(): WhisperMode {
+  return requestScope.getStore()?.whisperReplies ?? false;
 }
 
 function env(name: string) {
@@ -122,6 +128,13 @@ export async function ensureWhisperTables() {
       updated_at INTEGER NOT NULL
     )`,
   );
+}
+
+/** Whether /connect-bot has been done (a bot whisper token is stored). */
+export async function hasBotWhisperToken(): Promise<boolean> {
+  const botId = Deno.env.get("TWITCH_BOT_ID");
+  if (!botId) return false;
+  return (await sqlite.execute("SELECT 1 FROM bot_user_tokens WHERE bot_id = ?", [botId])).rows.length > 0;
 }
 
 // ── !whisperme preference ──
@@ -305,6 +318,10 @@ export async function whisperDiagnostics(): Promise<string[]> {
       }
     }
   }
+  const inbox: any = (await sqlite.execute("SELECT * FROM whisper_inbox WHERE id = 1").catch(() => ({ rows: [] }))).rows[0];
+  out.push(inbox
+    ? `✅ Commands by whisper: subscribed since ${new Date(Number(inbox.created_at)).toISOString()}.`
+    : "❌ Commands by whisper: not subscribed yet — it's set up on the next chat message once the token above is OK (failures show on /admin/logs as whisper_inbox_subscribe_failed).");
   const last: any = (await sqlite.execute("SELECT * FROM whisper_status WHERE id = 1")).rows[0];
   if (!last) out.push("No whisper has been attempted yet. Run !whispertest in chat (mods), or trigger a reply longer than one chat message.");
   else {
@@ -405,7 +422,14 @@ export async function handleBotConnectRoute(req: Request, url: URL, path: string
     }
     await saveBotToken(String(user.id), token);
     cachedToken = null;
-    return html("Bot connected", `Whispers enabled for ${String(user.display_name ?? user.login)}. Long replies will now be whispered.`);
+    // Commands whispered to the bot (whisper_inbox.ts). Imported here, not at
+    // the top: whisper_inbox needs twitch.ts, which imports this file.
+    const inbox = await (await import("./whisper_inbox.ts")).ensureWhisperInboxSubscription(true).catch((e) => String(e));
+    return html(
+      "Bot connected",
+      `Whispers enabled for ${String(user.display_name ?? user.login)}. Long replies will now be whispered.` +
+        (inbox === true ? " Viewers can also whisper the bot commands." : ` Commands by whisper couldn't be set up yet (${String(inbox).replace(/&/g, "&amp;").replace(/</g, "&lt;")}); it retries on its own.`),
+    );
   }
 
   return null;

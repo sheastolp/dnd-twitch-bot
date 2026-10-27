@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperRepliesOn } from "./whisper.ts";
+import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -80,22 +80,26 @@ function logReply(broadcasterId: string, summary: string, detail = summary) {
   defer(saveReplyPage(broadcasterId, i.login, summary, detail));
 }
 
-/** Whisper mode (!whisperme, or the channel's replies.mode — whisper.ts): a
- * reply addressed to the chatter whose command this is ("@Name …") is
- * whispered to them, without the @, instead of posted. Returns false — post
- * in chat as usual — when that doesn't apply or the whisper fails; after a
- * failure the rest of this request's replies go to chat too. */
-async function whisperReplyInstead(text: string, broadcasterId: string, opts?: { log?: boolean; detail?: string }): Promise<boolean> {
+/** Whisper mode (!whisperme, the channel's replies.mode, or a command sent
+ * by whisper — whisper.ts): a reply addressed to the chatter whose command
+ * this is ("@Name …") is whispered to them, without the @, instead of
+ * posted. In mode "all" anything else is posted and also whispered to them.
+ * Returns false — post in chat — unless the reply was whispered instead;
+ * after a failed whisper the rest of this request's replies go to chat. */
+async function whisperReplyInstead(text: string, broadcasterId: string, opts?: { log?: boolean; detail?: string; whisper?: boolean }): Promise<boolean> {
   const i = getReplyInitiator();
-  if (!i || i.broadcasterId !== broadcasterId || !whisperRepliesOn()) return false;
+  const mode = whisperMode();
+  if (!i || i.broadcasterId !== broadcasterId || !mode || opts?.whisper === false) return false;
   const m = text.match(/^([^\w@]*)@([^\s,:!?.]+)[\s,:]*/);
-  if (!m || ![i.login, i.display].some((n) => n.toLowerCase() === m[2].toLowerCase())) return false;
-  const body = (m[1] + text.slice(m[0].length)).trim();
+  const addressed = !!m && [i.login, i.display].some((n) => n.toLowerCase() === m[2].toLowerCase());
+  if (!addressed && mode !== "all") return false;
+  const body = (addressed ? m![1] + text.slice(m![0].length) : text).trim();
   if (!body) return false;
   if (!(await sendWhisperParts(i.userId, splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim())))) {
     setWhisperReplies(false);
     return false;
   }
+  if (!addressed) return false; // a copy: still posted for the rest of chat
   if (opts?.log !== false) logReply(broadcasterId, body, opts?.detail ?? body);
   return true;
 }
@@ -103,7 +107,9 @@ async function whisperReplyInstead(text: string, broadcasterId: string, opts?: {
 // opts.log: false when the caller logs the reply as a whole itself (parts of
 // a longer reply, or the summary of one already saved). opts.keepNames: leave
 // real names alone (!nick list, which has to show who has which nickname).
-export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean }) {
+// opts.whisper: false when the caller already applied whisper mode to the
+// reply as a whole.
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean }) {
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   if (await whisperReplyInstead(text, broadcasterId, opts)) return true;
@@ -205,10 +211,10 @@ export async function sendChatMessages(
   if (parts.length > 1) logReply(broadcasterId, parts.join(" "), opts?.detail ?? parts.join(" "));
   const log = parts.length === 1;
   for (let i = 0; i < parts.length; i++) {
-    let ok = await sendChatMessage(parts[i], broadcasterId, [], { log });
+    let ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false });
     if (!ok && i < parts.length - 1) {
       await sleep(700);
-      ok = await sendChatMessage(parts[i], broadcasterId, [], { log });
+      ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false });
     }
     if (!ok) allSent = false;
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
@@ -252,9 +258,10 @@ async function summarizeLongReply(
   }
   const tail = ` 📜 Full ${summary ? "battle log" : "reply"}: ${link}`;
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
-  const posted = await sendChatMessage(head + tail, broadcasterId, names, { log: false });
-  // Bonus copy by whisper; silently skipped until /connect-bot is done.
-  if (initiator) await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
+  const posted = await sendChatMessage(head + tail, broadcasterId, names, { log: false, whisper: false });
+  // Bonus copy by whisper; silently skipped until /connect-bot is done. In
+  // whisper mode "all" the full reply was already whispered.
+  if (initiator && whisperMode() !== "all") await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
   return posted;
 }
 
@@ -276,7 +283,7 @@ export async function sendSpellSections(sections: string[], display: string, bro
   const guard = [display, ...initiatorNames()];
   logReply(broadcasterId, parts.join(" "), full);
   for (let i = 0; i < parts.length; i++) {
-    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard, { log: false });
+    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard, { log: false, whisper: false });
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
 }
@@ -730,6 +737,12 @@ export async function createCheerEventSubscription(broadcasterId: string, callba
 // broadcaster_user_id condition, so this should reliably succeed for every
 // connected channel. Kept as its own best-effort call in main.ts so a hiccup
 // here never blocks the core chat connection.
+/** Whispers sent to the bot account (whisper_inbox.ts). Needs the bot's
+ * user:manage:whispers grant from /connect-bot. */
+export function createBotWhisperSubscription(callbackUrl: string) {
+  return createEventSubSubscription("user.whisper.message", "1", { user_id: env("TWITCH_BOT_ID") }, callbackUrl);
+}
+
 export async function createStreamStatusEventSubscriptions(broadcasterId: string, callbackUrl: string) {
   const [online, offline] = await Promise.all([
     createEventSubSubscription("stream.online", "1", { broadcaster_user_id: broadcasterId }, callbackUrl),

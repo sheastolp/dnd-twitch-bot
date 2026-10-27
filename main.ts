@@ -22,6 +22,7 @@ import { handleSilenceCommand } from "./silence.ts";
 import { handlePeddlerAssault } from "./peddler_guard.ts";
 import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator, setWhisperReplies } from "./whisper.ts";
 import { handleWhisperMeCommand, wantsWhisperReplies } from "./whisperme.ts";
+import { ensureWhisperInboxSubscription, ensureWhisperInboxTables, forgetWhisperInboxSubscription, noteViewerChannel, whisperedCommand, whisperOffline } from "./whisper_inbox.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
@@ -162,6 +163,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensurePointsTables,
   ensureSwearJarTables,
   ensureWhisperTables,
+  ensureWhisperInboxTables,
   ensureReplyPageTables,
   ensureAutohuntTables,
   ensureRedemptionTables,
@@ -272,6 +274,10 @@ async function handleRequest(req: Request): Promise<Response> {
     );
     const subscriptionId = String(body.subscription?.id ?? "");
     const subscriptionType = String(body.subscription?.type ?? "");
+    if (subscriptionType === "user.whisper.message") {
+      await forgetWhisperInboxSubscription();
+      await recordMonitorEvent("eventsub_revocation", `bot:${subscriptionType}:${subscriptionId}`);
+    }
     if (broadcasterId) {
       if (subscriptionType === "channel.chat.message") {
         await markBroadcasterDisconnected(broadcasterId, String(body.subscription?.status ?? "revoked"), subscriptionId);
@@ -413,6 +419,27 @@ async function handleNotification(body: any): Promise<Response | void> {
     return new Response("OK");
   }
 
+  // A command whispered to the bot (whisper_inbox.ts): run it as a chat
+  // message from that viewer in their channel, with every reply whispered.
+  if (subscriptionType === "user.whisper.message") {
+    const cmd = await whisperedCommand(body.event);
+    if (!cmd) return new Response("OK");
+    return handleNotification({
+      subscription: { type: "channel.chat.message" },
+      viaWhisper: true,
+      event: {
+        broadcaster_user_id: cmd.broadcasterId,
+        chatter_user_id: cmd.userId,
+        chatter_user_login: cmd.login,
+        chatter_user_name: cmd.display,
+        message_id: `whisper:${String(body.event?.whisper_id ?? crypto.randomUUID())}`,
+        message: { text: cmd.text, fragments: [{ type: "text", text: cmd.text }] },
+        badges: [],
+      },
+    });
+  }
+  const viaWhisper = body.viaWhisper === true;
+
   let chatMessage: string = body.event?.message?.text ?? "";
   const chatter: string = body.event?.chatter_user_login ?? "";
   const display: string = body.event?.chatter_user_name ?? chatter;
@@ -476,25 +503,32 @@ async function handleNotification(body: any): Promise<Response | void> {
   // Operator blocklist always wins.
   if (blocked) return new Response("OK");
 
+  // Whispered commands run in the channel the viewer last chatted in
+  // (whisper_inbox.ts); the bot's whisper subscription is (re)made lazily.
+  if (!viaWhisper) defer(noteViewerChannel(chatterId, broadcasterId));
+  defer(ensureWhisperInboxSubscription().catch(() => false));
+
+  // A whispered command never reaches chat, so the spam filters below skip it.
+
   // Auto-ban "ai viewers" spam (see autoban.ts). Runs before the
   // offline-quiet gate below so spammers are banned even when the stream
   // is offline; the announcement itself stays quiet while offline. Off by
   // default per channel (!autoban on). Mods/broadcaster are exempt.
   if (
-    await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
+    !viaWhisper && await maybeAutoBan(chatMessage, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1, baseUrl)
   ) return new Response("OK");
 
   // Spam filters (automod.ts): links, caps, symbol walls, emote floods,
   // repetition, very long messages — delete/warn, then timeouts on a strike
   // ladder. Off by default (!automod on); mods, VIPs and ignored users exempt.
   if (
-    await maybeAutoMod(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
+    !viaWhisper && await maybeAutoMod(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
   ) return new Response("OK");
 
   // Hate-raid shield (stream_guard.ts): many new accounts posting the same
   // thing at once get banned and Shield Mode goes on. Off by default.
   if (
-    await maybeHateRaid(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
+    !viaWhisper && await maybeHateRaid(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
   ) return new Response("OK");
 
   // Stay quiet in chat while the channel is offline — but let mod+ (the
@@ -515,11 +549,16 @@ async function handleNotification(body: any): Promise<Response | void> {
     // Channel connected before this feature existed — one-time backfill,
     // then re-check; every later message for this channel skips straight
     // to the column read above.
+    let live = true;
     if (Number(connection.stream_status_subscribed) !== 1) {
       await backfillStreamStatusSubscription(broadcasterId, PUBLIC_ORIGIN);
       const refreshed = await getBroadcaster(broadcasterId);
-      if (!refreshed || Number(refreshed.is_live) !== 1) return new Response("OK");
-    } else if (!(await recheckLiveStatus(broadcasterId))) {
+      live = !!refreshed && Number(refreshed.is_live) === 1;
+    } else {
+      live = await recheckLiveStatus(broadcasterId);
+    }
+    if (!live) {
+      if (viaWhisper) await whisperOffline(chatterId, broadcasterId);
       return new Response("OK");
     }
   }
@@ -531,7 +570,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // whispers every reply addressed to this chatter instead.
   if (chatMessage.trim().startsWith("!")) {
     setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
-    setWhisperReplies(await wantsWhisperReplies(broadcasterId, chatterId));
+    setWhisperReplies(viaWhisper ? "all" : await wantsWhisperReplies(broadcasterId, chatterId));
   }
 
   // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
@@ -711,6 +750,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // reminder instead of any other plain-chat reply (first_chatter.ts).
   try {
     if (
+      !viaWhisper &&
       await maybeRemindFirstChatter({
         chatMessage, messageType: String(body.event?.message_type ?? ""), chatter, display, broadcasterId, isModerator,
         enabled: () => isCommandGroupEnabled(broadcasterId, "firstchat"),

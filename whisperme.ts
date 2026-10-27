@@ -10,7 +10,7 @@
 
 import { sendChatMessage } from "./twitch.ts";
 import { optWord } from "./channel_options.ts";
-import { explainWhisperFailure, prefersWhisperReplies, sendWhisperPartsDetailed, setWhisperPref, setWhisperReplies } from "./whisper.ts";
+import { explainWhisperFailure, prefersWhisperReplies, sendWhisperPartsDetailed, setWhisperPref, setWhisperReplies, whisperMode } from "./whisper.ts";
 
 /** Whether replies to this chatter's command go by whisper: their own
  * !whisperme choice, or the channel's replies.mode. Never throws. */
@@ -38,7 +38,8 @@ export async function handleWhisperMeCommand(chatMessage: string, chatterId: str
 
   if (arg === "off") {
     await setWhisperPref(chatterId, false);
-    if (!channelWide) setWhisperReplies(false); // answer this one in chat already
+    // Answer this one in chat already — unless the command came by whisper.
+    if (!channelWide && whisperMode() === true) setWhisperReplies(false);
     await sendChatMessage(
       `@${display} Whisper replies off — I'll answer you in chat.` + (channelWide ? " (This channel whispers everyone's replies, so you'll still get whispers here.)" : ""),
       broadcasterId,
@@ -49,7 +50,7 @@ export async function handleWhisperMeCommand(chatMessage: string, chatterId: str
   // "on" (or bare !whisperme while off): send a whisper first so a viewer
   // who can't receive them finds out now, not by missing every reply.
   const r = await sendWhisperPartsDetailed(chatterId, [
-    "📜 Whisper replies on — I'll answer your !commands here instead of in chat. Keep typing commands in chat as usual; !whisperme off to stop.",
+    "📜 Whisper replies on — I'll answer your !commands here instead of in chat. You can also whisper me commands right here (e.g. roll d20). !whisperme off to stop.",
   ]);
   if (!r.ok) {
     await sendChatMessage(`@${display} I couldn't whisper you, so whisper replies stay off: ${explainWhisperFailure(r)}.`, broadcasterId);
