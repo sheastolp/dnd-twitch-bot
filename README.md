@@ -272,7 +272,7 @@ If the frontend calls a different server, change `EBS` at the top of `extension/
 |---------|-------------|
 | `!createchar` | Instant level 1 character |
 | `!createchar @user` | Create for another *(mod)* |
-| `!newchar` | Guided wizard |
+| `!newchar` | Guided wizard — steps are whispered (answer with `!answer` in chat); only the finished character is posted in chat |
 | `!bg3` | Random BG3-style race + class, then you assign ability scores via BG3 point-buy (base 8, cap 15, 27-point budget); saves and links the character |
 | `!answer <choice>` | Wizard answer (also used to reply to `!bg3` prompts) |
 

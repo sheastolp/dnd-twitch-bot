@@ -228,6 +228,18 @@ async function whisperChatter(text: string) {
   return !!to && sendWhisperParts(to, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
 }
 
+// The !newchar walkthrough happens in whispers so it doesn't fill chat; only
+// the finished character is announced there. Viewers still answer with
+// !answer in chat, since the bot doesn't read incoming whispers.
+const NEWCHAR_STEPS = new Set(["race", "subrace", "class", "scores", "confirm"]);
+
+/** Whispers a !newchar step, falling back to chat if the whisper can't be
+ * sent (whispers not set up, or the viewer blocks them) so nobody is stuck. */
+async function creationReply(display: string, broadcasterId: string, text: string) {
+  if (await whisperChatter(text)) return;
+  await sendChatMessage(`@${display} ${text}`, broadcasterId);
+}
+
 // Who has already been whispered the !importchar hint, so a viewer typing
 // !char over and over isn't whispered each time (and the bot stays well
 // inside Twitch's cap on whispers to new recipients).
@@ -293,9 +305,13 @@ export async function handleCreationCommand(
 ) {
   if (chatMessage === "!newchar") {
     await saveCreationSession({ username, step: "race" }, broadcasterId);
-    await sendChatMessage(
-      `@${display} New character started. Choose a race: ${Object.keys(races).join(", ")}. Reply !answer <race>. Type !cancel to stop.`,
+    const b: any = await getBroadcaster(broadcasterId);
+    const here = String(b?.display_name || b?.login || "the channel");
+    await creationReply(
+      display,
       broadcasterId,
+      `🧙 New character started! I'll whisper you each step — answer by typing !answer in ${here}'s chat. ` +
+        `Choose a race: ${Object.keys(races).join(", ")}. Reply !answer <race>. Type !cancel to stop.`,
     );
     if (!(await getCharacter(username, broadcasterId))) await whisperImportHint(username, broadcasterId);
     return true;
@@ -309,7 +325,8 @@ export async function handleCreationCommand(
     const active = await getCreationSession(username, broadcasterId);
     if (!active) return false;
     await clearCreationSession(username, broadcasterId);
-    await sendChatMessage(`@${display} Character creation cancelled.`, broadcasterId);
+    if (NEWCHAR_STEPS.has(active.step)) await creationReply(display, broadcasterId, "Character creation cancelled.");
+    else await sendChatMessage(`@${display} Character creation cancelled.`, broadcasterId);
     return true;
   }
   if (!chatMessage.startsWith("!answer ")) return false;
@@ -320,24 +337,22 @@ export async function handleCreationCommand(
   if (s.step === "race") {
     const race = Object.keys(races).find((x) => x.toLowerCase() === answer.toLowerCase());
     if (!race) {
-      await sendChatMessage(`@${display} Choose a race from: ${Object.keys(races).join(", ")}.`, broadcasterId);
+      await creationReply(display, broadcasterId, `Choose a race from: ${Object.keys(races).join(", ")}.`);
       return true;
     }
     s.race = race;
     if (races[race].subraces.length) {
       s.step = "subrace";
       await saveCreationSession(s, broadcasterId);
-      await sendChatMessage(
-        `@${display} Choose a ${race} subrace: ${races[race].subraces.join(", ")}. Reply !answer <subrace>.`,
+      await creationReply(
+        display,
         broadcasterId,
+        `Choose a ${race} subrace: ${races[race].subraces.join(", ")}. Reply !answer <subrace>.`,
       );
     } else {
       s.step = "class";
       await saveCreationSession(s, broadcasterId);
-      await sendChatMessage(
-        `@${display} Choose a class: ${Object.keys(classes).join(", ")}. Reply !answer <class>.`,
-        broadcasterId,
-      );
+      await creationReply(display, broadcasterId, `Choose a class: ${Object.keys(classes).join(", ")}. Reply !answer <class>.`);
     }
     return true;
   }
@@ -345,32 +360,26 @@ export async function handleCreationCommand(
   if (s.step === "subrace") {
     const subrace = races[s.race].subraces.find((x) => x.toLowerCase() === answer.toLowerCase());
     if (!subrace) {
-      await sendChatMessage(
-        `@${display} Choose a subrace from: ${races[s.race].subraces.join(", ")}.`,
-        broadcasterId,
-      );
+      await creationReply(display, broadcasterId, `Choose a subrace from: ${races[s.race].subraces.join(", ")}.`);
       return true;
     }
     s.subrace = subrace;
     s.step = "class";
     await saveCreationSession(s, broadcasterId);
-    await sendChatMessage(
-      `@${display} Choose a class: ${Object.keys(classes).join(", ")}. Reply !answer <class>.`,
-      broadcasterId,
-    );
+    await creationReply(display, broadcasterId, `Choose a class: ${Object.keys(classes).join(", ")}. Reply !answer <class>.`);
     return true;
   }
 
   if (s.step === "class") {
     const cls = Object.keys(classes).find((x) => x.toLowerCase() === answer.toLowerCase());
     if (!cls) {
-      await sendChatMessage(`@${display} Choose a class from: ${Object.keys(classes).join(", ")}.`, broadcasterId);
+      await creationReply(display, broadcasterId, `Choose a class from: ${Object.keys(classes).join(", ")}.`);
       return true;
     }
     s.cls = cls;
     s.step = "scores";
     await saveCreationSession(s, broadcasterId);
-    await sendChatMessage(`@${display} Now your ability scores! ${scoresHelp(cls)}`, broadcasterId);
+    await creationReply(display, broadcasterId, `Now your ability scores! ${scoresHelp(cls)}`);
     return true;
   }
 
@@ -380,9 +389,10 @@ export async function handleCreationCommand(
         ? [15, 14, 13, 12, 10, 8]
         : answer.split(/[ ,]+/).map(Number);
     if (scores.length !== 6 || scores.some((n: number) => !Number.isInteger(n) || n < 3 || n > 18)) {
-      await sendChatMessage(
-        `@${display} That didn't work — you need exactly 6 whole numbers, each from 3 to 18. ${scoresHelp(s.cls)}`,
+      await creationReply(
+        display,
         broadcasterId,
+        `That didn't work — you need exactly 6 whole numbers, each from 3 to 18. ${scoresHelp(s.cls)}`,
       );
       return true;
     }
@@ -395,9 +405,11 @@ export async function handleCreationCommand(
       ? `⚠️ This will overwrite your active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}). `
       : "";
     const yesAction = existing ? "overwrite and save" : "save";
-    await sendChatMessage(
-      `@${display} ${warning}Confirm: level 1 ${formatRaceName(preview.race, preview.subrace)} ${preview.cls}, ${formatStatLine(preview)}. Reply !answer yes to ${yesAction} or !answer no to restart.`,
+    await creationReply(
+      display,
       broadcasterId,
+      `${warning}Confirm: level 1 ${formatRaceName(preview.race, preview.subrace)} ${preview.cls}, ${formatStatLine(preview)}. ` +
+        `Reply !answer yes to ${yesAction} or !answer no to restart.`,
     );
     return true;
   }
@@ -408,14 +420,15 @@ export async function handleCreationCommand(
       await saveCharacter(c, broadcasterId);
       await clearCreationSession(username, broadcasterId);
       await sendChatMessage(
-        `@${display} Character saved! Use !char, !levelup, !savechar, and !loadchar.`,
+        `@${display} created a level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)}`,
         broadcasterId,
       );
+      await whisperChatter("Character saved! Use !char, !levelup, !savechar, and !loadchar.");
     } else if (answer.toLowerCase() === "no") {
       await clearCreationSession(username, broadcasterId);
-      await sendChatMessage(`@${display} Character discarded. Start again with !newchar.`, broadcasterId);
+      await creationReply(display, broadcasterId, `Character discarded. Start again with !newchar.`);
     } else {
-      await sendChatMessage(`@${display} Reply !answer yes to save or !answer no to discard.`, broadcasterId);
+      await creationReply(display, broadcasterId, `Reply !answer yes to save or !answer no to discard.`);
     }
     return true;
   }
