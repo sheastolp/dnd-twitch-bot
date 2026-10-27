@@ -24,7 +24,8 @@ export type QuickBundle = {
   what: string;
   /** What the streamer has to do. */
   yourPart: string;
-  /** Dashboard switches it turns on/off together. */
+  /** Dashboard switches it turns on/off together. None = an options-only
+   * card (no On/Off choice, not counted as a feature). */
   switches: string[];
   /** Other bundles it can't work without (shown, and checked on save). */
   needs?: string[];
@@ -129,6 +130,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     yourPart: "Nothing — but they talk on their own, so turn off if you want a quiet chat.",
     switches: ["npc", "npcchatter", "chronicle"],
   },
+  {
+    key: "replies", icon: "💬", name: "Bot replies",
+    what: "Where the bot answers a viewer's !command: in chat (the default) or by whisper. Whispers keep a busy chat readable and suit viewers on the mobile app; anything meant for the whole chat (fight results, giveaways…) is still posted. Viewers can pick whispers for themselves with !whisperme.",
+    yourPart: "Nothing — whispers need the bot connected once at /connect-bot.",
+    switches: [],
+  },
 ];
 
 export type SwitchStates = Record<string, boolean>;
@@ -232,6 +239,10 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
     return `<details class="qopts"><summary>⚙ Options${custom ? ` · ${custom} changed from default` : " · all default"}</summary><div class="qfields">${list.map((o) => optionField(o, opts[o.key] ?? "")).join("")}</div></details>`;
   };
   const cards = QUICK_BUNDLES.map((b) => {
+    if (!b.switches.length) {
+      return `<details class="qcard" id="qcard-${b.key}" data-bundle="${b.key}" data-options-only><summary><h3><span class="ico" aria-hidden="true">${b.icon}</span>${escapeHtml(b.name)}</h3><span class="pill">Options</span></summary>
+<div class="qbody"><p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${optionsBox(b)}</div></details>`;
+    }
     const st = bundleState(b, s);
     const opt = (v: string, label: string) =>
       `<label><input type="radio" name="b_${b.key}" value="${v}"${st === v || (v === "keep" && st === "mixed") ? " checked" : ""}><span>${label}</span></label>`;
@@ -243,18 +254,20 @@ export function renderQuickSetup(hiddenAuth: string, s: SwitchStates, opts: Reco
 <div class="qbody"><p class="what">${escapeHtml(b.what)}</p><p class="yours"><b>Your part:</b> ${escapeHtml(b.yourPart)}</p>${needs}
 <div class="seg" role="radiogroup" aria-label="${escapeHtml(b.name)}">${opt("on", "On")}${opt("off", "Off")}${st === "mixed" ? opt("keep", "Mixed — leave as is") : ""}</div>${optionsBox(b)}</div></details>`;
   }).join("");
-  const on = QUICK_BUNDLES.filter((b) => bundleState(b, s) === "on").length;
-  return `<details class="folder big wide quick" id="sec-quick"><summary><h2 class="folder-name">Quick setup</h2><span class="tile-meta">${QUICK_BUNDLES.length} features · ${on} on</span></summary>
+  const features = QUICK_BUNDLES.filter((b) => b.switches.length);
+  const on = features.filter((b) => bundleState(b, s) === "on").length;
+  return `<details class="folder big wide quick" id="sec-quick"><summary><h2 class="folder-name">Quick setup</h2><span class="tile-meta">${features.length} features · ${on} on</span></summary>
 <p class="muted">Turn whole features on or off in one go. Each card shows whether it's on; open it to see what it does on stream and what you need to do (usually nothing). Open <strong>⚙ Options</strong> on a card to tune it: start typing for suggestions, or leave a box blank to use the default shown in it. Change as many as you like, then press <strong>Save changes</strong>. Fine-tune single commands in <a href="#sec-groups">Command groups</a> below; a feature you've fine-tuned shows as <em>Mixed</em> and is left alone unless you pick On or Off.</p>
 <form method="post" action="/dashboard/features" id="quick-form">${hiddenAuth}<input type="hidden" name="intent" value="quick">
 <div class="qgrid">${cards}</div>
 <div class="qsave"><button type="submit" class="ember" id="quick-save">Save changes</button><span class="count" id="quick-count">No changes yet.</span></div></form>
-<script>(function(){var f=document.getElementById("quick-form");if(!f)return;var cards=[].slice.call(f.querySelectorAll(".qcard"));
+<script>(function(){var f=document.getElementById("quick-form");if(!f)return;var all=[].slice.call(f.querySelectorAll(".qcard")),cards=all.filter(function(c){return!c.hasAttribute("data-options-only")});
 function val(c){var i=c.querySelector("input:checked");return i?i.value:"keep"}
 function sync(){var n=0,o=0,on={};cards.forEach(function(c){var v=val(c),was=c.getAttribute("data-was");var ch=v!=="keep"&&v!==was;
   var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;
   c.classList.toggle("changed",ch||oc>0);if(ch)n++;
   var p=c.querySelector("summary .pill"),st=v==="keep"?was:v;p.className="pill "+st+(ch?" pending":"");p.textContent=st==="mixed"?"Mixed":st==="on"?"On":"Off";p.title=ch?"Not saved yet":"";on[c.getAttribute("data-bundle")]=v==="keep"?was!=="off":v==="on"});
+  all.forEach(function(c){if(!c.hasAttribute("data-options-only"))return;var oc=[].filter.call(c.querySelectorAll(".qopt input"),function(i){var d=i.value.trim()!==i.getAttribute("data-was");i.classList.toggle("edited",d);return d}).length;o+=oc;c.classList.toggle("changed",oc>0)});
   cards.forEach(function(c){var nd=c.querySelector(".needs");if(!nd)return;var miss=nd.getAttribute("data-needs").split(",").filter(function(k){return!on[k]});nd.classList.toggle("warn",on[c.getAttribute("data-bundle")]&&miss.length>0)});
   var parts=[];if(n)parts.push(n+" feature"+(n===1?"":"s"));if(o)parts.push(o+" option"+(o===1?"":"s"));
   document.getElementById("quick-count").textContent=parts.length?parts.join(" and ")+" will change.":"No changes yet."}

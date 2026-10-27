@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
+import { defer, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperRepliesOn } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -80,12 +80,33 @@ function logReply(broadcasterId: string, summary: string, detail = summary) {
   defer(saveReplyPage(broadcasterId, i.login, summary, detail));
 }
 
+/** Whisper mode (!whisperme, or the channel's replies.mode — whisper.ts): a
+ * reply addressed to the chatter whose command this is ("@Name …") is
+ * whispered to them, without the @, instead of posted. Returns false — post
+ * in chat as usual — when that doesn't apply or the whisper fails; after a
+ * failure the rest of this request's replies go to chat too. */
+async function whisperReplyInstead(text: string, broadcasterId: string, opts?: { log?: boolean; detail?: string }): Promise<boolean> {
+  const i = getReplyInitiator();
+  if (!i || i.broadcasterId !== broadcasterId || !whisperRepliesOn()) return false;
+  const m = text.match(/^([^\w@]*)@([^\s,:!?.]+)[\s,:]*/);
+  if (!m || ![i.login, i.display].some((n) => n.toLowerCase() === m[2].toLowerCase())) return false;
+  const body = (m[1] + text.slice(m[0].length)).trim();
+  if (!body) return false;
+  if (!(await sendWhisperParts(i.userId, splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim())))) {
+    setWhisperReplies(false);
+    return false;
+  }
+  if (opts?.log !== false) logReply(broadcasterId, body, opts?.detail ?? body);
+  return true;
+}
+
 // opts.log: false when the caller logs the reply as a whole itself (parts of
 // a longer reply, or the summary of one already saved). opts.keepNames: leave
 // real names alone (!nick list, which has to show who has which nickname).
 export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean }) {
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
+  if (await whisperReplyInstead(text, broadcasterId, opts)) return true;
   const guard = [...names, ...initiatorNames()];
   // The token lookup (cached; at worst one query or one Twitch call) runs
   // alongside the nickname lookup instead of after it. Failures surface in
@@ -158,6 +179,7 @@ export async function sendChatMessages(
   opts?: { maxParts?: number; names?: string[]; summary?: string; detail?: string },
 ): Promise<boolean> {
   const original = text;
+  if (await whisperReplyInstead(text, broadcasterId, { detail: opts?.detail })) return true;
   const maxParts = opts?.maxParts ?? MAX_PARTS;
   // Battle logs shorten bare names; every name appears in full at most twice
   // per response. See mentions.ts.
@@ -243,6 +265,7 @@ export async function sendSpellSections(sections: string[], display: string, bro
     combined.push(...prepareParts(`@${display} ${section}`, CHAT_MAX, 3));
   }
   const full = sections.join(" | ");
+  if (await whisperReplyInstead(`@${display} ${full}`, broadcasterId)) return;
   if (await summarizeLongReply(full, full, combined.length, broadcasterId)) return;
   const parts = combined.slice(0, MAX_PARTS);
   if (combined.length > MAX_PARTS && parts.length) {

@@ -20,7 +20,8 @@ import { handleBribeCommand } from "./bribe.ts";
 import { gambleWaiting, handleGambleCommand, handleGamblePick } from "./gamble.ts";
 import { handleSilenceCommand } from "./silence.ts";
 import { handlePeddlerAssault } from "./peddler_guard.ts";
-import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator } from "./whisper.ts";
+import { defer, ensureWhisperTables, runRequestScope, setReplyInitiator, setWhisperReplies } from "./whisper.ts";
+import { handleWhisperMeCommand, wantsWhisperReplies } from "./whisperme.ts";
 import { ensureReplyPageTables, purgeReplyPages } from "./replypages.ts";
 import { handleWhisperTestCommand } from "./whispertest.ts";
 import { ensureBattleLogTables } from "./battle_log.ts";
@@ -526,7 +527,12 @@ async function handleNotification(body: any): Promise<Response | void> {
   // A "!command" reply long enough to need 3+ chat messages is whispered
   // to this chatter instead, with a one-line summary in chat (whisper.ts).
   // Plain chat (triggers, chronicle, NPC chatter) always replies in chat.
-  if (chatMessage.trim().startsWith("!")) setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
+  // Whisper mode (!whisperme or the channel's replies.mode, whisperme.ts)
+  // whispers every reply addressed to this chatter instead.
+  if (chatMessage.trim().startsWith("!")) {
+    setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
+    setWhisperReplies(await wantsWhisperReplies(broadcasterId, chatterId));
+  }
 
   // Broadcaster-only disconnect/offboarding. `purge` additionally deletes channel data.
   const leaveMatch = chatMessage.trim().match(/^!dndbot\s+leave(?:\s+(purge))?$/i);
@@ -822,6 +828,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleFunCommand(chatMessage, display, broadcasterId)) return new Response("OK");
   if (!chatMessage.startsWith("!") && await isCommandGroupEnabled(broadcasterId, "funstuff") && await maybeBotBanter(chatMessage, broadcasterId)) return new Response("OK");
   if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
+  if (await handleWhisperMeCommand(chatMessage, chatterId, display, broadcasterId)) return new Response("OK");
   if (
     await handleNpcCommand(chatMessage, chatter, display, broadcasterId, isModerator)
   ) return new Response("OK");

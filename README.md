@@ -45,7 +45,8 @@ Chat: `!guide` or `!link` posts that same URL; `!commands` posts the channel's o
 | **server.ts** | The always-on process: serves main.ts on `127.0.0.1:PORT` (default 8801) and runs the four `*_cron.ts` jobs every 5 minutes |
 | **main.ts** | HTTP entry, OAuth, EventSub, **command router** |
 | **replypages.ts** | Reply pages: logs every reply to a viewer's `!command` (long replies in full) on their page (`reply_links`, one fixed link per viewer per channel; `reply_log`, their latest 15 replies, kept 24 hours) and serves `GET /r/<id>` |
-| **whisper.ts** | Long replies by whisper: per-request "who ran this command" context (AsyncLocalStorage), the bot's own user token for Helix Send Whisper (`bot_user_tokens`), the `/connect-bot` OAuth routes, and the one-line chat summary |
+| **whisper.ts** | Long replies by whisper: per-request "who ran this command" context (AsyncLocalStorage), the bot's own user token for Helix Send Whisper (`bot_user_tokens`), the `/connect-bot` OAuth routes, the one-line chat summary, and whisper mode (`whisper_prefs`; `twitch.ts` whispers replies addressed to the chatter instead of posting them) |
+| **whisperme.ts** | `!whisperme`: a viewer's choice of whispered replies, and `wantsWhisperReplies` (that choice or the channel's `replies.mode` option) |
 | **web_routes.ts** | Every web route (health, static pages, OAuth connect/callback, character/map/roster pages, dashboard, `/admin/*`); `main.ts` calls it first and falls through to EventSub when nothing matched |
 | **chat_builtin.ts** | Built-in chat commands without their own module (`!logs`, `!help`, lookups, dice, `!createchar`, `!char`, …), custom-command invocation, and plain-chat replies (goodnight, triggers, chronicle, NPC chatter) |
 | **start.ts** | `!start [char\|dice\|fight\|party\|coin]` — the beginner's quick-start guide, one chat message per page (pure data, like help.ts) |
@@ -266,6 +267,7 @@ If the frontend calls a different server, change `EBS` at the top of `extension/
 | `!guide` / `!link` | **Posts the Guild Codex URL** (`/guide`) |
 | `!dndbothelp` | Codex chapters: dice, character, party, combat, lookup, maps, gold, custom, settings |
 | `!dndbothelp <chapter>` | Detailed syntax for that chapter |
+| `!whisperme [on/off/status]` | Get every reply to your `!commands` by whisper instead of in chat (handy on the mobile app). Kept for you in every channel; turning it on sends a test whisper first and stays off if it can't be delivered. Only replies addressed to you are whispered — fight results, giveaways and other messages for the whole chat still post there. Streamers can whisper everyone's replies with *Answer viewers' !commands in* = `whisper` on the dashboard's **Bot replies** card |
 
 ### Adventurer's parchment (character)
 | Command | Description |
