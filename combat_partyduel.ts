@@ -8,7 +8,8 @@ import { firstAlive, initiativeMod } from "./utils.ts";
 import { duelNarration } from "./narration.ts";
 import { BattleLog, fighterLine } from "./battle.ts";
 import { classicText, firstStanding, heroFighter, heroTurn, monsterFighter, monsterTurn, team } from "./combat_abilities.ts";
-import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, sqlite } from "./db.ts";
+import { getCharacter, getParty, getPartyDuel, getPartyMembers, getPartyMonsterDuel, listPartyNames, sqlite } from "./db.ts";
+import { takePartyName } from "./party_names.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, partyLootNote } from "./loot.ts";
@@ -247,21 +248,17 @@ export async function handlePartyDuelCommand(
       return true;
     }
 
-    // Start hunt: !dndduel party hunt [classic] <party-name>
-    let classic = false;
-    let partyName = "";
-    let monsterNameArg = "";
-    if (
-      huntAction === "classic" || huntAction === "turn" ||
-      huntAction === "manual"
-    ) {
-      classic = true;
-      partyName = (parts[4] ?? "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
-      monsterNameArg = parts.slice(5).join(" ").trim();
-    } else {
-      partyName = huntAction.replace(/[^a-z0-9_-]/g, "");
-      monsterNameArg = parts.slice(4).join(" ").trim();
-    }
+    // Start hunt: !dndduel party hunt [classic] <party-name> [monster]
+    // The party name may be several words; the longest run that names a
+    // party wins and whatever follows is the monster.
+    const classic = huntAction === "classic" || huntAction === "turn" ||
+      huntAction === "manual";
+    const { name: partyName, rest: monsterWords } = takePartyName(
+      parts.slice(classic ? 4 : 3),
+      await listPartyNames(broadcasterId),
+      "first",
+    );
+    const monsterNameArg = monsterWords.join(" ").trim();
     if (!partyName) {
       await sendChatMessage(
         `@${display} Party hunt: !dndduel party hunt <party> [monster] (auto) | !dndduel party hunt classic <party> [monster] | !dndduel party hunt attack | status | end`,
@@ -784,24 +781,16 @@ export async function handlePartyDuelCommand(
 
   // Challenge: !dndduel party <yours> <theirs> (auto)
   //            !dndduel party classic <yours> <theirs> (turn-based)
+  // Either name may be several words: the longest run of words naming a
+  // party is the challenger, the rest is the defender.
   let partyMode: "auto" | "classic" = "auto";
-  let challengerParty = "";
-  let defenderParty = "";
   const p2 = (parts[2] ?? "").toLowerCase();
-  const p3 = (parts[3] ?? "").toLowerCase();
-  const p4 = (parts[4] ?? "").toLowerCase();
-  if (p2 === "classic" || p2 === "turn" || p2 === "manual") {
-    partyMode = "classic";
-    challengerParty = p3;
-    defenderParty = p4;
-  } else if (p2 === "auto" || p2 === "quick") {
-    partyMode = "auto";
-    challengerParty = p3;
-    defenderParty = p4;
-  } else {
-    challengerParty = p2;
-    defenderParty = p3;
-  }
+  if (p2 === "classic" || p2 === "turn" || p2 === "manual") partyMode = "classic";
+  const modeWord = partyMode === "classic" || p2 === "auto" || p2 === "quick";
+  const known = await listPartyNames(broadcasterId);
+  const first = takePartyName(parts.slice(modeWord ? 3 : 2), known, "first");
+  const challengerParty = first.name;
+  const defenderParty = takePartyName(first.rest, known).name;
   if (!challengerParty || !defenderParty) {
     await sendChatMessage(
       `@${display} Party duels: !dndduel party <yours> <theirs> (auto) | !dndduel party classic <yours> <theirs> (turn-based) | !dndduel party accept | !dndduel party decline`,

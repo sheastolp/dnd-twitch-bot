@@ -831,7 +831,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return new Response("OK");
   if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
   if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return new Response("OK");
-  if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   // The peddler can't be attacked or robbed: !rob peddler, !stall rob,
   // !dndduel merchant, !attack the stall ... all fail with a mocking line.

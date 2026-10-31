@@ -493,6 +493,31 @@ export async function getPartyMembers(broadcasterId: string, partyName: string) 
   return res.rows.map((r: any) => String(r.username));
 }
 
+/** Every party name in a channel (for matching multi-word names in chat — see party_names.ts). */
+export async function listPartyNames(broadcasterId: string): Promise<string[]> {
+  const res = await sqlite.execute("SELECT party_name FROM parties WHERE broadcaster_id = ?", [broadcasterId]);
+  return res.rows.map((r: any) => String(r.party_name));
+}
+
+/**
+ * Renames a party everywhere its name is a key: the party itself, its
+ * members, pending invites, duel challenges and any running duel or hunt.
+ * Past battle-log entries keep the name the party fought under.
+ */
+export async function renameParty(broadcasterId: string, from: string, to: string) {
+  const b = broadcasterId;
+  await sqlite.batch([
+    { sql: "UPDATE parties SET party_name = ? WHERE broadcaster_id = ? AND party_name = ?", args: [to, b, from] },
+    { sql: "UPDATE party_members SET party_name = ? WHERE broadcaster_id = ? AND party_name = ?", args: [to, b, from] },
+    { sql: "UPDATE party_invites SET party_name = ? WHERE broadcaster_id = ? AND party_name = ?", args: [to, b, from] },
+    { sql: "UPDATE party_duel_challenges SET challenger_party = ? WHERE broadcaster_id = ? AND challenger_party = ?", args: [to, b, from] },
+    { sql: "UPDATE party_duel_challenges SET defender_party = ? WHERE broadcaster_id = ? AND defender_party = ?", args: [to, b, from] },
+    { sql: "UPDATE party_duels SET challenger_party = ? WHERE broadcaster_id = ? AND challenger_party = ?", args: [to, b, from] },
+    { sql: "UPDATE party_duels SET defender_party = ? WHERE broadcaster_id = ? AND defender_party = ?", args: [to, b, from] },
+    { sql: "UPDATE party_monster_duels SET party_name = ? WHERE broadcaster_id = ? AND party_name = ?", args: [to, b, from] },
+  ]);
+}
+
 // ── Roster (web page + !roster) ──
 // Read-only listings for the public GET /roster page (see renderRosterPage in
 // pages.ts): every saved character in a channel, plus every party with its

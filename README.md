@@ -346,7 +346,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 ### Guild company (parties)
 | Command | Description |
 |---------|-------------|
-| `!party create <name>` | Found a company (you are leader **and** member) |
+| `!party create <name>` | Found a company (you are leader **and** member). Names can be several words (`!party create the iron wolves`, up to 32 characters) and work everywhere a party name does — `!party hunt the iron wolves goblin boss`, `!dndduel party iron wolves red hand`; wrap one in quotes if it's ambiguous |
 | `!party join <name>` | Join |
 | `!party invite @user [name]` | Invite (name optional if you only have one party) |
 | `!party accept [name]` / `decline [name]` | Invited user answers (name optional if only one pending invite) |
@@ -354,6 +354,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!party list <name>` | One company roster |
 | `!party leave <name>` | Leave |
 | `!party disband <name>` | Leader dissolves the company |
+| `!party rename <old> to <new>` | Leader renames the company (`!party rename <new>` if you lead just one); the broadcaster and mods can rename any party. Duels, hunts and pending invites follow the new name |
 
 ### Arena & wilds (combat)
 | Command | Description |

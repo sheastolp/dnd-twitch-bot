@@ -1,10 +1,28 @@
-// Parties: !party create/join/invite/accept/decline/list/leave/disband
+// Parties: !party create/join/invite/accept/decline/list/leave/disband/rename
 // (and the !party hunt alias).
 // Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
-import { createPartyInvite, deletePartyInvite, getCharacter, getParty, getPartyInvite, getPartyInvites, getPartyMembers, sqlite } from "./db.ts";
+import { createPartyInvite, deletePartyInvite, getCharacter, getParty, getPartyInvite, getPartyInvites, getPartyMembers, listPartyNames, renameParty, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { handlePartyDuelCommand } from "./combat_partyduel.ts";
+import { normalizePartyName, parseRename, PARTY_NAME_MAX, takePartyName } from "./party_names.ts";
+
+// A party name can't start with a word the party commands read as a
+// subcommand, or "!dndduel party classic rock ..." / "!party hunt status"
+// would be ambiguous.
+const RESERVED_FIRST_WORDS = new Set([
+  "hunt", "classic", "turn", "manual", "auto", "quick", "accept", "decline",
+  "attack", "status", "show", "end", "cancel", "to",
+]);
+
+/** Why `name` can't be used for a new/renamed party, or "" if it can. */
+function partyNameProblem(name: string) {
+  if (!name) return "give the party a name (letters, numbers, spaces, - and _)";
+  if (RESERVED_FIRST_WORDS.has(name.split(" ")[0])) {
+    return `a party name can't start with "${name.split(" ")[0]}" (it's a party command)`;
+  }
+  return "";
+}
 
 export async function partySummary(broadcasterId: string, partyName: string) {
   const party = await getParty(broadcasterId, partyName);
@@ -20,6 +38,7 @@ export async function handlePartyCommand(
   username: string,
   display: string,
   broadcasterId: string,
+  isModerator = false,
 ) {
   if (!/^!party(?:\s|$)/i.test(chatMessage)) return false;
   // Alias: "!party hunt ..." is the same as "!dndduel party hunt ..."
@@ -35,18 +54,27 @@ export async function handlePartyCommand(
   const me = username.toLowerCase();
   const parts = chatMessage.trim().split(/\s+/);
   const action = (parts[1] ?? "list").toLowerCase();
-  const sanitizeParty = (raw: string) =>
-    (raw ?? "").replace(/^@/, "").toLowerCase().replace(/[^a-z0-9_-]/g, "");
-  const name = sanitizeParty(parts[2] ?? "");
+  const args = parts.slice(2);
+  // Names can be several words ("the iron wolves"): match the longest run of
+  // words that names a party in this channel (see party_names.ts).
+  const known = await listPartyNames(broadcasterId);
+  const name = takePartyName(args, known).name;
 
   if (action === "create") {
-    if (!name) {
+    const newName = normalizePartyName(args.join(" "));
+    if (!args.length) {
       await sendChatMessage(
-        `@${display} use !party create <party-name>.`,
+        `@${display} use !party create <party name> (up to ${PARTY_NAME_MAX} characters, spaces ok).`,
         broadcasterId,
       );
       return true;
     }
+    const problem = partyNameProblem(newName);
+    if (problem) {
+      await sendChatMessage(`@${display} ${problem}.`, broadcasterId);
+      return true;
+    }
+    const name = newName;
     if (await getParty(broadcasterId, name)) {
       await sendChatMessage(
         `@${display} that party already exists.`,
@@ -126,7 +154,7 @@ export async function handlePartyCommand(
       /[,:]+$/,
       "",
     );
-    let partyName = sanitizeParty(parts[3] ?? "");
+    let partyName = takePartyName(parts.slice(3), known).name;
 
     // If party name omitted, use a party this user owns (or is the only member of).
     if (target && !partyName) {
@@ -211,9 +239,9 @@ export async function handlePartyCommand(
   }
 
   if (action === "accept" || action === "decline") {
-    let partyName = sanitizeParty(parts[2] ?? "");
+    const invites = await getPartyInvites(broadcasterId, me);
+    let partyName = takePartyName(args, [...known, ...invites.map((i: any) => String(i.party_name))]).name;
     if (!partyName) {
-      const invites = await getPartyInvites(broadcasterId, me);
       if (invites.length === 1) {
         partyName = String(invites[0].party_name);
       } else if (invites.length > 1) {
@@ -303,6 +331,54 @@ export async function handlePartyCommand(
     return true;
   }
 
+  if (action === "rename") {
+    // Leaders rename their own parties; the broadcaster and mods can rename any.
+    let renamable = known;
+    if (!isModerator) {
+      const res = await sqlite.execute(
+        "SELECT party_name FROM parties WHERE broadcaster_id = ? AND lower(owner) = ? ORDER BY created_at ASC",
+        [broadcasterId, me],
+      );
+      renamable = res.rows.map((r: any) => String(r.party_name));
+    }
+    if (!isModerator && !renamable.length) {
+      await sendChatMessage(
+        `@${display} you don't lead a party — only a party's leader can rename it.`,
+        broadcasterId,
+      );
+      return true;
+    }
+    const plan = parseRename(args, renamable);
+    if (!plan) {
+      await sendChatMessage(
+        `@${display} use !party rename <old name> to <new name>${
+          renamable.length === 1 && !isModerator ? " (or just !party rename <new name>)" : ""
+        }.`,
+        broadcasterId,
+      );
+      return true;
+    }
+    const problem = partyNameProblem(plan.to);
+    if (problem) {
+      await sendChatMessage(`@${display} ${problem}.`, broadcasterId);
+      return true;
+    }
+    if (plan.to === plan.from) {
+      await sendChatMessage(`@${display} party ${plan.from} already has that name.`, broadcasterId);
+      return true;
+    }
+    if (await getParty(broadcasterId, plan.to)) {
+      await sendChatMessage(`@${display} there's already a party called ${plan.to}.`, broadcasterId);
+      return true;
+    }
+    await renameParty(broadcasterId, plan.from, plan.to);
+    await sendChatMessage(
+      `@${display} party ${plan.from} is now known as ${plan.to}.`,
+      broadcasterId,
+    );
+    return true;
+  }
+
   if (action === "list" || action === "show") {
     if (name) {
       await sendChatMessages(
@@ -336,7 +412,7 @@ export async function handlePartyCommand(
   }
 
   await sendChatMessage(
-    `@${display} Party: !party create <name> | !party join <name> | !party invite @user <name> | !party accept/decline [name] | !party list [name] | !party leave <name> | !party disband <name>.`,
+    `@${display} Party: !party create <name> | !party join <name> | !party invite @user <name> | !party accept/decline [name] | !party list [name] | !party leave <name> | !party disband <name> | !party rename <old> to <new>. Names can have spaces.`,
     broadcasterId,
   );
   return true;
