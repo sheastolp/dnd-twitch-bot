@@ -80,6 +80,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["soundbytes"],
   },
   {
+    key: "soundalerts", icon: "📯", name: "Sound alerts",
+    what: "Your own sound clips — air horns, memes, catchphrases — played on stream when chat types !sfx <name> (free or for gold), redeems a channel-point reward, or cheers bits. A SoundAlerts replacement with nothing to install.",
+    yourPart: "Upload your clips on the dashboard's 📯 Sound alerts page and link each to a reward title or a bit amount if you like. Then add the \"Sound alerts\" overlay from !overlays to every scene you want them heard in (it's separate from Sound Bytes and the theme) and tick Control audio via OBS. Mods tune the gap between chat plays with !sfx cooldown.",
+    switches: ["soundalerts"],
+  },
+  {
     key: "alerts", icon: "🔔", name: "On-screen alerts",
     what: "A card and a fanfare on stream for new followers, subs, resubs, gift subs, raids and cheers, so you don't need StreamElements or Streamlabs for alerts. Tips through your own links can be announced with !alert tip <name> <amount>.",
     yourPart: "Add the \"Alerts\" overlay from !overlays to your scenes (1920×1080) and tick Control audio via OBS. Try it with !alert test sub. For cheer alerts, reconnect GuildScribe once so Twitch grants bits:read.",

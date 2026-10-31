@@ -69,6 +69,7 @@ import { isPokeballEnabled, setPokeballEnabled } from "./pokeball_db.ts";
 import { applyNowPlayingForm, renderNowPlayingPage, startSpotifyConnect } from "./nowplaying.ts";
 import { applyTipsForm, renderTipsDashboardPage } from "./tips.ts";
 import { applySteamForm, renderSteamDashboardPage } from "./steam.ts";
+import { applySoundAlertsForm, renderSoundAlertsDashboardPage } from "./soundalerts.ts";
 import { applySongListForm, getSongList, renderSongListPage } from "./songlist.ts";
 import { applyQuotesForm, renderQuotesDashboardPage } from "./quotes.ts";
 import { applyImportForm, renderImportPage } from "./se_import.ts";
@@ -998,6 +999,31 @@ export async function handleSteamForm(form: FormData, baseUrl: string, cookieHea
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/steam?${params.toString()}`);
+}
+
+// ── Sound alerts (soundalerts.ts), behind the same key + login ──
+
+export async function handleSoundAlertsPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderSoundAlertsDashboardPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleSoundAlertsForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applySoundAlertsForm(auth.channelId, form);
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/sounds?${params.toString()}`);
 }
 
 // ── Song request list (songlist.ts), behind the same key + login ──

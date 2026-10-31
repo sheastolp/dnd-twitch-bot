@@ -31,6 +31,7 @@ const ALIASES: Record<string, string> = {
   rally: "raid", shot: "shots", alert: "alerts", sr: "songrequests", songrequest: "songrequests", songs: "songrequests",
   tip: "tips", donate: "tips", donations: "tips",
   steampicker: "steam", randomgame: "steam",
+  soundalert: "soundalerts", soundclips: "soundalerts",
   gambling: "gamble", dragonsdice: "gamble", dragondice: "gamble",
 };
 

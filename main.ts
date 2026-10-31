@@ -76,6 +76,7 @@ import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } from "./checklist.ts";
 import { ensureShotTables, handleShotCommand, purgeShotData } from "./shots.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
+import { ensureSoundAlertTables, handleSoundAlertCommand, onSoundAlertCheer, onSoundAlertRedemption, purgeSoundAlertData } from "./soundalerts.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
 import { ensureGameStatsTables, handleGameStatsCommand, purgeGameStatsData } from "./game_stats.ts";
@@ -179,6 +180,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureChecklistTables,
   ensureShotTables,
   ensureSoundByteTables,
+  ensureSoundAlertTables,
   ensureHoardTables,
   ensurePokeballTables,
   ensureBattleLogTables,
@@ -391,9 +393,10 @@ async function handleNotification(body: any): Promise<Response | void> {
     return new Response("OK");
   }
 
-  // Cheers: an on-screen alert only (alerts.ts); there's no chat thank-you.
+  // Cheers: an on-screen alert (alerts.ts) and any sound alert the bits pay for; there's no chat thank-you.
   if (subscriptionType === "channel.cheer") {
     try { await onCheerAlert(body.event); } catch (e) { await recordMonitorEvent("alert_error", String(e)); }
+    try { await onSoundAlertCheer(body.event); } catch (e) { await recordMonitorEvent("sound_alert_error", String(e)); }
     return new Response("OK");
   }
 
@@ -419,6 +422,7 @@ async function handleNotification(body: any): Promise<Response | void> {
 
   if (subscriptionType === "channel.channel_points_custom_reward_redemption.add") {
     try { await handleRedemptionEvent(body.event); } catch (e) { await recordMonitorEvent("redemption_error", String(e)); }
+    try { await onSoundAlertRedemption(body.event); } catch (e) { await recordMonitorEvent("sound_alert_error", String(e)); }
     return new Response("OK");
   }
 
@@ -645,6 +649,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeChecklistData(broadcasterId);
       await purgeShotData(broadcasterId);
       await purgeSoundByteData(broadcasterId);
+      await purgeSoundAlertData(broadcasterId);
       await purgeHoardData(broadcasterId);
       await purgePokeballData(broadcasterId);
       await purgeSavingThrowData(broadcasterId);
@@ -890,6 +895,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   ) return new Response("OK");
   if (await handleOracleCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
   if (await handleAskMeCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
+  if (await handleSoundAlertCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleSoundByteCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleSongRequestCommand(chatMessage, chatter, display, broadcasterId, String(connection.login || broadcasterId), isModerator, modEvent.badges)) return new Response("OK");
   if (await handleTipCommand(chatMessage, display, broadcasterId, String(connection.login || broadcasterId), String(connection.display_name || connection.login || "this channel"))) return new Response("OK");

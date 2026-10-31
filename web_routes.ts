@@ -22,9 +22,10 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSteamPage, handleSteamForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSteamPage, handleSteamForm, handleSoundAlertsPage, handleSoundAlertsForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
 import { renderTipPage } from "./tips.ts";
 import { handleSteamUpload } from "./steam.ts";
+import { MAX_CLIP_BYTES } from "./soundalerts.ts";
 import { renderSongQueuePage } from "./songrequests.ts";
 import { handleSpotifyCallback } from "./nowplaying.ts";
 import { handleNightbotCallback } from "./nightbot_import.ts";
@@ -524,6 +525,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // Tip page links (tips.ts) — same gate.
     return await handleTipsPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/sounds") {
+    // Sound alerts (soundalerts.ts) — same gate.
+    return await handleSoundAlertsPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/steam") {
     // Steam picker setup (steam.ts) — same gate.
     return await handleSteamPage(url, req.headers.get("Cookie"));
@@ -840,6 +845,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/tips") {
     return await handleTipsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/sounds") {
+    // An upload is one sound file (soundalerts.ts caps it at 1 MB) plus a few fields.
+    if (Number(req.headers.get("Content-Length") ?? 0) > MAX_CLIP_BYTES + 64 * 1024) {
+      return new Response("That sound file is too big — sounds can be up to 1 MB. Go back and pick a smaller one.", { status: 413 });
+    }
+    return await handleSoundAlertsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/steam") {
     return await handleSteamForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));

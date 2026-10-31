@@ -171,6 +171,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   // command still works (same as the hunting words above).
   delve: { section: "Stream overlays", label: "The Endless Delve (idle game overlay, on its own or in the theme; !delve)", commands: ["delve"] },
   soundbytes: { section: "Stream overlays", label: "Sound Bytes (!sound — tavern sound effects on stream)", commands: [] },
+  // soundalerts.ts checks this switch itself (!sfx, its overlay, and main.ts's redemption and cheer handlers).
+  soundalerts: { section: "Stream overlays", label: "Sound alerts (your own sound clips on stream — by !sfx, channel points or bits; own overlay)", commands: [] },
   // Chat Reader (chat_reader.ts): reads chat aloud to the streamer on their
   // phone/PC, for console streams. !chatreader (mods) posts
   // the link and says when it's off, so it isn't listed under `commands`.

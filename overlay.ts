@@ -17,6 +17,9 @@
 //   GET /overlay?channel=<id|login>&panel=sounds     Sound Bytes: plays the sound effects chat fires with !sound (soundbytes.ts)
 //   GET /overlay?channel=<id|login>&panel=alerts     follow/sub/raid/cheer/tip alerts (alerts.ts)
 //   GET /overlay/alerts?channel=<id|login>&after=<n> the alerts it polls
+//   GET /overlay?channel=<id|login>&panel=soundalerts  Sound alerts: the channel's own uploaded clips (soundalerts.ts)
+//   GET /overlay/soundalerts?channel=<id|login>&after=<n>  the plays it polls
+//   GET /overlay/sound?channel=<id|login>&id=<n>      a sound alert's audio
 //   GET /overlay?channel=<id|login>&panel=reader     Chat Reader: reads chat aloud on the streamer's own device (chat_reader.ts)
 //
 // Looks: every overlay link takes optional look extras — a preset, colours and
@@ -46,6 +49,7 @@ import { getDelveOptions, getIdleHeroes, renderIdlePage, saveDelveSnapshot } fro
 import { getChannelBotLogins } from "./channel_bots.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
+import { getClipAudio, getSoundPlaysAfter, renderSoundAlertsOverlay, SOUND_ALERTS_OFF_PAGE } from "./soundalerts.ts";
 import { ALERTS_OFF_PAGE, getAlertsAfter, renderAlertsOverlay } from "./alerts.ts";
 import { renderChatReaderOff, renderChatReaderPage } from "./chat_reader.ts";
 import { getRecentBattles, type BattleEntry } from "./battle_log.ts";
@@ -408,7 +412,7 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     try { body = JSON.parse(text); } catch (_) { /* not JSON: dropped below */ }
     return json({ ok: await saveDelveSnapshot(channel.id, body) });
   }
-  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying" || path === "/overlay/alerts")) return null;
+  if (req.method !== "GET" || !(path === "/overlay" || path === "/overlays" || path === "/overlay/data" || path === "/overlay/title" || path === "/overlay/idle" || path === "/overlay/nowplaying" || path === "/overlay/alerts" || path === "/overlay/soundalerts" || path === "/overlay/sound")) return null;
   const channel = await resolveChannel(url.searchParams.get("channel"));
 
   if (path === "/overlay/title") {
@@ -431,6 +435,24 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     if (!(await isCommandGroupEnabled(channel.id, "alerts"))) return json({ ok: true, off: true, last: 0, alerts: [] });
     const after = Number(url.searchParams.get("after"));
     return json({ ok: true, ...(await getAlertsAfter(channel.id, Number.isFinite(after) ? Math.floor(after) : -1)) });
+  }
+
+  if (path === "/overlay/soundalerts") {
+    if (!channel) return json({ ok: false, error: "Unknown or disconnected channel." }, 404);
+    // Switched off: the overlay reloads into the empty off page.
+    if (!(await isCommandGroupEnabled(channel.id, "soundalerts"))) return json({ ok: true, off: true, last: 0, plays: [] });
+    const after = Number(url.searchParams.get("after"));
+    return json({ ok: true, ...(await getSoundPlaysAfter(channel.id, Number.isFinite(after) ? Math.floor(after) : -1)) });
+  }
+
+  if (path === "/overlay/sound") {
+    // A clip's audio. A clip's file never changes (a new file is a new clip), so it caches well.
+    const id = Number(url.searchParams.get("id"));
+    const clip = channel && Number.isInteger(id) && id > 0 ? await getClipAudio(channel.id, id) : null;
+    if (!clip) return new Response("Not found.", { status: 404 });
+    return new Response(clip.audio, {
+      headers: { "Content-Type": clip.mime, "Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "none" },
+    });
   }
 
   if (path === "/overlay/idle") {
@@ -490,6 +512,11 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: nothing can be recognized as GuildScribe, so nothing plays */ }
     return html(renderSoundBytesOverlay(channelKey, live.login, botId, url.searchParams.get("always") === "1"));
+  }
+  if (panel === "soundalerts") {
+    const always = url.searchParams.get("always") === "1";
+    if (!always && !(await isCommandGroupEnabled(channel.id, "soundalerts"))) return html(SOUND_ALERTS_OFF_PAGE);
+    return html(renderSoundAlertsOverlay(channelKey, always));
   }
   if (panel === "alerts") {
     const always = url.searchParams.get("always") === "1";
