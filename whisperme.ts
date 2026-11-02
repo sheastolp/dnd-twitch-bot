@@ -5,8 +5,9 @@
 // (whisper_prefs, whisper.ts), and beats the channel's setting either way.
 // Everyone who hasn't picked follows the channel's replies.mode (dashboard
 // Bot replies card, or a mod's !whisperall auto/on/off in chat): "auto" (the
-// default) answers in chat while it's quiet and by whisper once chat is busy
-// (replies.busyAt viewer messages in the last minute, chat_pace.ts);
+// default) answers in chat at a normal pace (replies.quietBelow to
+// replies.busyAt viewer messages in the last minute, chat_pace.ts) and by
+// whisper while chat is quieter or busier than that;
 // "whisper" and "chat" always do that. Those viewers get a one-time note
 // with their first whisper saying why (WHISPER_INTRO).
 //
@@ -16,15 +17,17 @@
 
 import { sendChatMessage } from "./twitch.ts";
 import { optNum, optWord, saveOptionsFromForm } from "./channel_options.ts";
-import { chatPace } from "./chat_pace.ts";
+import { autoWhisperReason, chatPace } from "./chat_pace.ts";
 import { explainWhisperFailure, sendWhisperPartsDetailed, setWhisperPref, setWhisperReplies, type WhisperIntro, whisperMode, whisperPref } from "./whisper.ts";
 
 /** Whether the channel's own setting whispers replies right now: "whisper",
- * or "auto" while chat is busy. Never throws. */
-async function channelWhispers(broadcasterId: string): Promise<{ mode: string; on: boolean; busy: boolean }> {
+ * or "auto" while chat is quiet or busy (pace). Never throws. */
+async function channelWhispers(broadcasterId: string): Promise<{ mode: string; on: boolean; pace: "quiet" | "busy" | null }> {
   const mode = await optWord(broadcasterId, "replies.mode");
-  const busy = mode === "auto" && chatPace(broadcasterId) >= await optNum(broadcasterId, "replies.busyAt");
-  return { mode, on: mode === "whisper" || busy, busy };
+  const pace = mode === "auto"
+    ? autoWhisperReason(chatPace(broadcasterId), await optNum(broadcasterId, "replies.quietBelow"), await optNum(broadcasterId, "replies.busyAt"))
+    : null;
+  return { mode, on: mode === "whisper" || pace !== null, pace };
 }
 
 /** Whether replies to this chatter's command go by whisper: their own
@@ -34,7 +37,7 @@ export async function wantsWhisperReplies(broadcasterId: string, userId: string)
   if (!userId) return { on: false };
   const [mine, channel] = await Promise.all([whisperPref(userId), channelWhispers(broadcasterId)]);
   if (mine) return { on: mine === "whisper" };
-  return { on: channel.on, intro: channel.on ? (channel.busy ? "busy" : "channel") : undefined };
+  return { on: channel.on, intro: channel.on ? (channel.pace ?? "channel") : undefined };
 }
 
 /** !whisperall [auto|on|off|status] (mods): the channel-wide replies.mode,
@@ -53,15 +56,15 @@ export async function handleWhisperAllCommand(chatMessage: string, display: stri
     await saveOptionsFromForm(broadcasterId, form);
   }
   const mode = await optWord(broadcasterId, "replies.mode");
-  const busyAt = await optNum(broadcasterId, "replies.busyAt");
+  const [quietBelow, busyAt] = await Promise.all([optNum(broadcasterId, "replies.quietBelow"), optNum(broadcasterId, "replies.busyAt")]);
   const now = arg === "status" ? "" : "now ";
   // Not addressed to anyone, so it posts in chat even in whisper mode.
   await sendChatMessage(
     mode === "whisper"
       ? `📜 The bot ${now}answers your !commands by whisper here — a private message only you see, so chat stays readable (anything for the whole chat still posts). Rather have yours in chat? !whisperme off. Mods: !whisperall auto or off to switch back.`
       : mode === "chat"
-      ? `📜 The bot ${now}answers !commands in chat here. Want yours by whisper (a private message only you see)? !whisperme on.${isModerator ? " Mods: !whisperall auto whispers only while chat is busy, !whisperall on always." : ""}`
-      : `📜 The bot ${now}answers !commands in chat while it's quiet, and by whisper (a private message only you see) once chat gets busy — ${busyAt}+ messages a minute. Pick for yourself with !whisperme on or off.${isModerator ? " Mods: !whisperall on/off for always whisper/chat." : ""}`,
+      ? `📜 The bot ${now}answers !commands in chat here. Want yours by whisper (a private message only you see)? !whisperme on.${isModerator ? " Mods: !whisperall auto whispers only while chat is quiet or busy, !whisperall on always." : ""}`
+      : `📜 The bot ${now}answers !commands in chat at a normal pace (${quietBelow > 0 ? `${quietBelow}–` : "up to "}${busyAt} messages a minute), and by whisper (a private message only you see) while chat is ${quietBelow > 0 ? "quieter or " : ""}busier than that. Pick for yourself with !whisperme on or off.${isModerator ? " Mods: !whisperall on/off for always whisper/chat." : ""}`,
     broadcasterId,
   );
   return true;
@@ -76,7 +79,7 @@ export async function handleWhisperMeCommand(chatMessage: string, chatterId: str
   const arg = (m[1] ?? (now ? "off" : "on")).toLowerCase();
 
   if (arg === "status") {
-    const why = mine ? "your choice" : channel.mode === "auto" ? `this channel's auto setting: by whisper only while chat is busy, and it's ${channel.busy ? "busy" : "quiet"} right now` : "this channel's setting";
+    const why = mine ? "your choice" : channel.mode === "auto" ? `this channel's auto setting: by whisper only while chat is quiet or busy, and it's ${channel.pace ?? "at a normal pace"} right now` : "this channel's setting";
     await sendChatMessage(
       now
         ? `@${display} Your replies come by whisper (a private message only you see) — ${why}. !whisperme off to get them in chat.`
@@ -90,7 +93,7 @@ export async function handleWhisperMeCommand(chatMessage: string, chatterId: str
     await setWhisperPref(chatterId, null);
     await sendChatMessage(
       `@${display} Got it — your replies follow this channel's setting again` +
-        (channel.mode === "auto" ? ": in chat while it's quiet, by whisper when chat's busy." : channel.mode === "whisper" ? " (by whisper here)." : " (in chat here)."),
+        (channel.mode === "auto" ? ": in chat at a normal pace, by whisper when chat's quiet or busy." : channel.mode === "whisper" ? " (by whisper here)." : " (in chat here)."),
       broadcasterId,
     );
     return true;

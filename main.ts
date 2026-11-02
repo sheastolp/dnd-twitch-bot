@@ -577,7 +577,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // to this chatter instead, with a one-line summary in chat (whisper.ts).
   // Plain chat (triggers, chronicle, NPC chatter) always replies in chat.
   // Whisper mode (!whisperme, or the channel's replies.mode — by default
-  // "auto": only while chat is busy; whisperme.ts) whispers every reply
+  // "auto": only while chat is quiet or busy; whisperme.ts) whispers every reply
   // addressed to this chatter instead.
   if (chatMessage.trim().startsWith("!")) {
     setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });

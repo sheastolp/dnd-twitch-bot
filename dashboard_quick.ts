@@ -151,7 +151,7 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     key: "replies", icon: "💬", name: "Bot replies",
     what: "Where the bot answers when a viewer types a !command (!gold, !char, !roll…): posted in chat for everyone to see, or as a Twitch whisper — a private message only that viewer sees, which lands in their Twitch whispers instead of chat.",
     more: [
-      "⚡ Auto, the default: in chat while it's quiet, by whisper once chat gets busy (10 or more viewer messages in the last minute — change the number under ⚙ Options). It switches back by itself as chat calms down. 💬 In chat and ✉️ By whisper always do that one.",
+      "⚡ Auto, the default: in chat at a normal pace (5 to 10 viewer messages in the last minute), by whisper while chat is quieter or busier than that — change the numbers under ⚙ Options. It switches back and forth by itself as chat's pace changes. 💬 In chat and ✉️ By whisper always do that one.",
       "Why whisper? A busy chat buries the bot's answers, and viewers on the mobile app can lose them in seconds. Whispers keep chat for people talking, and each viewer still gets their answer. Anything meant for the whole chat (fight results, giveaways, the raid boss…) is still posted either way.",
       "Viewers always have the last word: !whisperme on or !whisperme off picks for themselves (kept in every channel; !whisperme auto hands it back to this setting), and anyone whispered because of this setting gets a one-time note with their first whisper saying why and how to switch back to chat. Mods can change this setting in chat with !whisperall auto/on/off.",
     ],

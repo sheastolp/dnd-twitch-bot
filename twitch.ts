@@ -87,7 +87,7 @@ function logReply(broadcasterId: string, summary: string, detail = summary) {
  * Returns false — post in chat — unless the reply was whispered instead;
  * after a failed whisper the rest of this request's replies go to chat.
  * The first whisper to a viewer the channel whispers without their asking
- * (or a busy chat, in auto mode) starts with WHISPER_INTRO: why, and how
+ * (or a quiet or busy chat, in auto mode) starts with WHISPER_INTRO: why, and how
  * to get chat replies. */
 async function whisperReplyInstead(text: string, broadcasterId: string, opts?: { log?: boolean; detail?: string; whisper?: boolean }): Promise<boolean> {
   const i = getReplyInitiator();

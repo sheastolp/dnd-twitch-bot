@@ -22,12 +22,12 @@
 // Whisper mode: a viewer can ask for every reply to their !commands by
 // whisper, or in chat (!whisperme on/off, kept in whisper_prefs); for
 // everyone who hasn't picked, the channel decides (dashboard option
-// replies.mode: by default "auto", which whispers only while chat is busy —
-// chat_pace.ts). main.ts resolves it once per command with
+// replies.mode: by default "auto", which whispers only while chat is quiet
+// or busy — chat_pace.ts). main.ts resolves it once per command with
 // setWhisperReplies(); twitch.ts then whispers any reply
 // addressed to that chatter instead of posting it, falling back to chat for
 // the rest of the request if Twitch refuses the whisper. A viewer whispered
-// only because of the channel's setting (or a busy chat) gets a one-time
+// only because of the channel's setting (or a quiet or busy chat) gets a one-time
 // note first saying why, and how to get chat replies (whisper_intro). A command that
 // itself arrived by whisper (whisper_inbox.ts) uses mode "all": everything
 // else it says in chat is whispered to the viewer as well.
@@ -89,8 +89,8 @@ export function getReplyInitiator(): ReplyInitiator | undefined {
 export type WhisperMode = boolean | "all";
 
 /** Why a viewer is whispered without having asked: the channel whispers
- * everyone ("channel"), or its chat is busy right now ("busy"). */
-export type WhisperIntro = "channel" | "busy";
+ * everyone ("channel"), or its chat is quiet or busy right now (auto mode). */
+export type WhisperIntro = "channel" | "quiet" | "busy";
 
 /** Whisper mode for this request's replies to the chatter (see top of file).
  * intro: whispered by the channel's setting, not their own choice, so the
@@ -110,6 +110,8 @@ export function whisperMode(): WhisperMode {
 export const WHISPER_INTRO: Record<WhisperIntro, string> = {
   channel:
     "📜 Why a whisper? This channel sends the bot's answers to your !commands here, so they don't get lost in a busy chat (anything for the whole chat still posts there). Rather have them in chat? Type !whisperme off. You can also whisper me commands right here.",
+  quiet:
+    "📜 Why a whisper? Chat's quiet right now, so the bot answers your !commands here instead of filling chat with its own replies — it goes back to answering in chat once more people are talking (anything for the whole chat still posts there). Always want chat? Type !whisperme off; always whispers? !whisperme on.",
   busy:
     "📜 Why a whisper? Chat's busy right now, so the bot answers your !commands here where they won't get buried — it goes back to answering in chat when things calm down (anything for the whole chat still posts there). Always want chat? Type !whisperme off; always whispers? !whisperme on.",
 };

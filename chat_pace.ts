@@ -1,7 +1,7 @@
 // How busy each channel's chat is right now: viewers' messages in the last
 // minute, for the "auto" bot-replies mode (whisperme.ts) — answer in chat
-// while it's quiet, by whisper once it's busy (replies.busyAt messages a
-// minute). Bots' messages (GuildScribe's own replies included) and commands
+// at a normal pace (replies.quietBelow to replies.busyAt messages a minute),
+// by whisper while chat is quieter than that or busier. Bots' messages (GuildScribe's own replies included) and commands
 // sent by whisper don't count. Kept in memory: the always-on process sees
 // every chat message, and after a restart the count simply starts over.
 
@@ -33,4 +33,13 @@ export function chatPace(broadcasterId: string, now = Date.now()): number {
   prune(list, now);
   if (!list.length) recent.delete(broadcasterId);
   return list.length;
+}
+
+/** Auto mode's call for a chat this busy: whisper while it's "quiet" (fewer
+ * than quietBelow messages a minute) or "busy" (more than busyAt); null =
+ * answer in chat. */
+export function autoWhisperReason(pace: number, quietBelow: number, busyAt: number): "quiet" | "busy" | null {
+  if (pace > busyAt) return "busy";
+  if (pace < quietBelow) return "quiet";
+  return null;
 }
