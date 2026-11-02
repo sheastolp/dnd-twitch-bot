@@ -11,6 +11,7 @@ import { generateCharacter, handleLevelUpCommand, whisperImportHint } from "./ch
 import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from "./lookups.ts";
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections, getShoutoutProfile } from "./twitch.ts";
+import { setWhisperReplies } from "./whisper.ts";
 import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
@@ -432,6 +433,8 @@ export async function handleBuiltinChatCommand(ctx: {
   } else if (/^!pog$/i.test(chatMessage) && chatter === POG_USER) {
     // Hidden Pot of Greed (flavor.ts). Anyone else falls through as if it
     // weren't here, so a channel's own !pog custom command still works.
+    // Always posted in chat, never whispered, whatever the reply mode.
+    setWhisperReplies(false);
     await sendChatMessage(rollPotOfGreed(display), broadcasterId);
   } else if (/^!shmash(?:\s+@?\S+)?$/i.test(chatMessage)) {
     // Purely cosmetic (no HP/game state touched) — pulls each side's
