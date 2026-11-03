@@ -87,7 +87,7 @@ export const OPTIONS: OptionDef[] = [
   { key: "raid.muster", bundle: "raid", label: "Time to join before the raid charges", kind: "duration", unit: "s",
     def: env("RAID_MUSTER_SECONDS", 60, 15, 600), min: 15, max: 600, suggest: ["30s", "1m", "2m"] },
   { key: "raid.party", bundle: "raid", label: "Heroes per raid", kind: "number", int: true,
-    def: env("RAID_PARTY_MAX", 6, 1, 20), min: 1, max: 20, suggest: ["4", "6", "10"] },
+    def: env("RAID_PARTY_MAX", 9, 1, 20), min: 1, max: 20, suggest: ["6", "9", "12"] },
   { key: "raid.partyDrag", bundle: "raid", label: "!rally brings the rallier's party", help: "on = a hero who types !rally drags every member of their !party (with a saved hero) into the raid too. Same as !rally partydrag on/off in chat.", kind: "word",
     def: "on", choices: ["on", "off"], suggest: ["on", "off"] },
   { key: "raid.hp", bundle: "raid", label: "Boss toughness", help: "× a normal monster's HP; applies to the next boss posted.", kind: "multiplier",

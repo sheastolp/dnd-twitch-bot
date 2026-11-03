@@ -72,7 +72,7 @@ export const RAID_QUESTS_PER_STREAM = Math.floor(envNumber("RAID_QUESTS_PER_STRE
 export const RAID_SECOND_QUEST_DELAY_SECONDS = Math.floor(envNumber("RAID_SECOND_QUEST_DELAY_SECONDS", 2 * 3600, 0, 6 * 3600));
 // The muster time, party size, boss HP and hoard multipliers are per-channel
 // options (channel_options.ts: raid.muster, raid.party, raid.hp, raid.loot),
-// defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (6),
+// defaulting to RAID_MUSTER_SECONDS (60), RAID_PARTY_MAX (9),
 // RAID_HP_MULTIPLIER (5: class abilities hit hard, see combat_abilities.ts)
 // and RAID_LOOT_MULTIPLIER (5).
 const raidOpts = async (broadcasterId: string) => {

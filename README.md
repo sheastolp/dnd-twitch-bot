@@ -382,7 +382,7 @@ Every adventurer keeps exactly one active character and one saved backup per cha
 | `!autohunt stop` / `!autohuntstop` | Recall the hero early and post the trip total |
 | `!huntcooldown` / `!huntcd` | Show the channel's hunting cooldown and your own remaining wait (anyone) |
 | `!huntcooldown <time\|off>` | **Mod/broadcaster:** set the cooldown — `90`, `90s`, `5m`, `1m30s`, `1h`, or `off`/`0`; max 1 hour |
-| `!rally` | **Raid quest** — sound the war horn against this stream's raid boss, or join the open muster. Needs a saved hero; up to 6 raiders, the party charges a minute after the horn (or when full) |
+| `!rally` | **Raid quest** — sound the war horn against this stream's raid boss, or join the open muster. Needs a saved hero; up to 9 raiders, the party charges a minute after the horn (or when full) |
 | `!rally go` / `!rally status` | Launch the muster early (its leader or a mod) / boss HP, muster and cooldown |
 | `!rally cooldown [time\|off]` | Show the raid cooldown; **mods** set it (`90s`, `10m`, `1h`, `off`; max 2 hours, default 10m) |
 | `!rally new` | **Mod:** post a fresh raid quest now (e.g. the bot joined mid-stream) |
