@@ -26,6 +26,7 @@ import { awardMonsterLoot } from "./loot.ts";
 import { formatCoins } from "./coins.ts";
 import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
+import { saveReplyPage } from "./replypages.ts";
 import { getReplyInitiator, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { splitChatMessage } from "./utils.ts";
 import { creditBounty } from "./hoard.ts";
@@ -101,6 +102,13 @@ const tally = (s: { wins: number; losses: number }) => `${s.wins}W/${s.losses}L`
 export interface AutohuntReport {
   text: string;
   summary?: string;
+  /** For whispers: one short line (totals, no bout list) — the full report
+   * goes on the hunter's reply page, linked at the end of the whisper. */
+  brief: string;
+  /** The full report for that page, one bout per line. */
+  detail: string;
+  /** The hunter's login: whose reply page the full report goes on. */
+  login: string;
   /** The hunter's whole-trip tally, for a combined report of several
    * hunters (postAutohuntReports). `done`: this settle ended the trip. */
   hunter: { name: string; wins: number; losses: number; done: boolean };
@@ -114,13 +122,19 @@ async function whisperReports(broadcasterId: string): Promise<boolean> {
   return (await optWord(broadcasterId, "autohunt.reports")) !== "chat";
 }
 
-/** Whispers a report's full text to its hunter. False when it can't be
- * whispered (no user ID, whispers not set up, or refused). */
-async function whisperReport(r: AutohuntReport): Promise<boolean> {
+/** Whispers a report to its hunter: one short line with the totals and a
+ * link to the full bout-by-bout report on their reply page (replypages.ts).
+ * False when it can't be whispered (no user ID, whispers not set up, or
+ * refused). */
+async function whisperReport(r: AutohuntReport, broadcasterId: string): Promise<boolean> {
   if (!r.userId) return false;
-  // The whisper goes to the hunter, so drop the name the chat text leads with.
-  const lead = r.text.match(/^@?(\S+)\s+/);
-  const body = lead && lead[1].toLowerCase() === r.hunter.name.toLowerCase() ? r.text.slice(lead[0].length) : r.text;
+  let body = r.brief;
+  try {
+    const link = await saveReplyPage(broadcasterId, r.login, r.brief, r.detail);
+    body += ` 📜 Full report: ${link}`;
+  } catch (err) {
+    console.error("autohunt: saveReplyPage failed", err);
+  }
   const parts = splitChatMessage(body, WHISPER_MAX).filter((p) => p.trim());
   return sendWhisperParts(r.userId, parts);
 }
@@ -136,7 +150,7 @@ export function postAutohuntReport(report: AutohuntReport, broadcasterId: string
 async function deliverDirectReport(report: AutohuntReport, display: string, broadcasterId: string) {
   if (!(await whisperReports(broadcasterId))) return postAutohuntReport(report, broadcasterId);
   if (!report.userId) report.userId = getReplyInitiator()?.userId ?? "";
-  const ok = await whisperReport(report);
+  const ok = await whisperReport(report, broadcasterId);
   return sendChatMessages(
     ok
       ? `@${display} 🏹 your autohunt report was whispered to you.`
@@ -146,9 +160,10 @@ async function deliverDirectReport(report: AutohuntReport, display: string, broa
 }
 
 /** Delivers unprompted (cron) reports. When the channel whispers reports (the
- * default), each hunter gets their full report privately and nothing is
- * posted in chat; one that can't be whispered is skipped (the trip's log is
- * kept, so !autohunt status still shows it). Only when the channel posts
+ * default), nothing is posted in chat and nothing is whispered mid-trip: each
+ * hunter gets ONE whisper when their trip ends — the totals and a link to the
+ * full report. One that can't be whispered is skipped (!autohunt status still
+ * works while the trip runs). Only when the channel posts
  * reports in chat do several hunters' reports become ONE message: every
  * hunter currently out (settled this time or not) with their trip's W/L,
  * plus any whose trip just ended, pointing to !autohunt status for the
@@ -157,7 +172,7 @@ async function deliverDirectReport(report: AutohuntReport, display: string, broa
 export async function postAutohuntReports(reports: AutohuntReport[], broadcasterId: string) {
   if (await whisperReports(broadcasterId)) {
     let ok = true;
-    for (const r of reports) if (!(await whisperReport(r))) ok = false;
+    for (const r of reports) if (r.hunter.done && !(await whisperReport(r, broadcasterId))) ok = false;
     return ok;
   }
   if (reports.length === 1) return postAutohuntReport(reports[0], broadcasterId);
@@ -174,6 +189,11 @@ export async function postAutohuntReports(reports: AutohuntReport[], broadcaster
 /** The trip's bout log, numbered: "1. ✔ beat … · 2. ✘ fell to …". */
 const tripLog = (log: string) =>
   log.split("\n").filter((l) => l.trim()).map((l, i) => `${i + 1}. ${l}`).join(" · ");
+
+/** The full report for the reply page (shown under the headline): one
+ * numbered line per bout of the trip. */
+const fullDetail = (headline: string, log: string) =>
+  log.split("\n").filter((l) => l.trim()).map((l, i) => `${i + 1}. ${l}`).join("\n") || headline;
 
 /**
  * Simulates and pays every bout that is due for one session, and returns the
@@ -260,8 +280,9 @@ export async function settleAutohunt(
   const name = session.display_name;
   if (missing) {
     await deleteAutohuntSession(bid, username);
+    const brief = "🏹 your hero is no longer on the roster, so the autohunt is called off.";
     const text = `${tag}${name} your hero is no longer on the roster, so the autohunt is called off.`;
-    return { text, userId: session.user_id, hunter: { name, wins: session.wins + wins, losses: session.losses + losses, done: true } };
+    return { text, brief, detail: brief, login: username, userId: session.user_id, hunter: { name, wins: session.wins + wins, losses: session.losses + losses, done: true } };
   }
   // A summary sent for a viewer's own command gets their @ prepended by
   // summarizeLongReply; an unprompted one names the hunter itself.
@@ -292,6 +313,9 @@ export async function settleAutohunt(
     return {
       text: `${tag}${name} ${head}${battles}${tail}`,
       summary: `${lead}${head}${recent}${tail}`,
+      brief: `${head}${tail}`,
+      detail: fullDetail(`${head}${tail}`, fresh.log),
+      login: username,
       hunter: { name, wins: fresh.wins, losses: fresh.losses, done: true },
       userId: session.user_id,
     };
@@ -304,6 +328,9 @@ export async function settleAutohunt(
   return {
     text: `${tag}${name} ${head} | ${tail} Trip so far: ${all}.`,
     summary: `${lead}${head}: ${shown} | ${tail}`,
+    brief: `${head} | ${tail}`,
+    detail: fullDetail(`${head} | ${tail}`, fresh.log),
+    login: username,
     hunter: { name, wins: fresh.wins, losses: fresh.losses, done: false },
     userId: session.user_id,
   };
@@ -437,8 +464,8 @@ export async function handleAutohuntCommand(
   await say(
     `@${display} 🏹 your hero heads into the wilds for ${formatDuration(duration)}. ` +
       `A monster every ~${formatDuration(firstBoutIn)} at your level, same dice as !dndduel, with a report ${
-        await whisperReports(broadcasterId) ? "whispered to you" : "in chat"
-      } as bouts are settled. ` +
+        await whisperReports(broadcasterId) ? "link whispered to you when the trip ends" : "in chat as bouts are settled"
+      }. ` +
       `!autohunt status to check in, !autohunt stop to recall.`,
   );
   return true;
