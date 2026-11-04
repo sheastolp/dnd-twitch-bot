@@ -34,6 +34,7 @@ import {
   describeMatch,
   ensureAutoBanHistoryTables,
   findHistoryMatch,
+  findRecentTwin,
   forgetRecent,
   purgeAutoBanHistory,
   recentMessages,
@@ -222,7 +223,10 @@ export async function maybeAutoBan(
       // The learner bans too once a pitch goes active — including when this
       // very message is the sighting that promoted it.
       match = await learnFromMessage(broadcasterId, chatMessage, chatterId);
-      if (!match) return false;
+      // Or another chatter sent the same pitch, worded a bit differently,
+      // moments ago: ban this one and the sweep below takes the other.
+      if (!match && mode === "auto") history = await findRecentTwin(broadcasterId, chatterId, chatMessage);
+      if (!match && !history) return false;
     } else if (mode === "suggest") {
       await suggestFromHistory(broadcasterId, chatMessage, chatterId);
       return false;

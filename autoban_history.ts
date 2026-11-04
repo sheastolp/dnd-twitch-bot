@@ -26,7 +26,7 @@
 
 import { sqlite } from "./sqlite.ts";
 import { env } from "./twitch.ts";
-import { fold, normalizeText, spamScore } from "./autoban_words.ts";
+import { fold, LEARN_THRESHOLD, normalizeText, spamScore } from "./autoban_words.ts";
 
 export const IMPORT_EVERY_MS = 6 * 60 * 60_000;
 /** Word overlap (Jaccard) that counts as "the same pitch". */
@@ -214,7 +214,7 @@ async function loadRefs(broadcasterId: string): Promise<Refs> {
   return refs;
 }
 
-export type HistoryMatch = { kind: "message" | "name"; ref: string };
+export type HistoryMatch = { kind: "message" | "name" | "twin"; ref: string };
 
 function matchesRef(sk: string, w: Set<string>, ref: { sk: string; words: Set<string> }): boolean {
   if (ref.sk === sk || (ref.sk.length >= 20 && sk.includes(ref.sk))) return true;
@@ -263,6 +263,7 @@ export async function findHistoryMatch(broadcasterId: string, chatMessage: strin
 }
 
 export function describeMatch(m: HistoryMatch): string {
+  if (m.kind === "twin") return `same pitch as ${m.ref}, sent at the same time`;
   return m.kind === "message" ? `same message as banned ${m.ref}` : `named like banned ${m.ref}`;
 }
 
@@ -310,4 +311,18 @@ export async function recentMessages(broadcasterId: string, excludeUserId: strin
 
 export async function forgetRecent(broadcasterId: string, userId: string) {
   await sqlite.execute("DELETE FROM autoban_recent WHERE broadcaster_id = ? AND user_id = ?", [broadcasterId, userId]);
+}
+
+/** Another chatter's remembered message that is the same pitch as this one.
+ * Two bots of a wave often word it a little differently (an emoji, a name,
+ * digits), so the learner — keyed on the exact text — counts each under its
+ * own entry and neither reaches LEARN_PROMOTE_CHATTERS: both walked. This
+ * pairs them by the history's similarity rule instead, under the learner's
+ * own bar (promo-looking, two chatters). */
+export async function findRecentTwin(broadcasterId: string, chatterId: string, chatMessage: string): Promise<HistoryMatch | null> {
+  if (spamScore(normalizeText(chatMessage)).score < LEARN_THRESHOLD) return null;
+  for (const m of await recentMessages(broadcasterId, chatterId)) {
+    if (sameMessage(m.message, chatMessage)) return { kind: "twin", ref: m.login };
+  }
+  return null;
 }

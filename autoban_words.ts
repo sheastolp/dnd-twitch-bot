@@ -346,7 +346,7 @@ export function spamScore(normalized: string): { score: number; domains: string[
   score += Math.min(promo, 3);
   return { score, domains };
 }
-const LEARN_THRESHOLD = 3;
+export const LEARN_THRESHOLD = 3;
 
 // ── Built-in pitch (always on, no list entry needed) ──
 //
