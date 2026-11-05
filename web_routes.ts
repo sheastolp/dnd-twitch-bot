@@ -37,6 +37,7 @@ import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleMotdAdminRoute } from "./motd.ts";
+import { handleAdminExploreRoute } from "./admin_explore.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { handleExtensionRoute } from "./extension.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
@@ -701,6 +702,13 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
       scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
+  }
+
+  // Operator explorer (admin_explore.ts): channels, maps, rosters, documents
+  // and everything saved about one person. Same ADMIN_API_SECRET gate.
+  if (path === "/admin/explore") {
+    const routed = await handleAdminExploreRoute(req, url, path);
+    if (routed) return routed;
   }
 
   // The developer's message of the day (motd.ts) — same ADMIN_API_SECRET gate.
