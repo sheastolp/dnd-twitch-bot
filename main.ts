@@ -67,6 +67,7 @@ import { handleCreationCommand } from "./characters.ts";
 import { handleDuelCommand, handleMonsterDuelCommand, handlePartyCommand, handlePartyDuelCommand, handleInitiativeCommand } from "./combat.ts";
 import { env, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
 import { hasModeratorBadge } from "./utils.ts";
+import { isBotAdminLogin } from "./bot_admins.ts";
 import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidThankYou } from "./flavor_events.ts";
 import { groupForMessage } from "./commandgroups.ts";
 import { page } from "./pages.ts";
@@ -458,7 +459,8 @@ async function handleNotification(body: any): Promise<Response | void> {
     chatterId === broadcasterId ||
     chatterId === eventBroadcasterId ||
     chatterId === moderatorId ||
-    hasModeratorBadge(body.event);
+    hasModeratorBadge(body.event) ||
+    isBotAdminLogin(chatter);
   const baseUrl = PUBLIC_ORIGIN;
   // What the spam filters (automod.ts) need beyond the plain text.
   const modEvent = {

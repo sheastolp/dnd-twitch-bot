@@ -10,21 +10,18 @@
 // created with, so ones made by another copy (with its own EVENTSUB_SECRET)
 // fail verifyEventSub here and are silently dropped.
 //
-// Same auth as /admin/logs: ?key=<ADMIN_API_SECRET> (a form field on POST).
+// Same auth as /admin/logs: ?key=<ADMIN_API_SECRET> (a form field on POST),
+// or a bot admin's /admin/login session (operator_auth.ts).
 
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { sqlite } from "./sqlite.ts";
 import { recordMonitorEvent } from "./db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { escapeHtml } from "./utils.ts";
+import { isOperatorRequest, operatorUnauthorized } from "./operator_auth.ts";
 import { type EventSubSubscription, listAppEventSubSubscriptions, repointEventSubSubscription } from "./twitch.ts";
 
 const CSS = `.bad{color:var(--seal-dk);font-weight:600}.ok{color:var(--ok)}.mono{font-family:ui-monospace,monospace;font-size:.82rem;word-break:break-all}form.inline{display:inline;margin:0}`;
-
-function authorized(key: string): boolean {
-  const secret = Deno.env.get("ADMIN_API_SECRET");
-  return !!secret && secret.length >= 32 && key === secret;
-}
 
 /** ?key= decoded by hand so a "+" in the secret survives (see /admin/logs). */
 function keyFromQuery(url: URL): string {
@@ -55,7 +52,7 @@ async function channelNames(): Promise<Map<string, string>> {
 export async function handleEventSubAdminRoute(req: Request, url: URL, path: string): Promise<Response | null> {
   if (req.method === "GET" && path === "/admin/eventsub") {
     const key = keyFromQuery(url);
-    if (!authorized(key)) return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", { status: 401, headers: { "Cache-Control": "no-store" } });
+    if (!(await isOperatorRequest(req, key))) return operatorUnauthorized();
     const [subs, names] = await Promise.all([listAppEventSubSubscriptions(), channelNames()]);
     const byChannel = new Map<string, EventSubSubscription[]>();
     for (const s of subs) {
@@ -88,7 +85,7 @@ export async function handleEventSubAdminRoute(req: Request, url: URL, path: str
   if (req.method === "POST" && path === "/admin/eventsub/repoint") {
     const form = await req.formData();
     const key = String(form.get("key") ?? "");
-    if (!authorized(key)) return new Response("Unauthorized", { status: 401, headers: { "Cache-Control": "no-store" } });
+    if (!(await isOperatorRequest(req, key))) return operatorUnauthorized();
     const broadcasterId = String(form.get("broadcaster_id") ?? "");
     if (!/^\d+$/.test(broadcasterId)) return new Response("Missing broadcaster_id", { status: 400 });
     const all = form.get("all") === "1";

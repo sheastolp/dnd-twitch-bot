@@ -37,6 +37,7 @@ import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleMotdAdminRoute } from "./motd.ts";
+import { handleOperatorLogin, isOperatorRequest, operatorUnauthorized } from "./operator_auth.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { handleExtensionRoute } from "./extension.ts";
 import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminChannelsPage } from "./channel_status.ts";
@@ -641,12 +642,14 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // GET request regardless of path, so anything placed after it is
   // unreachable (this previously broke both admin routes silently: they
   // fell through to the homepage instead of running).
+  // Twitch login for bot admins (bot_admins.ts) — an alternative to the
+  // ADMIN_API_SECRET on every /admin page below (operator_auth.ts).
+  if (req.method === "GET" && path === "/admin/login") {
+    return await handleOperatorLogin(PUBLIC_ORIGIN);
+  }
+
   if (req.method === "GET" && path === "/admin/merchant/status") {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
-    if (!secret || secret.length < 32 || auth !== `Bearer ${secret}`) {
-      return new Response("Unauthorized", { status: 401, headers: { "Cache-Control": "no-store" } });
-    }
+    if (!(await isOperatorRequest(req))) return operatorUnauthorized();
     const status = await getMerchantCronStatus();
     const recentEvents = await getMonitorEvents("merchant", 25);
     const now = Date.now();
@@ -675,8 +678,6 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // this accepts the same secret as a ?key= query param instead (still
   // requires ADMIN_API_SECRET, still never logged anywhere but here).
   if (req.method === "GET" && path === "/admin/logs") {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
     // NOTE: deliberately NOT using url.searchParams.get("key") here.
     // URLSearchParams follows the application/x-www-form-urlencoded
     // convention where a literal "+" in the query string is decoded as a
@@ -687,13 +688,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // "+" alone) avoids that trap.
     const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
     const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
-    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
-    if (!authorized) {
-      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
-        status: 401,
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
+    if (!(await isOperatorRequest(req, keyParam))) return operatorUnauthorized();
     const kindFilter = url.searchParams.get("kind") ?? "";
     const [status, overview, events] = await Promise.all([
       getMerchantCronStatus(),
@@ -722,17 +717,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // Every connected channel's connection health (see channel_status.ts):
   // disconnected, missing newer permissions, or fine. Same auth as /admin/logs.
   if (req.method === "GET" && path === "/admin/channels") {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
     const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
     const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
-    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
-    if (!authorized) {
-      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
-        status: 401,
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
+    if (!(await isOperatorRequest(req, keyParam))) return operatorUnauthorized();
     const list = await listChannelStatuses();
     if (url.searchParams.get("json") === "1") {
       return new Response(JSON.stringify({ ok: true, channels: list }), {
@@ -753,17 +740,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // the "+" -> space query-string trap (see note on /admin/logs above).
   // channel= accepts either the numeric broadcaster_id or the Twitch login.
   if (req.method === "GET" && path === "/admin/dashboard-link") {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
     const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
     const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
-    const authorized = !!secret && secret.length >= 32 && (auth === `Bearer ${secret}` || keyParam === secret);
-    if (!authorized) {
-      return new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", {
-        status: 401,
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
+    if (!(await isOperatorRequest(req, keyParam))) return operatorUnauthorized();
     const channelParam = url.searchParams.get("channel");
     if (!channelParam) {
       return new Response("Missing ?channel=<broadcaster_id or twitch login>.", { status: 400 });
@@ -813,9 +792,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
 
   if (req.method === "POST" && path.startsWith("/admin/channels/")) {
-    const secret = Deno.env.get("ADMIN_API_SECRET");
-    const auth = req.headers.get("Authorization") ?? "";
-    if (!secret || secret.length < 32 || auth !== `Bearer ${secret}`) return new Response("Unauthorized", { status: 401, headers: { "Cache-Control": "no-store" } });
+    if (!(await isOperatorRequest(req))) return operatorUnauthorized();
     const match = path.match(/^\/admin\/channels\/(\d+)\/(disable|enable)$/);
     if (!match) return new Response("Not found", { status: 404 });
     const broadcasterId = match[1];

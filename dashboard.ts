@@ -92,6 +92,8 @@ import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
 import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
 import { hasBotWhisperToken } from "./whisper.ts";
 import { getChannelStatus } from "./channel_status.ts";
+import { isBotAdminLogin } from "./bot_admins.ts";
+import { handleOperatorCallback, OPERATOR_STATE } from "./operator_auth.ts";
 
 export async function handleDashboardCommand(
   chatMessage: string,
@@ -351,7 +353,10 @@ async function handlePickerCallback(code: string | null, oauthError: string | nu
     const token = await exchangeCode(code, `${baseUrl}/dashboard/callback`);
     const viewer = await getViewerIdentity(token.access_token);
     if (!viewer) return page("Login failed", `<h1>Login failed</h1><p>Couldn't verify your Twitch account — try again.</p>${back}`);
-    const candidates = [viewer.id, ...(await listModeratedChannelIds(token.access_token, viewer.id))];
+    // A bot admin (bot_admins.ts) gets every connected channel.
+    const candidates = isBotAdminLogin(viewer.login)
+      ? (await getMerchantOverview()).map((r: any) => String(r.broadcaster_id))
+      : [viewer.id, ...(await listModeratedChannelIds(token.access_token, viewer.id))];
     const channels: Array<{ id: string; name: string }> = [];
     for (const id of [...new Set(candidates)]) {
       const b = await getBroadcaster(id);
@@ -399,6 +404,7 @@ export async function handleDashboardCallback(
   if (!stateRow) return new Response("Invalid or expired login attempt. Get a fresh link in chat with !dashboard.", { status: 400 });
   if (String(stateRow.channel_id) === PICKER_CHANNEL) return await handlePickerCallback(code, oauthError, baseUrl);
   if (String(stateRow.channel_id) === MERCHANT_SALE_STATE) return await handleMerchantSaleCallback(code, oauthError, baseUrl);
+  if (String(stateRow.channel_id) === OPERATOR_STATE) return await handleOperatorCallback(code, oauthError, baseUrl);
   const channelId = String(stateRow.channel_id);
   const key = String(stateRow.dashboard_key);
 
@@ -420,7 +426,7 @@ export async function handleDashboardCallback(
       return redirectTo(dashboardUrl(baseUrl, channelId, key, { error: "Couldn't verify your Twitch account — try logging in again." }));
     }
     const isBroadcaster = viewer.id === channelId;
-    const isMod = isBroadcaster || (await isUserModeratorOfChannel(token.access_token, viewer.id, channelId));
+    const isMod = isBroadcaster || isBotAdminLogin(viewer.login) || (await isUserModeratorOfChannel(token.access_token, viewer.id, channelId));
     if (!isMod) {
       return redirectTo(
         dashboardUrl(baseUrl, channelId, key, { error: `${viewer.display_name} isn't a moderator of this channel on Twitch.` }),
@@ -1199,7 +1205,7 @@ const MERCHANT_SALE_STATE = "msale";
 const MERCHANT_SALE_COOKIE = "gs_msale";
 /** Twitch logins (lowercase) that may post one-time sales in any connected
  * channel, whether or not they moderate it. */
-const MERCHANT_SALE_EXTRA_LOGINS = new Set(["stonedsheamus"]);
+const MERCHANT_SALE_EXTRA_LOGINS = new Set<string>([]);
 
 async function signMerchantSaleSession(viewerName: string, channels: string, expiresAt: number): Promise<string> {
   const payload = `msale:${viewerName}:${expiresAt}:${channels}`;
@@ -1280,7 +1286,7 @@ async function handleMerchantSaleCallback(code: string | null, oauthError: strin
     const viewer = await getViewerIdentity(token.access_token);
     if (!viewer) return merchantSaleLoginGate("Couldn't verify your Twitch account — try again.");
     let channels: string;
-    if (MERCHANT_SALE_EXTRA_LOGINS.has(viewer.login.toLowerCase())) {
+    if (MERCHANT_SALE_EXTRA_LOGINS.has(viewer.login.toLowerCase()) || isBotAdminLogin(viewer.login)) {
       channels = "*";
     } else {
       const ids = new Set([viewer.id, ...(await listModeratedChannelIds(token.access_token, viewer.id))]);

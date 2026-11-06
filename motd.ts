@@ -17,6 +17,7 @@ import { getBroadcaster, isChannelBlocked, isChannelEnabled, recordMonitorEvent 
 import { sendChatMessage } from "./twitch.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
+import { isOperatorRequest, operatorUnauthorized } from "./operator_auth.ts";
 
 export const MAX_MOTD_LEN = 450; // Twitch's limit is 500; leaves room for the prefix
 const RESEND_GUARD_MS = 60 * 60_000;
@@ -64,25 +65,20 @@ export async function onStreamOnlineMotd(broadcasterId: string) {
 
 // ── /admin/motd ─────────────────────────────────────────────────────────────
 
-function authorized(key: string): boolean {
-  const secret = Deno.env.get("ADMIN_API_SECRET");
-  return !!secret && secret.length >= 32 && key === secret;
-}
-
 /** ?key= decoded by hand so a "+" in the secret survives (see /admin/logs). */
 function keyFromQuery(url: URL): string {
   const m = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
   return m ? decodeURIComponent(m[1]) : "";
 }
 
-const unauthorized = () => new Response("Unauthorized. Append ?key=<ADMIN_API_SECRET> to the URL.", { status: 401, headers: { "Cache-Control": "no-store" } });
+const unauthorized = operatorUnauthorized;
 
 async function page(key: string, notice = "", error = ""): Promise<Response> {
   const { message, updatedAt } = await getMotd();
   const k = encodeURIComponent(key);
   const hiddenKey = `<input type="hidden" name="key" value="${escapeHtml(key)}">`;
   const body = `<h1>Message of the day</h1>
-<p class="lede">Posted once in every connected channel's chat when its stream goes live. Leave it empty and nothing is posted. Only you can change it — this page needs the admin key.</p>
+<p class="lede">Posted once in every connected channel's chat when its stream goes live. Leave it empty and nothing is posted. Only you can change it — this page needs the admin key or an operator login.</p>
 ${error ? `<p class="banner error">${escapeHtml(error)}</p>` : notice ? `<p class="banner ok">${escapeHtml(notice)}</p>` : ""}
 <form method="post" action="/admin/motd" class="card">${hiddenKey}<input type="hidden" name="intent" value="save">
 <label for="motd"><strong>Message</strong> <span class="muted small">(up to ${MAX_MOTD_LEN} characters; chat sees it as “${PREFIX}your message”)</span></label>
@@ -103,12 +99,12 @@ export async function handleMotdAdminRoute(req: Request, url: URL, path: string)
   if (path !== "/admin/motd") return null;
   if (req.method === "GET") {
     const key = keyFromQuery(url);
-    return authorized(key) ? await page(key) : unauthorized();
+    return (await isOperatorRequest(req, key)) ? await page(key) : unauthorized();
   }
   if (req.method === "POST") {
     const form = await req.formData();
     const key = String(form.get("key") ?? "");
-    if (!authorized(key)) return unauthorized();
+    if (!(await isOperatorRequest(req, key))) return unauthorized();
     if (String(form.get("intent")) === "clear") {
       await setMotd("");
       return await page(key, "Cleared — nothing will be posted when streams go live.");
