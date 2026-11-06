@@ -43,6 +43,7 @@
 import { getCharacter, getCustomCommand, isCommandGroupEnabled, saveCharacter } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { summonMonster, recordMonsterOutcome, tierTag } from "./bestiary.ts";
+import { placeText } from "./orrery.ts";
 import { recordBattle } from "./battle_log.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
@@ -253,7 +254,7 @@ export async function handleHoardCommand(
       const outcome = fight.won
         ? `${display} prevails! ${duelNarration("victory")}${rewards}${bounty}`
         : `${monster.name} wins — ${display} limps home to recover. ${duelNarration("defeat")}`;
-      const msg = `@${display} ⚔️ The Clerk sends you after ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp}). ` +
+      const msg = `@${display} ⚔️ The Clerk sends you after ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp}). ${placeText(monster.place) ? placeText(monster.place) + " " : ""}` +
         `${shownLog} — ${outcome} HP ${hpLeftNow}/${after.hpMax}.${learnNote} ${await nextStep(broadcasterId, chatter, after, p)}`;
       await sendChatMessages(msg, broadcasterId, {
         detail: msg.replace(shownLog, fight.battle.renderDetailed()),

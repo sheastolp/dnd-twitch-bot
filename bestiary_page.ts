@@ -40,8 +40,10 @@ export function renderBestiaryPage(
       : `<span class="muted">—</span>`;
     const origin = m.learned
       ? `<span class="badge learned" title="Learned ${escapeHtml(new Date(m.learned.at).toISOString().slice(0, 10))}">learned${m.learned.by ? ` · ${escapeHtml(m.learned.by)}` : ""}</span>`
+      : m.orrery
+      ? `<span class="badge" title="One of Verrowen's own creatures, from the Grand Orrery's bestiary">Verrowen</span>`
       : `<span class="badge">core</span>`;
-    const search = [m.name, m.cr, m.learned ? "learned" : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
+    const search = [m.name, m.cr, m.learned ? "learned" : m.orrery ? "core verrowen" : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
     const cmd = `!dndduel ${m.name.toLowerCase()}`;
     return `<tr data-search="${escapeHtml(search)}" data-cr="${m.crValue}" data-tier="${tier}" data-learned="${m.learned ? 1 : 0}">` +
       `<td><strong>${escapeHtml(m.name)}</strong><div class="muted small"><code>${escapeHtml(cmd)}</code></div></td>` +

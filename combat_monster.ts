@@ -2,6 +2,7 @@
 // Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
 import { findMonsterByName } from "./data.ts";
+import { placeText } from "./orrery.ts";
 import { getChannelRoster, recordMonsterOutcome, summonMonster, tierTag } from "./bestiary.ts";
 import { recordBattle } from "./battle_log.ts";
 import { duelNarration } from "./narration.ts";
@@ -176,7 +177,7 @@ export async function handleMonsterDuelCommand(
     );
     await sendChatMessage(
       `@${display} classic monster fight! ${monster.name} (CR ${monster.cr}${tierTag(monster.tier)}) AC ${monster.ac}, HP ${monster.hp}. Your HP: ${c.hpMax}. ${
-        duelNarration("challenge")
+        placeText(monster.place) || duelNarration("challenge")
       } Use !dndduel attack.`,
       broadcasterId,
     );
@@ -230,7 +231,7 @@ export async function handleMonsterDuelCommand(
     const shownLog = battle.render();
     const msg =
       `@${display} the D20 of Fate summons ${withArticle(monster.name)} (CR ${monster.cr}${tierTag(monster.tier)}, AC ${monster.ac}, HP ${monster.hp})! ${
-        duelNarration("challenge")
+        placeText(monster.place) || duelNarration("challenge")
       } Auto-resolved in ${battle.roundCount} round${
         battle.roundCount === 1 ? "" : "s"
       } (${username} vs ${monster.name}): ${shownLog} — ${

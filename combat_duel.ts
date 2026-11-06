@@ -1,6 +1,7 @@
 // Player-vs-player duels: !dndduel @user (auto) and !dndduel classic @user.
 // Split out of combat.ts (which re-exports it) to keep files a manageable size.
 
+import { placeFor, placeText } from "./orrery.ts";
 import { BattleLog } from "./battle.ts";
 import { classicText, heroFighter, heroTurn } from "./combat_abilities.ts";
 import { duelNarration } from "./narration.ts";
@@ -9,6 +10,13 @@ import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { isChallengeExpired, forfeitIfIdleDuel, duelSummary, recordDuelNaturals, resolvePlayerDuel, strikeD20s } from "./combat_shared.ts";
 import { recordBattle } from "./battle_log.ts";
+
+/** A line from GuildScribe's arena (the Grand Orrery's bestiary, orrery.ts)
+ * about half the time, otherwise the usual duel flavor. */
+function arenaLine(stage: string): string {
+  const arena = Math.random() < 0.5 ? placeText(placeFor("duels")) : "";
+  return arena || duelNarration(stage);
+}
 
 export async function handleDuelCommand(
   chatMessage: string,
@@ -84,7 +92,7 @@ export async function handleDuelCommand(
       );
       await sendChatMessage(
         `@${display} accepted classic duel! ${challenge.challenger} goes first. ${
-          duelNarration("accept")
+          arenaLine("accept")
         } Use !dndduel attack on your turn, or !dndduel status / !dndduel end.`,
         broadcasterId,
       );
@@ -111,7 +119,7 @@ export async function handleDuelCommand(
       foe: loser,
       outcome: "win",
     });
-    const intro = `@${display} accepted! ${duelNarration("accept")} `;
+    const intro = `@${display} accepted! ${arenaLine("accept")} `;
     await sendChatMessages(
       intro + result.log,
       broadcasterId,

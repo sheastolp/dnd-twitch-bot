@@ -16,6 +16,7 @@
 // AI replies go through openai.ts (OpenAI or Ollama, see there), same
 // pattern as npcs.ts / haggle.ts. MENTION_REPLY_MODEL picks the model.
 
+import { ensureOrrery, orreryPromptLine } from "./orrery.ts";
 import { OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
@@ -63,6 +64,10 @@ const FALLBACK_LINES = [
   "Devochka, malchik, whoever you are — drink tea, stop typing so much.",
 ];
 
+// In the Grand Orrery she is the Scribe, GuildScribe's senior guildscribe
+// (orrery.ts adds the decided lore when it can read it).
+const SCRIBE_IN_THE_ORRERY = `In the world of the Grand Orrery you are the Scribe, senior guildscribe at GuildScribe, the adventurers' guild hall in the Kingdom's capital: you sit at the front desk, keep the adventurers' parchments, and fine anyone who tries to rob you into the hall's swear jar.`;
+
 type Turn = { role: "user" | "assistant"; content: string };
 const history = new Map<string, Turn[]>();
 const lastUserReply = new Map<string, number>();
@@ -101,11 +106,12 @@ export function stripSpeakerLabel(raw: string): string {
 async function generateReply(broadcasterId: string, display: string, message: string): Promise<string | null> {
   try {
     // No `temperature` override: some OpenAI models only accept the default.
+    await ensureOrrery(); // the first reply after a restart already knows the lore
     const completion = await openai.chat.completions.create({
       model: MODEL,
       max_completion_tokens: REPLY_MAX_TOKENS,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: [SYSTEM_PROMPT, SCRIBE_IN_THE_ORRERY, orreryPromptLine("scribe")].filter(Boolean).join(" ") },
         ...(history.get(broadcasterId) ?? []),
         { role: "user", content: `${display}: ${message || "(just tagged you and said nothing)"}` },
       ],

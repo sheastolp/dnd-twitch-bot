@@ -41,6 +41,7 @@
 // full XP and a share of a hoard RAID_LOOT_MULTIPLIER times a normal drop.
 // Heroes always start a raid at full HP, so a wipe costs nothing but time.
 
+import { placeForMonster, placeText } from "./orrery.ts";
 import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
@@ -242,7 +243,9 @@ export async function createRaidQuest(
   const held = questNum === 2 && RAID_SECOND_QUEST_DELAY_SECONDS > 0
     ? `It gathers its strength for ${waitText(RAID_SECOND_QUEST_DELAY_SECONDS * 1000)} — then type`
     : "Type";
-  return `📯 RAID QUEST${ofStream} posted on the guild board! ${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
+  // Where it came from, from the Grand Orrery's bestiary (orrery.ts).
+  const where = placeText(placeForMonster(boss.name, 20, "raids"));
+  return `📯 RAID QUEST${ofStream} posted on the guild board! ${where ? where + " " : ""}${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
     `far too much for one hero. ${held} !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
     `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
     `Slay it this stream for its full XP and a ${opts.lootMult > 0 ? "great hoard" : "place in the chronicle"}!`;

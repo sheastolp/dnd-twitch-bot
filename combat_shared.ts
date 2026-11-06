@@ -10,7 +10,8 @@ import { initiativeMod, rollInitiative } from "./utils.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { recordDiceRollEvent } from "./social_db.ts";
 
-export const withArticle = (name: string) => `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
+// A name that already has one ("The Mosswarden") is left as it is.
+export const withArticle = (name: string) => /^the\s/i.test(name) ? name : `${/^[aeiou]/i.test(name) ? "an" : "a"} ${name}`;
 
 // A pending challenge (!dndduel @user / !dndduel party <a> <b>) must be
 // accepted within this window or it silently expires — capped at 5 minutes

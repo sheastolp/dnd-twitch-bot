@@ -29,6 +29,7 @@
 //     moves a 1-9% cut of THEIR purse (at least 1 cp) into the swear jar.
 //     No character needed, no cooldown spent — every attempt costs.
 
+import { placeFor, placeText } from "./orrery.ts";
 import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
 import { recordBattle } from "./battle_log.ts";
@@ -232,7 +233,9 @@ export async function handleRobCommand(
     outcome: "win",
     note: loot ? `+${formatCoins(amount)}` : undefined,
   });
-  const lunge = `🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows!`;
+  // Where it happens, from the Grand Orrery's bestiary (orrery.ts).
+  const market = placeText(placeFor("robberies"));
+  const lunge = `🗡️ @${display} lunges at ${targetPurse.displayName} from the shadows!${market ? " " + market : ""}`;
   await sendChatMessages(`${lunge} ${result.log} ${outcome}`, broadcasterId, {
     detail: `${lunge} ${result.fullLog} ${outcome}`,
     names: [robber, target, display, targetPurse.displayName],

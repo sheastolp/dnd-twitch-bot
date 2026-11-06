@@ -30,6 +30,7 @@
 //   !bestiary forget <name>      mod: remove + block a learned monster
 //   !bestiary reset <name|all>   mod: clear adaptation back to tier 0
 
+import { ensureOrrery, orreryBeasts, orreryCreature, placeForMonster, type FightPlace } from "./orrery.ts";
 import { sqlite } from "./sqlite.ts";
 import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { lookup5e } from "./lookups.ts";
@@ -98,7 +99,7 @@ const keyOf = (name: string) => name.trim().toLowerCase();
 // Roster (core + learned)
 // ---------------------------------------------------------------------------
 
-export type HuntableMonster = SoloMonster & { learned?: { by: string; at: number } };
+export type HuntableMonster = SoloMonster & { learned?: { by: string; at: number }; orrery?: boolean };
 
 // Short per-isolate memo: the roster is read on every hunt, and learning or
 // forgetting invalidates it immediately.
@@ -107,8 +108,10 @@ const rosterCache = new Map<string, { at: number; roster: HuntableMonster[] }>()
 
 const crSort = (a: SoloMonster, b: SoloMonster) => a.crValue - b.crValue || a.name.localeCompare(b.name);
 
-/** Every monster this channel can hunt: the core table plus everything it has
- * learned (a learned entry never shadows a core one), sorted by CR. */
+/** Every monster this channel can hunt: the core table, Verrowen's own
+ * creatures from the Grand Orrery's bestiary (orrery.ts), and everything it
+ * has learned (a learned or Orrery entry never shadows a core one), sorted
+ * by CR. */
 export async function getChannelRoster(broadcasterId: string): Promise<HuntableMonster[]> {
   const hit = rosterCache.get(broadcasterId);
   if (hit && Date.now() - hit.at < ROSTER_TTL_MS) return hit.roster;
@@ -135,7 +138,12 @@ export async function getChannelRoster(broadcasterId: string): Promise<HuntableM
   } catch (e) {
     console.error("bestiary roster read failed", e); // never let this break a hunt
   }
-  const roster = [...SOLO_MONSTERS, ...learned].sort(crSort);
+  await ensureOrrery();
+  const taken = new Set([...SOLO_MONSTERS, ...learned].map((m) => keyOf(m.name)));
+  const verrowen: HuntableMonster[] = orreryBeasts()
+    .filter((m) => !taken.has(keyOf(m.name)))
+    .map((m) => ({ ...m, orrery: true }));
+  const roster = [...SOLO_MONSTERS, ...verrowen, ...learned].sort(crSort);
   rosterCache.set(broadcasterId, { at: Date.now(), roster });
   return roster;
 }
@@ -274,7 +282,9 @@ export async function recordMonsterOutcome(
 // Summoning (the one way every hunt picks its monster)
 // ---------------------------------------------------------------------------
 
-export type SummonedMonster = SoloMonster & { tier: number };
+/** A monster ready for a fight, with where the fight happens (from the
+ * Grand Orrery's bestiary, null when it has nothing to say). */
+export type SummonedMonster = SoloMonster & { tier: number; place: FightPlace | null };
 
 /**
  * The monster a hero of `level` meets: a named roster entry when `name` is
@@ -296,7 +306,7 @@ export async function summonMonster(
     scaled = pickMonsterForLevel(level, roster);
   }
   const { tier } = await getAdaptation(broadcasterId, scaled.name);
-  return applyAdaptation(stripMeta(scaled), tier);
+  return { ...applyAdaptation(stripMeta(scaled), tier), place: placeForMonster(scaled.name, level) };
 }
 
 /** Drop bestiary-only metadata before a stat block goes into a fight/table. */
@@ -544,13 +554,15 @@ export async function handleBestiaryCommand(
     return true;
   }
   const a = await getAdaptation(broadcasterId, base.name);
-  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : "core";
+  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : base.orrery ? "of Verrowen" : "core";
+  const verrowen = orreryCreature(base.name);
+  const lore = verrowen ? ` ${verrowen.icon ? verrowen.icon + " " : ""}${verrowen.does}${verrowen.does && !/[.!?]$/.test(verrowen.does) ? "." : ""} Found in ${verrowen.place.replace(/^The /, "the ")}.` : "";
   const record = a.heroWins + a.monsterWins
     ? ` Record here: heroes ${a.heroWins} – ${base.name} ${a.monsterWins}.`
     : " Never fought here yet.";
   const learning = a.tier
     ? ` 🧠 Adaptation ${signedTier(a.tier)}: ${describeTier(a.tier)}.`
     : "";
-  await say(`📖 ${base.name} (${origin}): ${statLine(base)} before level scaling.${record}${learning} Hunt: !dndduel ${base.name.toLowerCase()}`);
+  await say(`📖 ${base.name} (${origin}): ${statLine(base)} before level scaling.${lore}${record}${learning} Hunt: !dndduel ${base.name.toLowerCase()}`);
   return true;
 }
