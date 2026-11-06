@@ -43,6 +43,7 @@ import { CHANNEL_STATUS_CSS, CONNECT_SCOPES, listChannelStatuses, renderAdminCha
 import { handleHowtoRoute } from "./howto.ts";
 import { FAVICON_PATHS, handleFavicon } from "./favicon.ts";
 import { handleSeoRoute, renderHomePage, seoHead } from "./seo_pages.ts";
+import { handleOrreryFeedRoute } from "./orrery_feed.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -80,6 +81,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // Home page extras for search engines: the switching guide, robots.txt, sitemap.xml.
   const seo = handleSeoRoute(req, path);
   if (seo) return seo;
+  // The live link with the Grand Orrery (orrery_feed.ts).
+  const orreryFeed = await handleOrreryFeedRoute(req, path);
+  if (orreryFeed) return orreryFeed;
   if (req.method === "GET" && path === "/api/channels") {
     try {
       return new Response(JSON.stringify({ channels: await listShowcaseChannels(Deno.env.get("TWITCH_BOT_ID") ?? "") }), {

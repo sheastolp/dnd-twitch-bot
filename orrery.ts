@@ -25,7 +25,23 @@
 //   ORRERY_BRANCH=main         the branch to read (review shows what's
 //                              waiting; main is the live Orrery)
 //   ORRERY_RAW_BASE=…          default https://raw.githubusercontent.com/sheastolp/grand-orrery/
-//   ORRERY_REFRESH_MIN=30      how often to re-read it
+//   ORRERY_REFRESH_MIN=5       how often to check it for changes
+//   ORRERY_REPO=sheastolp/grand-orrery   the repo, for finding the branch's
+//                              newest commit (GitHub's API; a 304 "nothing
+//                              changed" doesn't count against its limit)
+//   ORRERY_GITHUB_TOKEN=…      optional, for a higher API limit
+//
+// Each check asks GitHub which commit the branch is on, and only when it
+// moved reads the files at that exact commit, so a re-read right after a
+// publish never gets the raw server's few-minutes-old copy. If the API
+// can't be reached, it falls back to reading the branch's files directly.
+//
+// It stays current on its own: a timer re-reads it every few minutes even
+// when nobody is fighting or chatting, and POST /api/orrery/refresh (which
+// the Orrery's publish calls) re-reads it at once. GET /api/orrery
+// (orrery_feed.ts) sends the other way: the hall's live adventurers,
+// companies and learned beasts, which the Orrery page shows, plus
+// orreryStatus() below, so the Orrery can see what GuildScribe last read.
 //
 // Everything here is best-effort: if GitHub can't be reached, the last good
 // copy is kept, and before the first good read every getter returns nothing,
@@ -36,9 +52,11 @@ import type { SoloMonster } from "./data.ts";
 const ENABLED = (Deno.env.get("ORRERY") ?? "on").toLowerCase() !== "off";
 const BRANCH = Deno.env.get("ORRERY_BRANCH") || "main";
 const RAW_BASE = (Deno.env.get("ORRERY_RAW_BASE") || "https://raw.githubusercontent.com/sheastolp/grand-orrery/").replace(/\/?$/, "/");
-const REFRESH_MS = Math.max(1, Number(Deno.env.get("ORRERY_REFRESH_MIN") ?? "30")) * 60_000;
+const REFRESH_MS = Math.max(1, Number(Deno.env.get("ORRERY_REFRESH_MIN") ?? "5")) * 60_000;
 // After a failed read, try again sooner than a full refresh.
 const RETRY_MS = 2 * 60_000;
+const REPO = Deno.env.get("ORRERY_REPO") || "sheastolp/grand-orrery";
+const GH_TOKEN = Deno.env.get("ORRERY_GITHUB_TOKEN") || "";
 const FETCH_TIMEOUT_MS = 8_000;
 
 export type PlaceUse = "hunts" | "duels" | "robberies" | "raids";
@@ -238,23 +256,80 @@ let lore: OrreryLore = { sections: {} };
 let loadedAt = 0;
 let nextTryAt = 0;
 let loading: Promise<void> | null = null;
+// Per file: its ETag (for the "changed?" check), when its text last changed,
+// and the last error, for orreryStatus().
+const etags = new Map<string, string>();
+const changedAt = new Map<string, number>();
+const errors = new Map<string, string>();
+// The commit the copy was read at, and the API's ETag for the branch head.
+let sha = "";
+let headTag = "";
 
-async function fetchText(file: string): Promise<string> {
-  const res = await fetch(`${RAW_BASE}${BRANCH}/${file}`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+/** The branch's newest commit, or null when it's the one we already have
+ * ("" when the API couldn't say, so the caller reads the branch directly). */
+async function branchHead(): Promise<string | null> {
+  const headers: Record<string, string> = { Accept: "application/vnd.github.sha", "User-Agent": "GuildScribe" };
+  if (headTag && sha) headers["If-None-Match"] = headTag;
+  if (GH_TOKEN) headers.Authorization = `Bearer ${GH_TOKEN}`;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/${encodeURIComponent(BRANCH)}`, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (res.status === 304) { await res.body?.cancel(); return null; }
+    if (!res.ok) { await res.body?.cancel(); throw new Error(`HTTP ${res.status}`); }
+    const head = (await res.text()).trim();
+    if (!/^[0-9a-f]{40}$/.test(head)) throw new Error("not a commit");
+    headTag = res.headers.get("etag") || "";
+    return head === sha ? null : head;
+  } catch (e) {
+    errors.set("head", String(e));
+    return "";
+  }
+}
+
+/** The file's text (at commit `at`, or the branch's newest), or null when
+ * it hasn't changed since the last read. */
+async function fetchText(file: string, at = ""): Promise<string | null> {
+  const headers: Record<string, string> = {};
+  const tag = etags.get(file);
+  if (tag) headers["If-None-Match"] = tag;
+  const res = await fetch(`${RAW_BASE}${at || BRANCH}/${file}`, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (res.status === 304) {
+    await res.body?.cancel();
+    return null;
+  }
+  if (res.status === 404) {
+    // Not on this branch (yet): an empty file, not a failure.
+    await res.body?.cancel();
+    etags.delete(file);
+    errors.set(file, `not on ${BRANCH} yet`);
+    return "";
+  }
   if (!res.ok) {
     await res.body?.cancel();
     throw new Error(`HTTP ${res.status}`);
   }
+  const etag = res.headers.get("etag");
+  if (etag) etags.set(file, etag);
+  changedAt.set(file, Date.now());
   return await res.text();
 }
 
 async function load(): Promise<void> {
-  const [b, l] = await Promise.allSettled([fetchText("bestiary.md"), fetchText("lore.md")]);
+  const head = await branchHead();
+  if (head === null) {
+    // Nothing new on the branch since the last good read.
+    errors.delete("head");
+    loadedAt = Date.now();
+    nextTryAt = Date.now() + REFRESH_MS;
+    return;
+  }
+  if (head) errors.delete("head");
+  const [b, l] = await Promise.allSettled([fetchText("bestiary.md", head), fetchText("lore.md", head)]);
+  if (head && b.status === "fulfilled" && l.status === "fulfilled") sha = head;
   let ok = false;
-  if (b.status === "fulfilled") { bestiary = parseBestiary(b.value); ok = true; }
-  else console.error("Orrery: bestiary.md read failed", String(b.reason));
-  if (l.status === "fulfilled") { lore = parseLore(l.value); ok = true; }
-  else console.error("Orrery: lore.md read failed", String(l.reason));
+  if (b.status === "fulfilled") { if (b.value !== null) bestiary = parseBestiary(b.value); ok = true; if (b.value) errors.delete("bestiary.md"); }
+  else { errors.set("bestiary.md", String(b.reason)); console.error("Orrery: bestiary.md read failed", String(b.reason)); }
+  if (l.status === "fulfilled") { if (l.value !== null) lore = parseLore(l.value); ok = true; if (l.value) errors.delete("lore.md"); }
+  else { errors.set("lore.md", String(l.reason)); console.error("Orrery: lore.md read failed", String(l.reason)); }
   if (ok) loadedAt = Date.now();
   nextTryAt = Date.now() + (b.status === "fulfilled" && l.status === "fulfilled" ? REFRESH_MS : RETRY_MS);
 }
@@ -266,6 +341,45 @@ function refreshSoon(): Promise<void> {
     loading = load().catch((e) => console.error("Orrery: read failed", e)).finally(() => { loading = null; });
   }
   return loading ?? Promise.resolve();
+}
+
+// Re-read on a timer too, so the Orrery's changes reach the bot even while
+// nobody is using it. unrefTimer keeps the timer from holding a test (or a
+// shutdown) open.
+if (ENABLED && !Deno.env.get("ORRERY_NO_TIMER")) {
+  const t = setInterval(() => { refreshSoon(); }, 60_000);
+  try { Deno.unrefTimer(t); } catch { /* older Deno */ }
+}
+
+let lastForcedAt = 0;
+/** Re-read the Orrery now (the Orrery's publish asks for this). At most
+ * once every 30 seconds; returns false when it was asked too recently. */
+export async function refreshOrreryNow(): Promise<boolean> {
+  if (!ENABLED) return false;
+  if (Date.now() - lastForcedAt < 30_000) return false;
+  lastForcedAt = Date.now();
+  if (loading) await loading;
+  nextTryAt = 0;
+  await refreshSoon();
+  return true;
+}
+
+/** What the bot last read from the Orrery, for GET /api/orrery. */
+export function orreryStatus() {
+  const iso = (n: number | undefined) => n ? new Date(n).toISOString() : null;
+  return {
+    enabled: ENABLED,
+    branch: BRANCH,
+    commit: sha || null,
+    checkedAt: iso(loadedAt),
+    nextCheckAt: iso(nextTryAt),
+    refreshMinutes: REFRESH_MS / 60_000,
+    files: Object.fromEntries(["lore.md", "bestiary.md"].map((f) => [f, { changedAt: iso(changedAt.get(f)), error: errors.get(f) ?? null }])),
+    headError: errors.get("head") ?? null,
+    lore: Object.keys(lore.sections).length,
+    places: bestiary.places.length,
+    creatures: bestiary.creatures.length,
+  };
 }
 
 /** Wait (at most `ms`) for the first read, so the first fight after a
