@@ -6,8 +6,11 @@ import {
   orreryBeasts,
   orreryCreature,
   orreryLoreFor,
+  orreryPeddlers,
+  orreryPersonLine,
   parseBestiary,
   parseLore,
+  parseRoster,
   parseStats,
   placeFor,
   placeForMonster,
@@ -148,4 +151,68 @@ Deno.test("lore for prompts picks the sentences that matter to each speaker", ()
   assert(peddler.includes("Threadbare peddlers"));
   assert(!orreryLoreFor("npc").includes("Murrow hides"));
   assertEquals(sentencesAbout("One. Two. Three.", /T/, 6), "Two.");
+});
+
+const ROSTER = `# The Grand Orrery: Character Roster
+
+## Verrowen
+
+### Stoutwell: the village
+
+| Name | Race, sex, age | Role | In a line | Secret |
+| --- | --- | --- | --- | --- |
+| **Burn** | Human, M, about 45 | The Wellhouse's regular | Short, mustached, red cap. | A runaway court jester. |
+
+### The Kingdom: GuildScribe
+
+| Name | Race, sex, age | Role | Where | In a line |
+| --- | --- | --- | --- | --- |
+| **The Scribe** | Human, F, old | GuildScribe's senior guildscribe | The capital | Sour, unimpressed. |
+
+**The capital peddlers** work the stall in the capital's market square.
+
+| Name | Race, sex | In a line |
+| --- | --- | --- |
+| **Bregga Stumpteeth** | Human, F | Gap-toothed hawker. |
+| **Widow Hesk** | Human, F | Sells on sympathy. |
+
+**The road peddlers** follow the Wandering Clerk's road.
+
+| Name | Race, sex | In a line |
+| --- | --- | --- |
+| **Wobble** | Halfling, M | A cart with one bad wheel. |
+
+### The Kingdom: GuildScribe's adventurers
+
+| Name | Played by | Race | Class | Level | Rank | Company |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Fel** | felivor | Drow Elf | Fighter | 12 | Veteran | Dweebs |
+`;
+
+Deno.test("parseRoster reads people and peddlers, never secrets or viewers' characters", () => {
+  const r = parseRoster(ROSTER);
+  assertEquals(r.peddlers, { capital: ["Bregga Stumpteeth", "Widow Hesk"], road: ["Wobble"] });
+  assertEquals(r.people.map((p) => p.name), ["Burn", "The Scribe", "Bregga Stumpteeth", "Widow Hesk", "Wobble"]);
+  const burn = r.people[0];
+  assertEquals(burn.line, "Short, mustached, red cap.");
+  assert(!JSON.stringify(r).includes("jester"));
+  assertEquals(r.people[1].group, "The Kingdom: GuildScribe");
+  assertEquals(r.people[1].line, "Sour, unimpressed.");
+});
+
+Deno.test("peddler names and lines come from the roster once it's read", () => {
+  setOrreryForTest({ places: [], creatures: [] }, { sections: {} }, parseRoster(ROSTER));
+  assertEquals(orreryPeddlers("road"), ["Wobble"]);
+  assertEquals(orreryPeddlers("all").length, 3);
+  assert(orreryPersonLine("widow hesk").includes("Sells on sympathy."));
+  assertEquals(orreryPersonLine("Nobody"), "");
+});
+
+Deno.test("the Grand Orrery's real roster.md parses, if it's checked out next door", async () => {
+  let md = "";
+  try { md = await Deno.readTextFile(new URL("../grand-orrery/roster.md", import.meta.url)); } catch { return; }
+  const r = parseRoster(md);
+  assert(r.peddlers.capital.length >= 5, `capital peddlers: ${r.peddlers.capital}`);
+  assert(r.peddlers.road.length >= 5, `road peddlers: ${r.peddlers.road}`);
+  assert(r.people.some((p) => p.name === "The Scribe" && p.line));
 });

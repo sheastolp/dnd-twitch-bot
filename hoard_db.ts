@@ -13,6 +13,7 @@ import { parseFirstPrice } from "./coins.ts";
 import { xpForMonsterCr } from "./characters.ts";
 import { getChannelRoster } from "./bestiary.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
+import { orreryPeddlers } from "./orrery.ts";
 import {
   BOARD_REFRESH_MS,
   BOARD_SLOTS,
@@ -121,9 +122,12 @@ export function resolveOffer(o: StallOffer): ResolvedOffer | null {
 
 function rollOffer(exclude: StallOffer[] = []): StallOffer {
   const taken = new Set(exclude.map((o) => o.desc));
-  let offer: StallOffer = { kind: "gear", desc: pick(MERCHANT_ITEMS).desc, merchant: pick(MERCHANT_NAMES) };
+  // The road's peddlers from the Grand Orrery (orrery.ts), or the fallback list.
+  const road = orreryPeddlers("road");
+  const peddlers = road.length ? road : MERCHANT_NAMES;
+  let offer: StallOffer = { kind: "gear", desc: pick(MERCHANT_ITEMS).desc, merchant: pick(peddlers) };
   for (let i = 0; i < 20; i++) {
-    offer = { kind: "gear", desc: pick(Math.random() < STALL_LEGENDARY_CHANCE ? LEGENDARY_ITEMS : MERCHANT_ITEMS).desc, merchant: pick(MERCHANT_NAMES) };
+    offer = { kind: "gear", desc: pick(Math.random() < STALL_LEGENDARY_CHANCE ? LEGENDARY_ITEMS : MERCHANT_ITEMS).desc, merchant: pick(peddlers) };
     if (!taken.has(offer.desc)) return offer;
   }
   return offer;

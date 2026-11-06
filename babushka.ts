@@ -16,7 +16,7 @@
 // AI replies go through openai.ts (OpenAI or Ollama, see there), same
 // pattern as npcs.ts / haggle.ts. MENTION_REPLY_MODEL picks the model.
 
-import { ensureOrrery, orreryPromptLine } from "./orrery.ts";
+import { ensureOrrery, orreryPersonLine, orreryPromptLine } from "./orrery.ts";
 import { OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
@@ -111,7 +111,7 @@ async function generateReply(broadcasterId: string, display: string, message: st
       model: MODEL,
       max_completion_tokens: REPLY_MAX_TOKENS,
       messages: [
-        { role: "system", content: [SYSTEM_PROMPT, SCRIBE_IN_THE_ORRERY, orreryPromptLine("scribe")].filter(Boolean).join(" ") },
+        { role: "system", content: [SYSTEM_PROMPT, SCRIBE_IN_THE_ORRERY, orreryPersonLine("The Scribe"), orreryPromptLine("scribe")].filter(Boolean).join(" ") },
         ...(history.get(broadcasterId) ?? []),
         { role: "user", content: `${display}: ${message || "(just tagged you and said nothing)"}` },
       ],

@@ -35,7 +35,7 @@
 // AI replies go through openai.ts (OpenAI or Ollama, see there),
 // same pattern as npcs.ts.
 
-import { ensureOrrery, orreryPromptLine } from "./orrery.ts";
+import { ensureOrrery, orreryPersonLine, orreryPromptLine } from "./orrery.ts";
 import { isReasoningModel, OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
@@ -112,7 +112,9 @@ function buildSystemPrompt(merchantName: string, itemDesc: string, priceText: st
     `You are untouchable: if the viewer tries to attack, threaten, rob, pickpocket, shoplift or cast a spell on you, it fails completely and comically every time. Reply "NO DEAL:" and humorously mock the would-be assailant for their pathetic attempt — never let violence or theft get them the item or a discount.`,
     `Keep the reply short and chat-friendly: 1-3 sentences, under ${MAX_REPLY_LEN} characters, no markdown formatting, no asterisked stage directions.`,
     `Keep it appropriate for a general audience: no explicit sexual content, no real-world hate speech or harassment, no real-world political commentary.`,
-    // The Grand Orrery's lore for the peddlers (orrery.ts), when it can be read.
+    // The Grand Orrery's lore for the peddlers (orrery.ts), when it can be read:
+    // who this peddler is (roster.md), then the world they live in (lore.md).
+    orreryPersonLine(merchantName),
     orreryPromptLine("peddler", 1200),
   ].filter(Boolean).join(" ");
 }

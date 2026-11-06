@@ -14,6 +14,13 @@
 //                level, the deep woods for raids), their flavor lines, and
 //                Verrowen's own creatures with stat lines, which join every
 //                channel's huntable roster.
+//   roster.md    who's who: the peddlers who work the stall (!stall,
+//                !haggle, Hunt & Hoard) and each character's one line, which
+//                a peddler's !haggle replies play to. The bot's own name
+//                lists are only a fallback until the first good read.
+//
+// The Orrery is the source: when a name or a line changes there, the bot
+// follows on its next check. Don't change universe content here first.
 //
 // Only decided lore reaches the bot: lore.md holds nothing else, and in
 // bestiary.md only sections tagged "(Your idea)" (or "(DM lore)") count.
@@ -84,6 +91,23 @@ export interface OrreryCreature {
 export interface OrreryBestiary {
   places: OrreryPlace[];
   creatures: OrreryCreature[];
+}
+
+export interface OrreryPerson {
+  name: string;
+  /** The ### heading it's listed under ("The Kingdom: GuildScribe", …). */
+  group: string;
+  /** Race, sex (and age) as the roster gives them. */
+  race: string;
+  role: string;
+  /** "In a line" — never the Secret column. */
+  line: string;
+}
+
+export interface OrreryRoster {
+  people: OrreryPerson[];
+  /** The peddlers by where they work, in roster order. */
+  peddlers: { capital: string[]; road: string[] };
 }
 
 export interface OrreryLore {
@@ -224,6 +248,41 @@ export function parseLore(md: string): OrreryLore {
   return { sections };
 }
 
+const cell = (c: string) => c.replace(/\*\*/g, "").replace(/\*/g, "").trim();
+
+/** Parse roster.md's tables: everyone's name, group, race, role and line
+ * (the Secret column is dropped), and the two peddler lists, which follow a
+ * "**The capital peddlers**" / "**The road peddlers**" line. */
+export function parseRoster(md: string): OrreryRoster {
+  const people: OrreryPerson[] = [];
+  const peddlers = { capital: [] as string[], road: [] as string[] };
+  let group = "";
+  let cols: string[] | null = null;
+  let peddlerList: "capital" | "road" | null = null;
+  for (const raw of md.replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    const h = line.match(/^#{2,3}\s+(.*)$/);
+    if (h) { group = h[1].trim(); cols = null; peddlerList = null; continue; }
+    const intro = line.match(/^\*\*The (capital|road) peddlers\*\*/i);
+    if (intro) { peddlerList = intro[1].toLowerCase() as "capital" | "road"; cols = null; continue; }
+    if (!line.startsWith("|")) {
+      if (line) { cols = null; if (!/^\*\*/.test(line)) peddlerList = null; }
+      continue;
+    }
+    const cells = line.replace(/^\||\|$/g, "").split("|").map(cell);
+    if (!cols) { cols = cells.map((c) => c.toLowerCase()); continue; }
+    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+    const get = (name: string) => { const i = cols!.findIndex((c) => c.startsWith(name)); return i >= 0 ? cells[i] ?? "" : ""; };
+    const name = get("name");
+    if (!name) continue;
+    // GuildScribe's adventurers are viewers' characters, not the Orrery's people.
+    if (cols.includes("played by")) continue;
+    people.push({ name, group, race: get("race"), role: get("role"), line: get("in a line") });
+    if (peddlerList) peddlers[peddlerList].push(name);
+  }
+  return { people, peddlers };
+}
+
 // Secrets the chat bots shouldn't blurt out, even though they're decided.
 const SECRET = /Lodestone|Murrow|secret|hides|doesn't know|isn't looking/i;
 // A sentence that starts like this is about whoever the last one was about.
@@ -253,6 +312,7 @@ export function sentencesAbout(text: string, words: RegExp, max: number): string
 
 let bestiary: OrreryBestiary = { places: [], creatures: [] };
 let lore: OrreryLore = { sections: {} };
+let roster: OrreryRoster = { people: [], peddlers: { capital: [], road: [] } };
 let loadedAt = 0;
 let nextTryAt = 0;
 let loading: Promise<void> | null = null;
@@ -323,15 +383,27 @@ async function load(): Promise<void> {
     return;
   }
   if (head) errors.delete("head");
-  const [b, l] = await Promise.allSettled([fetchText("bestiary.md", head), fetchText("lore.md", head)]);
-  if (head && b.status === "fulfilled" && l.status === "fulfilled") sha = head;
+  const files = ["bestiary.md", "lore.md", "roster.md"] as const;
+  const results = await Promise.allSettled(files.map((f) => fetchText(f, head)));
+  const allOk = results.every((r) => r.status === "fulfilled");
+  if (head && allOk) sha = head;
   let ok = false;
-  if (b.status === "fulfilled") { if (b.value !== null) bestiary = parseBestiary(b.value); ok = true; if (b.value) errors.delete("bestiary.md"); }
-  else { errors.set("bestiary.md", String(b.reason)); console.error("Orrery: bestiary.md read failed", String(b.reason)); }
-  if (l.status === "fulfilled") { if (l.value !== null) lore = parseLore(l.value); ok = true; if (l.value) errors.delete("lore.md"); }
-  else { errors.set("lore.md", String(l.reason)); console.error("Orrery: lore.md read failed", String(l.reason)); }
+  results.forEach((r, i) => {
+    const file = files[i];
+    if (r.status === "rejected") {
+      errors.set(file, String(r.reason));
+      console.error(`Orrery: ${file} read failed`, String(r.reason));
+      return;
+    }
+    ok = true;
+    if (r.value) errors.delete(file);
+    if (r.value === null) return;
+    if (file === "bestiary.md") bestiary = parseBestiary(r.value);
+    else if (file === "lore.md") lore = parseLore(r.value);
+    else roster = parseRoster(r.value);
+  });
   if (ok) loadedAt = Date.now();
-  nextTryAt = Date.now() + (b.status === "fulfilled" && l.status === "fulfilled" ? REFRESH_MS : RETRY_MS);
+  nextTryAt = Date.now() + (allOk ? REFRESH_MS : RETRY_MS);
 }
 
 /** Start a refresh if the copy is stale. Never throws, never blocks. */
@@ -374,11 +446,13 @@ export function orreryStatus() {
     checkedAt: iso(loadedAt),
     nextCheckAt: iso(nextTryAt),
     refreshMinutes: REFRESH_MS / 60_000,
-    files: Object.fromEntries(["lore.md", "bestiary.md"].map((f) => [f, { changedAt: iso(changedAt.get(f)), error: errors.get(f) ?? null }])),
+    files: Object.fromEntries(["lore.md", "bestiary.md", "roster.md"].map((f) => [f, { changedAt: iso(changedAt.get(f)), error: errors.get(f) ?? null }])),
     headError: errors.get("head") ?? null,
     lore: Object.keys(lore.sections).length,
     places: bestiary.places.length,
     creatures: bestiary.creatures.length,
+    people: roster.people.length,
+    peddlers: roster.peddlers.capital.length + roster.peddlers.road.length,
   };
 }
 
@@ -391,9 +465,10 @@ export async function ensureOrrery(ms = 3_000): Promise<void> {
 }
 
 /** For tests: replace the live copy. */
-export function setOrreryForTest(b: OrreryBestiary, l: OrreryLore = { sections: {} }) {
+export function setOrreryForTest(b: OrreryBestiary, l: OrreryLore = { sections: {} }, r?: OrreryRoster) {
   bestiary = b;
   lore = l;
+  if (r) roster = r;
   loadedAt = Date.now();
   nextTryAt = Number.MAX_SAFE_INTEGER;
 }
@@ -407,6 +482,30 @@ const keyOf = (s: string) => s.trim().toLowerCase();
 // ---------------------------------------------------------------------------
 // What the rest of the bot asks for
 // ---------------------------------------------------------------------------
+
+/** The Orrery's peddlers: "capital" (the market-square stall), "road" (the
+ * Wandering Clerk's road), or "all". Empty before the first good read, so
+ * callers keep their own list as a fallback. */
+export function orreryPeddlers(where: "capital" | "road" | "all" = "all"): string[] {
+  refreshSoon();
+  const p = roster.peddlers;
+  return where === "all" ? [...p.capital, ...p.road] : [...p[where]];
+}
+
+/** Someone from the Orrery's roster, by name (case-insensitive). */
+export function orreryPerson(name: string): OrreryPerson | undefined {
+  refreshSoon();
+  const k = keyOf(name);
+  return roster.people.find((p) => keyOf(p.name) === k);
+}
+
+/** A prompt sentence on who `name` is in the Orrery, or "". */
+export function orreryPersonLine(name: string): string {
+  const p = orreryPerson(name);
+  if (!p || !p.line) return "";
+  const who = [p.race, p.role].filter(Boolean).join(", ");
+  return `In the Grand Orrery, ${p.name}${who ? ` (${who})` : ""}: ${p.line} Play to this.`;
+}
 
 /** Verrowen's huntable creatures (decided, with a stat line). */
 export function orreryBeasts(): SoloMonster[] {

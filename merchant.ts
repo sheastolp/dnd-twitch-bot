@@ -12,6 +12,7 @@ import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
 import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS } from "./gear.ts";
 import { optNum } from "./channel_options.ts";
+import { orreryPeddlers } from "./orrery.ts";
 
 const MIN_INTERVAL_MINUTES = Math.max(5, Number(Deno.env.get("MERCHANT_MIN_INTERVAL_MINUTES") ?? "25"));
 const MAX_INTERVAL_MINUTES = Math.max(MIN_INTERVAL_MINUTES, Number(Deno.env.get("MERCHANT_MAX_INTERVAL_MINUTES") ?? "60"));
@@ -44,7 +45,9 @@ export async function randomMerchantIntervalMs(broadcasterId = ""): Promise<numb
 }
 
 // A different threadbare peddler each time — this is a traveling open stall,
-// not a single recurring shopkeeper.
+// not a single recurring shopkeeper. The names come from the Grand Orrery's
+// roster.md (orrery.ts: the capital's and the road's peddlers); this list is
+// only the fallback until the bot has read it.
 const MERCHANT_NAMES: string[] = [
   "Wobble",
   "Pruneface Yorik",
@@ -159,7 +162,8 @@ export interface MerchantOffer {
  * persist what's currently on offer (for !haggle, see haggle.ts) from the
  * same roll instead of them drifting apart. */
 export function rollMerchantOffer(): MerchantOffer {
-  const name = pick(MERCHANT_NAMES);
+  const fromOrrery = orreryPeddlers("all");
+  const name = pick(fromOrrery.length ? fromOrrery : MERCHANT_NAMES);
   // Occasionally the peddler stumbles onto a legendary relic instead of junk.
   if (Math.random() < LEGENDARY_CHANCE) {
     const relic = pick(LEGENDARY_ITEMS);
