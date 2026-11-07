@@ -113,7 +113,7 @@ function buildSystemPrompt(merchantName: string, itemDesc: string, priceText: st
     `Keep the reply short and chat-friendly: 1-3 sentences, under ${MAX_REPLY_LEN} characters, no markdown formatting, no asterisked stage directions.`,
     `Keep it appropriate for a general audience: no explicit sexual content, no real-world hate speech or harassment, no real-world political commentary.`,
     // The Grand Orrery's lore for the peddlers (orrery.ts), when it can be read:
-    // who this peddler is (roster.md), then the world they live in (lore.md).
+    // who this peddler is (the Orrery's people), then the world they live in (lore.md).
     orreryPersonLine(merchantName),
     orreryPromptLine("peddler", 1200),
   ].filter(Boolean).join(" ");

@@ -3,7 +3,8 @@
 // The Grand Orrery (github.com/sheastolp/grand-orrery) is the universe
 // GuildScribe's hall lives in: the Kingdom's capital, the Scribe, the
 // peddlers, the arena, the Monster Wood. This module reads two of its files
-// live from GitHub and hands the rest of the bot what it needs:
+// and its database live from GitHub and hands the rest of the bot what it
+// needs:
 //
 //   lore.md      the condensed, decided lore (the same file the Wake in
 //                Verrowen narrator reads). AI replies (the Scribe's @-tag
@@ -14,9 +15,12 @@
 //                level, the deep woods for raids), their flavor lines, and
 //                Verrowen's own creatures with stat lines, which join every
 //                channel's huntable roster.
-//   roster.md    who's who: the peddlers who work the stall (!stall,
+//   the database who's who: the peddlers who work the stall (!stall,
 //                !haggle, Hunt & Hoard) and each character's one line, which
-//                a peddler's !haggle replies play to. The bot's own name
+//                a peddler's !haggle replies play to. It's the Orrery's
+//                people as records (built from its roster.md, secrets taken
+//                out), read with the Orrery's own client (ORRERY_CLIENT), so
+//                the bot never parses the roster itself. The bot's own name
 //                lists are only a fallback until the first good read.
 //
 // The Orrery is the source: when a name or a line changes there, the bot
@@ -42,6 +46,9 @@
 // moved reads the files at that exact commit, so a re-read right after a
 // publish never gets the raw server's few-minutes-old copy. If the API
 // can't be reached, it falls back to reading the branch's files directly.
+// The database is checked the same way (the client asks which build the
+// Orrery's data branch is on) on every check, even when the branch itself
+// hasn't moved, since its build lands a minute after the publish.
 //
 // It stays current on its own: a timer re-reads it every few minutes even
 // when nobody is fighting or chatting, and POST /api/orrery/refresh (which
@@ -55,6 +62,10 @@
 // so a fight or a reply never waits on or fails because of the Orrery.
 
 import type { SoloMonster } from "./data.ts";
+// The Orrery's client, pinned to a commit of grand-orrery: bump it to take a
+// newer client. (The Discord bot's sync copies only ./ imports, so this URL
+// reaches it unchanged.)
+import { Orrery } from "https://cdn.jsdelivr.net/gh/sheastolp/grand-orrery@ebfa1a03d215e17cfbde0f05e9ba47c11c7879e2/client/orrery.js";
 
 const ENABLED = (Deno.env.get("ORRERY") ?? "on").toLowerCase() !== "off";
 const BRANCH = Deno.env.get("ORRERY_BRANCH") || "main";
@@ -108,6 +119,25 @@ export interface OrreryRoster {
   people: OrreryPerson[];
   /** The peddlers by where they work, in roster order. */
   peddlers: { capital: string[]; road: string[] };
+}
+
+/** One record from the Orrery's database (entities.public.json): the fields
+ * this bot uses. See grand-orrery's README, "The database". */
+export interface OrreryEntity {
+  id: string;
+  type: string;
+  name: string;
+  /** For a person: the ### heading they're listed under. */
+  section?: string;
+  /** For a person: the table they're in, e.g. "The road peddlers". */
+  group?: string;
+  world?: string;
+  kind?: string;
+  race?: string;
+  sex?: string;
+  age?: number | string;
+  role?: string;
+  line?: string;
 }
 
 export interface OrreryLore {
@@ -248,37 +278,26 @@ export function parseLore(md: string): OrreryLore {
   return { sections };
 }
 
-const cell = (c: string) => c.replace(/\*\*/g, "").replace(/\*/g, "").trim();
+const plain = (s: unknown) => String(s ?? "").replace(/\*+/g, "").trim();
+const SEX: Record<string, string> = { male: "M", female: "F" };
 
-/** Parse roster.md's tables: everyone's name, group, race, role and line
- * (the Secret column is dropped), and the two peddler lists, which follow a
- * "**The capital peddlers**" / "**The road peddlers**" line. */
-export function parseRoster(md: string): OrreryRoster {
+/** The Orrery's people from its database records: everyone's name, group,
+ * race, role and line (the public records carry no secrets, and none is
+ * read here either), and the two peddler lists ("The capital peddlers" /
+ * "The road peddlers"), in roster order. */
+export function rosterFromEntities(entities: OrreryEntity[]): OrreryRoster {
   const people: OrreryPerson[] = [];
   const peddlers = { capital: [] as string[], road: [] as string[] };
-  let group = "";
-  let cols: string[] | null = null;
-  let peddlerList: "capital" | "road" | null = null;
-  for (const raw of md.replace(/\r/g, "").split("\n")) {
-    const line = raw.trim();
-    const h = line.match(/^#{2,3}\s+(.*)$/);
-    if (h) { group = h[1].trim(); cols = null; peddlerList = null; continue; }
-    const intro = line.match(/^\*\*The (capital|road) peddlers\*\*/i);
-    if (intro) { peddlerList = intro[1].toLowerCase() as "capital" | "road"; cols = null; continue; }
-    if (!line.startsWith("|")) {
-      if (line) { cols = null; if (!/^\*\*/.test(line)) peddlerList = null; }
-      continue;
-    }
-    const cells = line.replace(/^\||\|$/g, "").split("|").map(cell);
-    if (!cols) { cols = cells.map((c) => c.toLowerCase()); continue; }
-    if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
-    const get = (name: string) => { const i = cols!.findIndex((c) => c.startsWith(name)); return i >= 0 ? cells[i] ?? "" : ""; };
-    const name = get("name");
-    if (!name) continue;
+  const worlds = new Map(entities.filter((e) => e.type === "world").map((e) => [e.id, e.name]));
+  for (const e of entities) {
     // GuildScribe's adventurers are viewers' characters, not the Orrery's people.
-    if (cols.includes("played by")) continue;
-    people.push({ name, group, race: get("race"), role: get("role"), line: get("in a line") });
-    if (peddlerList) peddlers[peddlerList].push(name);
+    if (e.type !== "person" || e.kind === "adventurer" || !e.name) continue;
+    const name = plain(e.name);
+    const race = [e.race, e.sex ? SEX[e.sex] ?? e.sex : "", e.age].map(plain).filter(Boolean).join(", ");
+    const group = e.section || (e.world ? worlds.get(e.world) ?? "" : "");
+    people.push({ name, group, race, role: plain(e.role), line: plain(e.line) });
+    const list = (e.group ?? "").match(/^The (capital|road) peddlers$/i);
+    if (list) peddlers[list[1].toLowerCase() as "capital" | "road"].push(name);
   }
   return { people, peddlers };
 }
@@ -373,21 +392,54 @@ async function fetchText(file: string, at = ""): Promise<string | null> {
   return await res.text();
 }
 
+// The Orrery's database: its people, read with the Orrery's own client. The
+// client is made on the first read (so a test that never reads makes no
+// request) and refreshed only from load(), so there's one schedule.
+const DB_FILE = "entities.public.json";
+let db: Orrery | null = null;
+/** fetch with this module's timeout and User-Agent, for the client. */
+const timedFetch = (url: string, init: RequestInit = {}) =>
+  fetch(url, { ...init, headers: { "User-Agent": "GuildScribe", ...(init.headers as Record<string, string> | undefined) }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+
+/** Read the database if it has a new build. True when it was read fine. */
+async function loadDatabase(): Promise<boolean> {
+  let fresh: boolean;
+  if (!db) {
+    db = new Orrery({ repo: REPO, branch: BRANCH, refreshMinutes: 0, githubToken: GH_TOKEN || null, fetch: timedFetch });
+    fresh = await db.ready();
+  } else {
+    fresh = await db.refresh();
+  }
+  if (fresh) {
+    roster = rosterFromEntities(db.list());
+    changedAt.set(DB_FILE, Date.now());
+  }
+  if (db.lastError) {
+    errors.set(DB_FILE, db.lastError);
+    console.error(`Orrery: ${DB_FILE} read failed`, db.lastError);
+    return false;
+  }
+  errors.delete(DB_FILE);
+  return true;
+}
+
 async function load(): Promise<void> {
-  const head = await branchHead();
+  // The database first, and every time: its build lands a minute after a
+  // publish, when the branch below has usually stopped moving.
+  const [dbOk, head] = await Promise.all([loadDatabase(), branchHead()]);
   if (head === null) {
     // Nothing new on the branch since the last good read.
     errors.delete("head");
     loadedAt = Date.now();
-    nextTryAt = Date.now() + REFRESH_MS;
+    nextTryAt = Date.now() + (dbOk ? REFRESH_MS : RETRY_MS);
     return;
   }
   if (head) errors.delete("head");
-  const files = ["bestiary.md", "lore.md", "roster.md"] as const;
+  const files = ["bestiary.md", "lore.md"] as const;
   const results = await Promise.allSettled(files.map((f) => fetchText(f, head)));
   const allOk = results.every((r) => r.status === "fulfilled");
   if (head && allOk) sha = head;
-  let ok = false;
+  let ok = dbOk;
   results.forEach((r, i) => {
     const file = files[i];
     if (r.status === "rejected") {
@@ -399,11 +451,10 @@ async function load(): Promise<void> {
     if (r.value) errors.delete(file);
     if (r.value === null) return;
     if (file === "bestiary.md") bestiary = parseBestiary(r.value);
-    else if (file === "lore.md") lore = parseLore(r.value);
-    else roster = parseRoster(r.value);
+    else lore = parseLore(r.value);
   });
   if (ok) loadedAt = Date.now();
-  nextTryAt = Date.now() + (allOk ? REFRESH_MS : RETRY_MS);
+  nextTryAt = Date.now() + (allOk && dbOk ? REFRESH_MS : RETRY_MS);
 }
 
 /** Start a refresh if the copy is stale. Never throws, never blocks. */
@@ -446,8 +497,11 @@ export function orreryStatus() {
     checkedAt: iso(loadedAt),
     nextCheckAt: iso(nextTryAt),
     refreshMinutes: REFRESH_MS / 60_000,
-    files: Object.fromEntries(["lore.md", "bestiary.md", "roster.md"].map((f) => [f, { changedAt: iso(changedAt.get(f)), error: errors.get(f) ?? null }])),
+    files: Object.fromEntries(["lore.md", "bestiary.md", DB_FILE].map((f) => [f, { changedAt: iso(changedAt.get(f)), error: errors.get(f) ?? null }])),
     headError: errors.get("head") ?? null,
+    // The database build the people came from: the grand-orrery commit it
+    // was built from, and when.
+    database: db?.meta ? { commit: db.meta.commit ?? null, built: db.meta.built ?? null } : null,
     lore: Object.keys(lore.sections).length,
     places: bestiary.places.length,
     creatures: bestiary.creatures.length,

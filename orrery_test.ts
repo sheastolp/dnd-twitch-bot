@@ -10,11 +10,11 @@ import {
   orreryPersonLine,
   parseBestiary,
   parseLore,
-  parseRoster,
   parseStats,
   placeFor,
   placeForMonster,
   placeText,
+  rosterFromEntities,
   sentencesAbout,
   setOrreryForTest,
 } from "./orrery.ts";
@@ -153,66 +153,56 @@ Deno.test("lore for prompts picks the sentences that matter to each speaker", ()
   assertEquals(sentencesAbout("One. Two. Three.", /T/, 6), "Two.");
 });
 
-const ROSTER = `# The Grand Orrery: Character Roster
+// What the Orrery's database (entities.public.json) holds for a few people,
+// as grand-orrery's tools/build.mjs writes it from roster.md.
+const ENTITIES = [
+  { id: "burn", type: "person", name: "Burn", race: "Human", sex: "male", age: "about 45", role: "The Wellhouse's regular", line: "Short, mustached, red cap.", world: "verrowen", section: "Stoutwell: the village", place: "stoutwell", status: "decided" },
+  { id: "the-scribe", type: "person", name: "The Scribe", race: "Human", sex: "female", age: "old", role: "GuildScribe's senior guildscribe", where: "The capital", line: "Sour, *unimpressed*.", world: "verrowen", section: "The Kingdom: GuildScribe", status: "decided" },
+  { id: "bregga-stumpteeth", type: "person", name: "Bregga Stumpteeth", race: "Human", sex: "female", line: "Gap-toothed hawker.", world: "verrowen", section: "The Kingdom: GuildScribe", group: "The capital peddlers", status: "decided" },
+  { id: "widow-hesk", type: "person", name: "Widow Hesk", race: "Human", sex: "female", line: "Sells on sympathy.", world: "verrowen", section: "The Kingdom: GuildScribe", group: "The capital peddlers", status: "decided" },
+  { id: "wobble", type: "person", name: "Wobble", race: "Halfling", sex: "male", line: "A cart with one bad wheel.", world: "verrowen", section: "The Kingdom: GuildScribe", group: "The road peddlers", status: "decided" },
+  { id: "fel", type: "person", name: "Fel", played_by: "felivor", race: "Drow Elf", class: "Fighter", level: 12, kind: "adventurer", world: "verrowen", section: "The Kingdom: GuildScribe's adventurers", status: "decided" },
+  { id: "faelan", type: "person", name: "Faelan", race: "Elf", sex: "male", role: "Arandur's father", line: "Distant.", world: "arandurs-world", status: "decided" },
+  { id: "role-the-tanner", type: "role", name: "The tanner", status: "open" },
+  { id: "verrowen", type: "world", name: "Verrowen", status: "decided" },
+  { id: "arandurs-world", type: "world", name: "Arandur's world", status: "decided" },
+];
 
-## Verrowen
-
-### Stoutwell: the village
-
-| Name | Race, sex, age | Role | In a line | Secret |
-| --- | --- | --- | --- | --- |
-| **Burn** | Human, M, about 45 | The Wellhouse's regular | Short, mustached, red cap. | A runaway court jester. |
-
-### The Kingdom: GuildScribe
-
-| Name | Race, sex, age | Role | Where | In a line |
-| --- | --- | --- | --- | --- |
-| **The Scribe** | Human, F, old | GuildScribe's senior guildscribe | The capital | Sour, unimpressed. |
-
-**The capital peddlers** work the stall in the capital's market square.
-
-| Name | Race, sex | In a line |
-| --- | --- | --- |
-| **Bregga Stumpteeth** | Human, F | Gap-toothed hawker. |
-| **Widow Hesk** | Human, F | Sells on sympathy. |
-
-**The road peddlers** follow the Wandering Clerk's road.
-
-| Name | Race, sex | In a line |
-| --- | --- | --- |
-| **Wobble** | Halfling, M | A cart with one bad wheel. |
-
-### The Kingdom: GuildScribe's adventurers
-
-| Name | Played by | Race | Class | Level | Rank | Company |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Fel** | felivor | Drow Elf | Fighter | 12 | Veteran | Dweebs |
-`;
-
-Deno.test("parseRoster reads people and peddlers, never secrets or viewers' characters", () => {
-  const r = parseRoster(ROSTER);
+Deno.test("rosterFromEntities reads people and peddlers, never viewers' characters", () => {
+  const r = rosterFromEntities(ENTITIES);
   assertEquals(r.peddlers, { capital: ["Bregga Stumpteeth", "Widow Hesk"], road: ["Wobble"] });
-  assertEquals(r.people.map((p) => p.name), ["Burn", "The Scribe", "Bregga Stumpteeth", "Widow Hesk", "Wobble"]);
+  assertEquals(r.people.map((p) => p.name), ["Burn", "The Scribe", "Bregga Stumpteeth", "Widow Hesk", "Wobble", "Faelan"]);
   const burn = r.people[0];
   assertEquals(burn.line, "Short, mustached, red cap.");
-  assert(!JSON.stringify(r).includes("jester"));
+  // Race, sex and age as the roster's own column gives them.
+  assertEquals(burn.race, "Human, M, about 45");
   assertEquals(r.people[1].group, "The Kingdom: GuildScribe");
   assertEquals(r.people[1].line, "Sour, unimpressed.");
+  // Someone with no ### heading is grouped under their world.
+  assertEquals(r.people[5].group, "Arandur's world");
 });
 
-Deno.test("peddler names and lines come from the roster once it's read", () => {
-  setOrreryForTest({ places: [], creatures: [] }, { sections: {} }, parseRoster(ROSTER));
+Deno.test("rosterFromEntities never passes a secret on, even if a record had one", () => {
+  const r = rosterFromEntities([{ ...ENTITIES[0], secret: "A runaway court jester." } as never]);
+  assert(!JSON.stringify(r).includes("jester"));
+});
+
+Deno.test("peddler names and lines come from the database once it's read", () => {
+  setOrreryForTest({ places: [], creatures: [] }, { sections: {} }, rosterFromEntities(ENTITIES));
   assertEquals(orreryPeddlers("road"), ["Wobble"]);
   assertEquals(orreryPeddlers("all").length, 3);
   assert(orreryPersonLine("widow hesk").includes("Sells on sympathy."));
   assertEquals(orreryPersonLine("Nobody"), "");
 });
 
-Deno.test("the Grand Orrery's real roster.md parses, if it's checked out next door", async () => {
+Deno.test("the Grand Orrery's real roster.md builds into a roster, if it's checked out next door", async () => {
   let md = "";
   try { md = await Deno.readTextFile(new URL("../grand-orrery/roster.md", import.meta.url)); } catch { return; }
-  const r = parseRoster(md);
+  // The Orrery's own build, so this checks the two ends meet.
+  const { parseRoster } = await import(new URL("../grand-orrery/tools/build.mjs", import.meta.url).href);
+  const r = rosterFromEntities(parseRoster(md).entities.map(({ secret: _, ...e }: { secret?: string }) => e));
   assert(r.peddlers.capital.length >= 5, `capital peddlers: ${r.peddlers.capital}`);
   assert(r.peddlers.road.length >= 5, `road peddlers: ${r.peddlers.road}`);
   assert(r.people.some((p) => p.name === "The Scribe" && p.line));
+  assert(!r.people.some((p) => p.name === "nobody"), "viewers' adventurers stay out");
 });

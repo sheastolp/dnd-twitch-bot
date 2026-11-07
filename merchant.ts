@@ -46,7 +46,7 @@ export async function randomMerchantIntervalMs(broadcasterId = ""): Promise<numb
 
 // A different threadbare peddler each time — this is a traveling open stall,
 // not a single recurring shopkeeper. The names come from the Grand Orrery's
-// roster.md (orrery.ts: the capital's and the road's peddlers); this list is
+// people (orrery.ts, from its database: the capital's and the road's peddlers); this list is
 // only the fallback until the bot has read it.
 const MERCHANT_NAMES: string[] = [
   "Wobble",
