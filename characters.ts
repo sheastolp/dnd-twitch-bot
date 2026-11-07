@@ -21,7 +21,7 @@ import {
   listCharactersElsewhere,
   importCharacter,
 } from "./db.ts";
-import { sendChatMessage } from "./twitch.ts";
+import { noteWhisperSent, sendChatMessage } from "./twitch.ts";
 import { getReplyInitiator, sendWhisperParts, WHISPER_MAX } from "./whisper.ts";
 import { gearHpBonus } from "./gear.ts";
 
@@ -223,9 +223,13 @@ function describeImport(e: { channel: string; character: Character }) {
 // channel's chat: other streamers' names don't belong in someone else's chat.
 // The bot can only send whispers, so the viewer still answers in chat — with
 // a number from the whispered list and !answer yes, which name nothing.
+// Each whisper is flagged in chat once per command (noteWhisperSent).
 async function whisperChatter(text: string) {
-  const to = getReplyInitiator()?.userId;
-  return !!to && sendWhisperParts(to, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
+  const i = getReplyInitiator();
+  if (!i?.userId) return false;
+  const sent = await sendWhisperParts(i.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
+  if (sent) await noteWhisperSent(i.broadcasterId);
+  return sent;
 }
 
 // The !newchar walkthrough happens in whispers so it doesn't fill chat; only
@@ -289,12 +293,15 @@ async function handleImportChar(username: string, display: string, broadcasterId
     );
     if (!whispered) await clearCreationSession(username, broadcasterId);
   }
-  await sendChatMessage(
-    whispered
-      ? `@${display} 📜 I've whispered you the import details.`
-      : `@${display} I couldn't whisper you the import details — check that your whispers are open, then try !importchar again.`,
-    broadcasterId,
-  );
+  // A sent whisper is already flagged in chat by whisperChatter.
+  if (!whispered) {
+    await sendChatMessage(
+      `@${display} I couldn't whisper you the import details — check that your whispers are open, then try !importchar again.`,
+      broadcasterId,
+      [],
+      { whisper: false },
+    );
+  }
 }
 
 export async function handleCreationCommand(
@@ -316,7 +323,7 @@ export async function handleCreationCommand(
     if (!(await getCharacter(username, broadcasterId))) await whisperImportHint(username, broadcasterId);
     return true;
   }
-  const importMatch = chatMessage.match(/^!importchar(?:\s+(\S+))?$/i);
+  const importMatch = chatMessage.match(/^!importchar(?:\s+(\S+))?\s*$/i);
   if (importMatch) {
     await handleImportChar(username, display, broadcasterId, importMatch[1] ?? "");
     return true;

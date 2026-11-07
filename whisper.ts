@@ -49,9 +49,19 @@ const BOT_WHISPER_SCOPE = "user:manage:whispers";
 // in channels where it's a moderator.
 export const BOT_ANNOUNCE_SCOPE = "moderator:manage:announcements";
 
-export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string }
+/** command: the "!word" being answered, for the "something went wrong" reply. */
+export interface ReplyInitiator { userId: string; login: string; display: string; broadcasterId: string; command?: string }
 
-const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; whisperIntro?: WhisperIntro; deferred: Promise<unknown>[] }>();
+const requestScope = new AsyncLocalStorage<{ initiator?: ReplyInitiator; whisperReplies?: WhisperMode; whisperIntro?: WhisperIntro; whisperNoticed?: boolean; deferred: Promise<unknown>[] }>();
+
+/** True the first time it's called in a request: the "check your whispers"
+ * chat notice (twitch.ts noteWhisperSent) is posted at most once per command. */
+export function claimWhisperNotice(): boolean {
+  const store = requestScope.getStore();
+  if (!store || store.whisperNoticed) return false;
+  store.whisperNoticed = true;
+  return true;
+}
 
 /** Runs one request with its own (initially empty) reply-initiator slot.
  * Work handed to defer() runs alongside the request and is awaited before

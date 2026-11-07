@@ -65,7 +65,7 @@ import { handleDashboardCommand } from "./dashboard.ts";
 import { handleFeatureCommand } from "./feature_toggle.ts";
 import { handleCreationCommand } from "./characters.ts";
 import { handleDuelCommand, handleMonsterDuelCommand, handlePartyCommand, handlePartyDuelCommand, handleInitiativeCommand } from "./combat.ts";
-import { env, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
+import { env, notifyCommandFailed, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
 import { hasModeratorBadge } from "./utils.ts";
 import { isBotAdminLogin } from "./bot_admins.ts";
 import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidThankYou } from "./flavor_events.ts";
@@ -448,7 +448,10 @@ async function handleNotification(body: any): Promise<Response | void> {
   }
   const viaWhisper = body.viaWhisper === true;
 
-  let chatMessage: string = body.event?.message?.text ?? "";
+  // Chatterino / 7TV append an invisible character (U+E0000) to get past
+  // Twitch's duplicate-message check, and some clients add zero-width
+  // spaces; either one makes "!importchar" fail the handlers' exact matches.
+  let chatMessage: string = String(body.event?.message?.text ?? "").replace(/[\u{E0000}͏​-‍⁠﻿]/gu, "").trim();
   const chatter: string = body.event?.chatter_user_login ?? "";
   const display: string = body.event?.chatter_user_name ?? chatter;
   const chatterId: string = body.event?.chatter_user_id ?? "";
@@ -582,7 +585,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // "auto": only while chat is quiet or busy; whisperme.ts) whispers every reply
   // addressed to this chatter instead.
   if (chatMessage.trim().startsWith("!")) {
-    setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId });
+    setReplyInitiator({ userId: chatterId, login: chatter, display, broadcasterId, command: chatMessage.trim().split(/\s+/)[0].toLowerCase() });
     if (viaWhisper) setWhisperReplies("all");
     else {
       const w = await wantsWhisperReplies(broadcasterId, chatterId);
@@ -800,7 +803,10 @@ async function handleNotification(body: any): Promise<Response | void> {
     const commandWord = chatMessage.split(/\s+/)[0].toLowerCase();
     defer(recordActivity(chatter, broadcasterId, commandWord, chatMessage));
     defer(recordViewerName(broadcasterId, chatter, display)); // for battle-log short names
-    if (!groupOn) return new Response("OK");
+    if (!groupOn) {
+      await tellGroupOff(group!, commandWord, display, chatter, broadcasterId, isModerator);
+      return new Response("OK");
+    }
     if (hexNotice) {
       await sendChatMessage(`@${display} ${hexNotice}`, broadcasterId);
       return new Response("OK");
@@ -927,9 +933,41 @@ function runInBackground(work: () => Promise<unknown>) {
   runRequestScope(work).catch(reportFailure);
 }
 
+// Switches whose words other chat bots (Nightbot, StreamElements…) commonly
+// answer too: while one is off, viewers' commands stay silent rather than
+// GuildScribe saying "switched off" next to the other bot's reply. Mods are
+// still told, since they're the ones who can switch it on.
+const SILENT_WHEN_OFF = new Set(["lurk", "hug", "clips", "funstuff", "streamstats", "d20", "diceroll", "rollfate", "rollchecks", "logs", "connections"]);
+const GROUP_OFF_NOTICE_MS = 10 * 60_000;
+const groupOffNoticed = new Map<string, number>();
+
+/** A !command whose dashboard switch is off: say so (once per viewer and
+ * switch every 10 minutes) instead of ignoring it. */
+async function tellGroupOff(group: string, commandWord: string, display: string, chatter: string, broadcasterId: string, isModerator: boolean) {
+  if (!isModerator && SILENT_WHEN_OFF.has(group)) return;
+  const key = `${broadcasterId}:${chatter}:${group}`;
+  const now = Date.now();
+  if (now - (groupOffNoticed.get(key) ?? 0) < GROUP_OFF_NOTICE_MS) return;
+  groupOffNoticed.set(key, now);
+  if (groupOffNoticed.size > 5000) groupOffNoticed.delete(groupOffNoticed.keys().next().value!);
+  await sendChatMessage(
+    isModerator
+      ? `@${display} ${commandWord} is switched off in this channel. Turn it on with !feature ${group} on (or on the dashboard).`
+      : `@${display} ${commandWord} is switched off in this channel — a mod can turn it on with !feature ${group} on.`,
+    broadcasterId,
+  );
+}
+
 export default async function (req: Request): Promise<Response> {
   try {
-    return await runRequestScope(() => handleRequest(req));
+    return await runRequestScope(async () => {
+      try {
+        return await handleRequest(req);
+      } catch (e) {
+        await notifyCommandFailed(); // a !command that crashed gets a reply instead of silence
+        throw e;
+      }
+    });
   } catch (e) {
     await reportFailure(e);
     // An OBS browser source keeps whatever page it first loaded, so a

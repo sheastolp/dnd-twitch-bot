@@ -3,7 +3,7 @@
 import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
-import { defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
+import { claimWhisperNotice, defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
 
@@ -107,7 +107,34 @@ async function whisperReplyInstead(text: string, broadcasterId: string, opts?: {
   }
   if (!addressed) return false; // a copy: still posted for the rest of chat
   if (opts?.log !== false) logReply(broadcasterId, body, opts?.detail ?? body);
+  await noteWhisperSent(broadcasterId);
   return true;
+}
+
+/** After whispering the chatter whose command this is, says so in chat once
+ * per command ("📬 check your whispers"), so a whispered reply isn't mistaken
+ * for no reply. Skipped for a command that itself came by whisper (mode
+ * "all"): that viewer is already reading their whispers. */
+export async function noteWhisperSent(broadcasterId: string) {
+  const i = getReplyInitiator();
+  if (!i || i.broadcasterId !== broadcasterId || whisperMode() === "all") return;
+  if (!claimWhisperNotice()) return;
+  await sendChatMessage(`@${i.display} 📬 I've whispered you my reply — check your whispers.`, broadcasterId, [], { whisper: false, log: false });
+}
+
+/** A !command's handler threw: tell the chatter instead of going silent.
+ * Never throws. */
+export async function notifyCommandFailed() {
+  const i = getReplyInitiator();
+  if (!i) return;
+  try {
+    await sendChatMessage(
+      `@${i.display} ⚠️ Something went wrong running ${i.command || "that command"} — please try again in a moment.`,
+      i.broadcasterId,
+      [],
+      { whisper: false, log: false },
+    );
+  } catch (_) { /* best effort */ }
 }
 
 // opts.log: false when the caller logs the reply as a whole itself (parts of
