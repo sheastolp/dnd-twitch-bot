@@ -555,6 +555,33 @@ export function placeFor(use: "duels" | "robberies"): FightPlace | null {
   return asFightPlace(pickOne(bestiary.places.filter((p) => p.uses.includes(use))));
 }
 
+/** The name of the place a hero of `level` is hunting in, for the Orrery's
+ * view of the hall (hall_time.ts). Unlike placeForMonster it doesn't pick
+ * at random: `seed` (the hero) keeps the same hero in the same grounds for
+ * the whole trip. Null when the Orrery has no hunting grounds. */
+export function huntingGroundFor(level: number, seed: string): string | null {
+  refreshSoon();
+  const candidates = bestiary.places.filter((p) => p.uses.includes("hunts"));
+  if (!candidates.length) return null;
+  const fits = candidates.filter((p) => !p.levels || (level >= p.levels[0] && level <= p.levels[1]));
+  const dist = (p: OrreryPlace) => !p.levels ? 0 : level < p.levels[0] ? p.levels[0] - level : level - p.levels[1];
+  const pool = fits.length ? fits : [[...candidates].sort((a, b) => dist(a) - dist(b))[0]];
+  let h = 0;
+  for (const c of seed.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return pool[h % pool.length].name;
+}
+
+/** The first place the Orrery lists for `use` (the arena for duels), or null. */
+export function placeNameFor(use: PlaceUse): string | null {
+  refreshSoon();
+  return bestiary.places.find((p) => p.uses.includes(use))?.name ?? null;
+}
+
+/** Where a creature lives, when it's one of Verrowen's own. */
+export function homeOf(monsterName: string): string | null {
+  return orreryCreature(monsterName)?.place ?? null;
+}
+
 /** "📍 Place — line" for a fight message, or "" when the Orrery has none. */
 export function placeText(p: FightPlace | null): string {
   if (!p) return "";

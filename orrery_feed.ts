@@ -5,8 +5,11 @@
 //                             page (tavernworks.dev/orrery/): the adventurers
 //                             on its parchments, their companies, the beasts
 //                             the hall has learned, and what the bot last read
-//                             from the Orrery. Public, CORS open, cached a
-//                             minute.
+//                             from the Orrery, plus the hall's time
+//                             (hall_time.ts): the capital's hour, what each
+//                             adventurer is doing (hunting, fighting,
+//                             resting…) and the last day's deeds. Public,
+//                             CORS open, cached a minute.
 //   POST /api/orrery/refresh  re-read the Orrery now (the Orrery's publish
 //                             calls this). Harmless to anyone: it only makes
 //                             the bot re-read public files, at most every 30s.
@@ -22,6 +25,8 @@ import { listChannelCharacters, listChannelParties } from "./db.ts";
 import { listNicknames } from "./mentions.ts";
 import { getChannelRoster } from "./bestiary.ts";
 import { orreryStatus, refreshOrreryNow } from "./orrery.ts";
+import { busier, channelClocks, type Doing, doingFor, hallClock } from "./hall_time.ts";
+import { getRecentBattles } from "./battle_log.ts";
 
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
 const CACHE_MS = 60_000;
@@ -35,7 +40,13 @@ export interface FeedAdventurer {
   rank: string;
   companies: string[];
   channel: string;
+  /** What they're doing right now, from GuildScribe's clocks (hall_time.ts). */
+  doing: Doing;
 }
+
+/** How far back the hall's recent deeds go, and how many. */
+const RECENT_MS = 24 * 3_600_000;
+const RECENT_MAX = 12;
 
 /** The hall's rank for a parchment at this level (as in the Orrery's canon). */
 export function rankFor(level: number): string {
@@ -60,13 +71,22 @@ async function buildFeed() {
   const best = new Map<string, FeedAdventurer>();
   const companies: Array<{ name: string; members: string[]; channel: string }> = [];
   const learned = new Map<string, { name: string; cr: string; channel: string }>();
+  const doings = new Map<string, Doing>();
+  const recent: Array<{ kind: string; side: string; foe: string; outcome: string; note: string; at: string; channel: string }> = [];
+  const now = Date.now();
+  const clock = hallClock(now);
   for (const ch of channels) {
-    const [chars, parties, nicks, roster] = await Promise.all([
+    const [chars, parties, nicks, roster, clocks, battles] = await Promise.all([
       listChannelCharacters(ch.id, 1000),
       listChannelParties(ch.id),
       listNicknames(ch.id),
       getChannelRoster(ch.id).catch(() => []),
+      channelClocks(ch.id, now),
+      getRecentBattles(ch.id, RECENT_MAX, RECENT_MS).catch(() => []),
     ]);
+    for (const b of battles) {
+      recent.push({ kind: b.kind, side: b.side, foe: b.foe, outcome: b.outcome, note: b.note ?? "", at: new Date(b.at).toISOString(), channel: ch.login });
+    }
     const nick = new Map(nicks.map((n) => [n.username.toLowerCase(), n.nickname]));
     const nameOf = (u: string) => nick.get(u.toLowerCase()) || u;
     const partiesOf = new Map<string, string[]>();
@@ -76,6 +96,9 @@ async function buildFeed() {
     }
     for (const c of chars) {
       const key = c.username.toLowerCase();
+      const doing = doingFor(clocks(c.username, c.level), now, clock);
+      const was = doings.get(key);
+      doings.set(key, was ? busier(was, doing) : doing);
       const have = best.get(key);
       if (have && have.level >= c.level) continue;
       best.set(key, {
@@ -87,21 +110,25 @@ async function buildFeed() {
         rank: rankFor(c.level),
         companies: partiesOf.get(key) ?? [],
         channel: ch.login,
+        doing,
       });
     }
     for (const m of roster) {
       if (m.learned && !learned.has(m.name.toLowerCase())) learned.set(m.name.toLowerCase(), { name: m.name, cr: String(m.cr ?? ""), channel: ch.login });
     }
   }
+  for (const [key, a] of best) a.doing = doings.get(key) ?? a.doing;
   const adventurers = [...best.values()].sort((a, b) => b.level - a.level || a.name.localeCompare(b.name));
   return {
     service: "GuildScribe",
     updatedAt: new Date().toISOString(),
     channels: channels.map((c) => c.login),
     orrery: orreryStatus(),
+    clock,
     adventurers,
     companies,
     learned: [...learned.values()],
+    recent: recent.sort((a, b) => b.at.localeCompare(a.at)).slice(0, RECENT_MAX),
   };
 }
 

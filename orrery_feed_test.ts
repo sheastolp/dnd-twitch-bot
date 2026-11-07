@@ -15,12 +15,16 @@ const { ensureTables } = await import("./db_schema.ts");
 const { ensureBestiaryTables } = await import("./bestiary.ts");
 const { ensureViewerNameTables } = await import("./mentions.ts");
 const { sqlite } = await import("./sqlite.ts");
+const { ensureAutohuntTables } = await import("./autohunt_db.ts");
+const { ensureHuntCooldownTables } = await import("./huntcooldown.ts");
+const { ensureBattleLogTables, recordBattle } = await import("./battle_log.ts");
 
 Deno.test("ranks follow the hall's levels", () => {
   assertEquals([1, 2, 3, 5, 6, 10, 11, 20].map(rankFor), ["Novice", "Novice", "Journeyman", "Journeyman", "Seasoned", "Seasoned", "Veteran", "Veteran"]);
 });
 
-Deno.test("the feed shares showcase channels only, one adventurer per viewer", async () => {
+// sanitizeOps off: the first read starts timers in modules it loads (they outlive the test).
+Deno.test("the feed shares showcase channels only, one adventurer per viewer", { sanitizeOps: false, sanitizeResources: false }, async () => {
   await ensureTables();
   await ensureBestiaryTables();
   await ensureViewerNameTables();
@@ -53,6 +57,34 @@ Deno.test("the feed shares showcase channels only, one adventurer per viewer", a
   assertEquals(feed.adventurers[0].race, "mountain dwarf");
   assertEquals(feed.companies, [{ name: "No Trolls Here", members: ["nobody"], channel: "shown" }]);
   assertEquals(feed.orrery.enabled, false);
+  // Nobody has done anything yet.
+  assertEquals(feed.adventurers.map((a: any) => a.doing.kind), ["away", "away"]);
+  assert(/in the capital\.$/.test(feed.clock.text));
+});
+
+Deno.test("the feed says what each adventurer is doing, and the hall's recent deeds", { sanitizeOps: false, sanitizeResources: false }, async () => {
+  await ensureAutohuntTables();
+  await ensureHuntCooldownTables();
+  await ensureBattleLogTables();
+  const t = Date.now();
+  // paco is out on an autohunt in channel 1; newbie just hunted (resting).
+  await sqlite.execute(
+    "INSERT INTO autohunt_sessions (broadcaster_id, username, display_name, started_at, ends_at, next_at, bouts, wins) VALUES ('1','paco','paco',?,?,?,3,2)",
+    [t - 60_000, t + 3_600_000, t + 60_000],
+  );
+  await sqlite.execute("INSERT INTO hunt_cooldowns (broadcaster_id, username, last_hunt_at) VALUES ('1','newbie',?)", [t - 10_000]);
+  await recordBattle("1", { kind: "hunt", side: "newbie", foe: "Goblin", outcome: "win", note: "+50 XP" });
+  await recordBattle("3", { kind: "hunt", side: "secret", foe: "Troll", outcome: "loss" }); // not shared
+  // A refresh drops the minute's cached feed.
+  await handleOrreryFeedRoute(new Request("http://x/api/orrery/refresh", { method: "POST" }), "/api/orrery/refresh");
+
+  const res = await handleOrreryFeedRoute(new Request("http://x/api/orrery"), "/api/orrery");
+  const feed = await res!.json();
+  const by = Object.fromEntries(feed.adventurers.map((a: any) => [a.viewer, a.doing]));
+  assertEquals(by.paco.kind, "hunting");
+  assert(/3 bouts so far \(2 won\)/.test(by.paco.text));
+  assertEquals(by.newbie.kind, "short rest");
+  assertEquals(feed.recent.map((r: any) => [r.side, r.foe, r.outcome, r.channel]), [["newbie", "Goblin", "win", "shown"]]);
 });
 
 Deno.test("the feed's routes: preflight, refresh is POST only, other paths pass", async () => {
