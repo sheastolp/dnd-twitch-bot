@@ -89,6 +89,7 @@ import { handleClipCommand } from "./clips.ts";
 import { ensureModLogTables, purgeModLogData } from "./mod_log.ts";
 import { ensureMotdTables, purgeMotdData } from "./motd.ts";
 import { onStreamOffline, onStreamOnline } from "./stream_status.ts";
+import { ensureOffstreamTables, maybeOffstreamInvite } from "./offstream.ts";
 import { handleFunCommand, maybeBotBanter } from "./funstuff.ts";
 
 // Public URL for the bot (used for guide links in chat).
@@ -169,6 +170,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureSwearJarTables,
   ensureWhisperTables,
   ensureWhisperInboxTables,
+  ensureOffstreamTables,
   ensureReplyPageTables,
   ensureAutohuntTables,
   ensureRedemptionTables,
@@ -574,6 +576,8 @@ async function handleNotification(body: any): Promise<Response | void> {
     }
     if (!live) {
       if (viaWhisper) await whisperOffline(chatterId, broadcasterId);
+      // Once ever per viewer: keep playing off stream in Wake in Verrowen (offstream.ts).
+      if (chatMessage.trim().startsWith("!")) await maybeOffstreamInvite(chatterId, chatter, broadcasterId);
       return new Response("OK");
     }
   }
