@@ -8,7 +8,8 @@
 //   hoard_board     the bounty board's postings (JSON) + when it was posted
 
 import { sqlite } from "./sqlite.ts";
-import { LEGENDARY_ITEMS, MERCHANT_ITEMS, findMerchantItem, type MerchantItem } from "./gear.ts";
+import { findMerchantItem, merchantStock, type MerchantItem } from "./gear.ts";
+import { ensureOrrery } from "./orrery.ts";
 import { parseFirstPrice } from "./coins.ts";
 import { xpForMonsterCr } from "./characters.ts";
 import { getChannelRoster } from "./bestiary.ts";
@@ -116,18 +117,19 @@ export function resolveOffer(o: StallOffer): ResolvedOffer | null {
     price: parseFirstPrice(gear.price) ?? 1,
     merchant: o.merchant,
     pitch: gear.desc,
-    legendary: LEGENDARY_ITEMS.includes(gear),
+    legendary: !!gear.relic,
   };
 }
 
 function rollOffer(exclude: StallOffer[] = []): StallOffer {
   const taken = new Set(exclude.map((o) => o.desc));
-  // The road's peddlers from the Grand Orrery (orrery.ts), or the fallback list.
+  // The road's peddlers and the Orrery's wares (gear.ts's merchantStock), or the fallback lists.
   const road = orreryPeddlers("road");
   const peddlers = road.length ? road : MERCHANT_NAMES;
-  let offer: StallOffer = { kind: "gear", desc: pick(MERCHANT_ITEMS).desc, merchant: pick(peddlers) };
+  const { wares, relics } = merchantStock();
+  let offer: StallOffer = { kind: "gear", desc: pick(wares).desc, merchant: pick(peddlers) };
   for (let i = 0; i < 20; i++) {
-    offer = { kind: "gear", desc: pick(Math.random() < STALL_LEGENDARY_CHANCE ? LEGENDARY_ITEMS : MERCHANT_ITEMS).desc, merchant: pick(peddlers) };
+    offer = { kind: "gear", desc: pick(relics.length && Math.random() < STALL_LEGENDARY_CHANCE ? relics : wares).desc, merchant: pick(peddlers) };
     if (!taken.has(offer.desc)) return offer;
   }
   return offer;
@@ -150,6 +152,7 @@ export async function getStallState(broadcasterId: string): Promise<{ offers: St
   if (r && Array.isArray(offers) && offers.length === STALL_SLOTS && offers.every((o) => o.kind === "gear") && age < STALL_REFRESH_MS) {
     return { offers, turnsOverInMs: STALL_REFRESH_MS - age };
   }
+  await ensureOrrery();
   const fresh = rollStall();
   await sqlite.execute("INSERT OR REPLACE INTO hoard_stall (broadcaster_id, offers, restocked_at) VALUES (?,?,?)", [
     broadcasterId,

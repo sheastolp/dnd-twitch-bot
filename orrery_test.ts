@@ -1,81 +1,40 @@
-// Tests for orrery.ts: parsing the Grand Orrery's bestiary.md and lore.md,
-// and choosing where a fight happens.
+// Tests for orrery.ts: reading the Grand Orrery's database records (the
+// bestiary, lore and people) and choosing where a fight happens.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
+  bestiaryFromEntities,
+  loreFromEntities,
   orreryBeasts,
   orreryCreature,
   orreryLoreFor,
   orreryPeddlers,
   orreryPersonLine,
-  parseBestiary,
-  parseLore,
+  orreryStatus,
+  type OrreryEntity,
   parseStats,
   placeFor,
   placeForMonster,
   placeText,
   rosterFromEntities,
   sentencesAbout,
+  setOrreryEntitiesForTest,
   setOrreryForTest,
 } from "./orrery.ts";
 
-const BESTIARY = `# GuildScribe's Bestiary
-
-How to add something:
-
-- \`## Place (tag)\`: a hunting ground.
-
-## GuildScribe's arena (Your idea)
-
-- **Where:** Inside the hall.
-- **For:** duels
-- **Lines:**
-  - The arena sand is raked smooth.
-  - The crowd bets in copper.
-
-## The Monster Wood's western edge (Your idea)
-
-- **Where:** Where the wood meets the Kingdom.
-- **For:** hunts
-- **Levels:** 1-10
-- **Lines:**
-  - Into the wood from the west.
-
-#### 🐗 Thornback boar (Your idea)
-
-- **Stats:** CR 2 · AC 13 · HP 45 · +5 to hit · 1d10+3
-- **Does:** A boar the size of a hay cart.
-
-#### 🦉 Gloamowl (Pitch)
-
-- **Stats:** CR 1/2 · AC 13 · HP 16 · +4 to hit · 1d6+2
-
-## The goblin lands (Your idea)
-
-- **For:** hunts
-- **Levels:** 6-14
-
-#### 👺 Goblin raiders (Your idea)
-
-- **In GuildScribe:** Goblin Scavenger, Goblin Boss
-- **Does:** Goblins on the run from the Blight.
-
-## A pitched place (Pitch)
-
-- **For:** hunts
-- **Levels:** 1-20
-
-#### 🐍 Hidden wyrm (Your idea)
-
-- **Stats:** CR 9 · AC 16 · HP 150 · +10 to hit · 2d10+6
-
-## The deep woods (Your idea)
-
-- **For:** raids
-- **Levels:** 13-20
-- **Lines:**
-  - Something has come out of the deep woods.
-`;
+// bestiary.md's places and creatures as the Orrery's build writes them into
+// the database (grand-orrery's tools/build.mjs, parseBestiary).
+const BESTIARY: OrreryEntity[] = [
+  { id: "place-guildscribes-arena", type: "place", kind: "hunting-ground", name: "GuildScribe's arena", status: "decided", uses: ["duels"], lines: ["The arena sand is raked smooth.", "The crowd bets in copper."], fields: { where: "Inside the hall.", for: "duels", lines: ["The arena sand is raked smooth.", "The crowd bets in copper."] } },
+  { id: "place-the-monster-woods-western-edge", type: "place", kind: "hunting-ground", name: "The Monster Wood's western edge", status: "decided", uses: ["hunts"], lines: ["Into the wood from the west."], fields: { where: "Where the wood meets the Kingdom.", for: "hunts", levels: "1-10", lines: ["Into the wood from the west."] } },
+  { id: "thornback-boar", type: "creature", name: "Thornback boar", icon: "🐗", place: "place-the-monster-woods-western-edge", status: "decided", fields: { stats: "CR 2 · AC 13 · HP 45 · +5 to hit · 1d10+3", does: "A boar the size of a hay cart." } },
+  { id: "gloamowl", type: "creature", name: "Gloamowl", icon: "🦉", place: "place-the-monster-woods-western-edge", status: "pitch", fields: { stats: "CR 1/2 · AC 13 · HP 16 · +4 to hit · 1d6+2" } },
+  { id: "place-the-goblin-lands", type: "place", kind: "hunting-ground", name: "The goblin lands", status: "decided", uses: ["hunts"], fields: { for: "hunts", levels: "6-14" } },
+  { id: "goblin-raiders", type: "creature", name: "Goblin raiders", icon: "👺", place: "place-the-goblin-lands", status: "decided", fields: { in_guildscribe: "Goblin Scavenger, Goblin Boss", does: "Goblins on the run from the Blight." } },
+  { id: "place-a-pitched-place", type: "place", kind: "hunting-ground", name: "A pitched place", status: "pitch", uses: ["hunts"], fields: { for: "hunts", levels: "1-20" } },
+  { id: "hidden-wyrm", type: "creature", name: "Hidden wyrm", icon: "🐍", place: "place-a-pitched-place", status: "decided", fields: { stats: "CR 9 · AC 16 · HP 150 · +10 to hit · 2d10+6" } },
+  { id: "place-the-deep-woods", type: "place", kind: "hunting-ground", name: "The deep woods", status: "decided", uses: ["raids"], lines: ["Something has come out of the deep woods."], fields: { for: "raids", levels: "13-20", lines: ["Something has come out of the deep woods."] } },
+];
 
 Deno.test("parseStats reads a stat line and folds several dice into one", () => {
   assertEquals(parseStats("Boar", "CR 2 · AC 13 · HP 45 · +5 to hit · 1d10+3"), {
@@ -89,8 +48,8 @@ Deno.test("parseStats reads a stat line and folds several dice into one", () => 
   assertEquals(parseStats("Nothing", "CR 2 · AC 13"), null);
 });
 
-Deno.test("parseBestiary keeps only decided places and creatures", () => {
-  const b = parseBestiary(BESTIARY);
+Deno.test("bestiaryFromEntities keeps only decided places and creatures", () => {
+  const b = bestiaryFromEntities(BESTIARY);
   assertEquals(b.places.map((p) => p.name), [
     "GuildScribe's arena",
     "The Monster Wood's western edge",
@@ -99,6 +58,7 @@ Deno.test("parseBestiary keeps only decided places and creatures", () => {
   ]);
   const arena = b.places[0];
   assertEquals(arena.uses, ["duels"]);
+  assertEquals(arena.where, "Inside the hall.");
   assertEquals(arena.lines, ["The arena sand is raked smooth.", "The crowd bets in copper."]);
   assertEquals(b.places[1].levels, [1, 10]);
   // The pitched owl and everything in the pitched place stay out.
@@ -109,12 +69,8 @@ Deno.test("parseBestiary keeps only decided places and creatures", () => {
   assertEquals(b.creatures[1].stats, null);
 });
 
-Deno.test("parseBestiary reads CRLF files the same", () => {
-  assertEquals(parseBestiary(BESTIARY.replace(/\n/g, "\r\n")), parseBestiary(BESTIARY));
-});
-
 Deno.test("fights are placed by creature, then by level", () => {
-  setOrreryForTest(parseBestiary(BESTIARY));
+  setOrreryForTest(bestiaryFromEntities(BESTIARY));
   assertEquals(orreryBeasts().map((m) => m.name), ["Thornback boar"]);
   assertEquals(orreryCreature("goblin boss")?.name, "Goblin raiders");
   // A Verrowen creature fights in its own place, whatever the level.
@@ -136,12 +92,12 @@ Deno.test("fights are placed by creature, then by level", () => {
 });
 
 Deno.test("lore for prompts picks the sentences that matter to each speaker", () => {
-  const lore = parseLore([
-    "# Verrowen lore",
-    "WORLD: Verrowen. Common folk just say the world.",
-    "TONE: Medieval fantasy with D&D-style monsters.",
-    "BEYOND: The Monster Wood lies to the west. GuildScribe is the Kingdom's adventurers' guild hall. Threadbare peddlers take turns at a stall in the capital's market. Murrow hides from everyone.",
-  ].join("\n"));
+  // lore.md's lines as the database holds them: one record each, in order.
+  const lore = loreFromEntities([
+    { id: "lore-tone", type: "lore", name: "TONE", text: "Medieval fantasy with D&D-style monsters.", order: 2, status: "decided" },
+    { id: "lore-world", type: "lore", name: "WORLD", text: "Verrowen. Common folk just say the world.", order: 1, status: "decided" },
+    { id: "lore-beyond", type: "lore", name: "BEYOND", text: "The Monster Wood lies to the west. GuildScribe is the Kingdom's adventurers' guild hall. Threadbare peddlers take turns at a stall in the capital's market. Murrow hides from everyone.", order: 3, status: "decided" },
+  ]);
   assertEquals(Object.keys(lore.sections), ["WORLD", "TONE", "BEYOND"]);
   setOrreryForTest({ places: [], creatures: [] }, lore);
   const scribe = orreryLoreFor("scribe");
@@ -205,4 +161,32 @@ Deno.test("the Grand Orrery's real roster.md builds into a roster, if it's check
   assert(r.peddlers.road.length >= 5, `road peddlers: ${r.peddlers.road}`);
   assert(r.people.some((p) => p.name === "The Scribe" && p.line));
   assert(!r.people.some((p) => p.name === "nobody"), "viewers' adventurers stay out");
+});
+
+Deno.test("one read of the database gives the bot everything", () => {
+  setOrreryEntitiesForTest([
+    ...BESTIARY,
+    ...ENTITIES,
+    { id: "lore-tone", type: "lore", name: "TONE", text: "Medieval fantasy.", order: 1, status: "decided" },
+    { id: "empty-wooden-bowl", type: "item", name: "Empty wooden bowl", icon: "🥣", status: "decided", fields: { pitch: "an empty wooden bowl", sold: "1 copper · +1 WIS" } },
+  ] as OrreryEntity[]);
+  const s = orreryStatus();
+  assertEquals([s.places, s.creatures, s.lore, s.peddlers, s.wares, s.relics], [4, 2, 1, 3, 1, 0]);
+  assertEquals(orreryPeddlers("road"), ["Wobble"]);
+  assertEquals(orreryBeasts().map((m) => m.name), ["Thornback boar"]);
+});
+
+Deno.test("the Grand Orrery's real documents build into what the bot needs, if it's checked out next door", async () => {
+  let build: { build: () => { entities: OrreryEntity[]; problems: string[] } };
+  try { build = await import(new URL("../grand-orrery/tools/build.mjs", import.meta.url).href); } catch { return; }
+  // The Orrery's own build, so this checks the two ends meet.
+  const { entities, problems } = build.build();
+  assertEquals(problems, []);
+  const pub = entities.map(({ secret: _, ...e }: OrreryEntity & { secret?: string }) => e);
+  const b = bestiaryFromEntities(pub);
+  assert(b.places.some((p) => p.uses.includes("duels")), "a place for duels");
+  assert(b.places.some((p) => p.uses.includes("hunts") && p.levels), "hunting grounds with levels");
+  assert(b.creatures.some((c) => c.stats), "huntable creatures");
+  const l = loreFromEntities(pub);
+  for (const k of ["WORLD", "TONE", "MAGIC", "BEYOND"]) assert(l.sections[k], `lore ${k}`);
 });

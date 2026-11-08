@@ -8,11 +8,14 @@
 import { ensureTables, getDueMerchantChannels, rescheduleMerchant, recordMonitorEvent, recordMerchantCronRun, setBroadcasterLiveStatus, setMerchantListing } from "./db.ts";
 import { fetchIsChannelLiveNow, sendChatMessage } from "./twitch.ts";
 import { rollMerchantOffer, randomMerchantIntervalMs } from "./merchant.ts";
+import { ensureOrrery } from "./orrery.ts";
 
 export default async function () {
   await ensureTables();
   const now = Date.now();
   const due = await getDueMerchantChannels(now);
+  // The stall's stock is the Orrery's items: wait (briefly) for the first read.
+  if (due.length) await ensureOrrery();
   let postsOk = 0;
   let postsFailed = 0;
   let postsSkippedOffline = 0;

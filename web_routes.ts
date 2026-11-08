@@ -4,6 +4,7 @@
 // to keep files a manageable size. Returns null
 // when no route matched, so main.ts carries on to the EventSub webhook.
 
+import { ensureOrrery } from "./orrery.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { subscribeToAdBreaks } from "./adalerts.ts";
 import { subscribeToFollows } from "./follow_thanks.ts";
@@ -497,6 +498,7 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const broadcaster = await getBroadcaster(channelId);
     if (!broadcaster || Number(broadcaster.connected) !== 1) return new Response("Gear list unavailable for this channel.", { status: 404 });
     const characters = await listChannelCharacters(channelId, 1000);
+    await ensureOrrery();
     const channelName = String(broadcaster.display_name || broadcaster.login || "This channel");
     return new Response(renderGearPage(channelName, channelId, characters, PUBLIC_BASE_URL), {
       headers: { "Content-Type": "text/html; charset=utf-8" },

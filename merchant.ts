@@ -10,7 +10,8 @@
 import { isMerchantEnabled, rescheduleMerchant, setMerchantEnabled, setMerchantListing } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
-import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS } from "./gear.ts";
+import { effectText, merchantStock } from "./gear.ts";
+import { ensureOrrery } from "./orrery.ts";
 import { optNum } from "./channel_options.ts";
 import { orreryPeddlers } from "./orrery.ts";
 
@@ -98,8 +99,11 @@ const MERCHANT_INTROS: Array<(name: string) => string> = [
   (name) => `${name} arranges the wares by "most impressive" first, "please just buy something" last.`,
 ];
 
-// The wares themselves (MERCHANT_ITEMS / LEGENDARY_ITEMS) live in gear.ts,
-// with the stat bonus each one grants when bought (see haggle.ts).
+// The wares themselves are the Grand Orrery's items: every decided entry in
+// its resources.md with a **Sold:** line (gear.ts's merchantStock, read by
+// orrery.ts), with the price and the stat bonus each one grants when bought
+// (see haggle.ts). gear.ts keeps a fallback list for when the Orrery can't
+// be read.
 
 // Self-deprecating, humble-peddler closing lines — the merchant is not
 // wealthy, and knows it.
@@ -164,9 +168,10 @@ export interface MerchantOffer {
 export function rollMerchantOffer(): MerchantOffer {
   const fromOrrery = orreryPeddlers("all");
   const name = pick(fromOrrery.length ? fromOrrery : MERCHANT_NAMES);
+  const stock = merchantStock();
   // Occasionally the peddler stumbles onto a legendary relic instead of junk.
-  if (Math.random() < LEGENDARY_CHANCE) {
-    const relic = pick(LEGENDARY_ITEMS);
+  if (stock.relics.length && Math.random() < LEGENDARY_CHANCE) {
+    const relic = pick(stock.relics);
     return {
       merchantName: name,
       itemDesc: relic.desc,
@@ -175,7 +180,7 @@ export function rollMerchantOffer(): MerchantOffer {
     };
   }
   const intro = pick(MERCHANT_INTROS)(name);
-  const item = pick(MERCHANT_ITEMS);
+  const item = pick(stock.wares);
   const closer = pick(MERCHANT_CLOSERS);
   return {
     merchantName: name,
@@ -228,6 +233,7 @@ export async function handleMerchantCommand(
       await sendChatMessage(`@${display} the market is off in this channel — turn it on first with !market on.`, broadcasterId);
       return true;
     }
+    await ensureOrrery();
     const offer = rollMerchantOffer();
     if (await sendChatMessage(offer.ad, broadcasterId)) {
       await setMerchantListing(broadcasterId, offer.merchantName, offer.itemDesc, offer.priceText);

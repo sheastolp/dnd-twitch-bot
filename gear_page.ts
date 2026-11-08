@@ -3,7 +3,7 @@
 // and which heroes in this channel already carry it. The gear counterpart of
 // the bestiary page (bestiary_page.ts).
 
-import { effectText, LEGENDARY_ITEMS, MERCHANT_ITEMS, type MerchantItem, ownsGear } from "./gear.ts";
+import { effectText, merchantStock, type MerchantItem, ownsGear } from "./gear.ts";
 import type { Character } from "./types.ts";
 import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
@@ -25,9 +25,11 @@ export function renderGearPage(
   const name = escapeHtml(channelName);
   const charLink = (username: string) =>
     `${baseUrl}/?user=${encodeURIComponent(username)}&channel=${encodeURIComponent(broadcasterId)}`;
+  // The Orrery's wares (resources.md), or the fallback lists before it's read.
+  const { wares, relics } = merchantStock();
   const all = [
-    ...MERCHANT_ITEMS.map((i) => ({ item: i, legendary: false })),
-    ...LEGENDARY_ITEMS.map((i) => ({ item: i, legendary: true })),
+    ...wares.map((i) => ({ item: i, legendary: false })),
+    ...relics.map((i) => ({ item: i, legendary: true })),
   ];
   const ownersOf = (item: MerchantItem) => characters.filter((c) => ownsGear(c, item)).map((c) => c.username)
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
@@ -53,7 +55,7 @@ export function renderGearPage(
 
   const body =
     `<span class="pill">Gear</span><h1>${name}</h1><p class="muted">Every piece of gear the wandering peddler can turn up with. Buy it with coin through <code>!haggle</code> when it's on offer, and its bonus is written straight onto your character sheet — it counts in checks, saves, duels, hunts and raids.</p>` +
-    `<div class="stats"><div class="stat"><b>${all.length}</b>items</div><div class="stat"><b>${MERCHANT_ITEMS.length}</b>junk</div><div class="stat"><b>${LEGENDARY_ITEMS.length}</b>legendary</div><div class="stat"><b>${owned}</b>owned here</div><div class="stat"><b>${carried}</b>carried by heroes</div></div>` +
+    `<div class="stats"><div class="stat"><b>${all.length}</b>items</div><div class="stat"><b>${wares.length}</b>junk</div><div class="stat"><b>${relics.length}</b>legendary</div><div class="stat"><b>${owned}</b>owned here</div><div class="stat"><b>${carried}</b>carried by heroes</div></div>` +
     `<div class="controls"><input id="q" class="search" type="search" placeholder="Search gear, effects (e.g. DEX, max HP), owners…" autocomplete="off" aria-label="Search the gear">` +
     `<select id="f" aria-label="Filter"><option value="">All gear</option><option value="junk">Junk only</option><option value="legendary">Legendary only</option><option value="owned">Owned here</option><option value="unowned">Not yet owned</option></select></div>` +
     `<p id="count" class="muted small"></p>` +

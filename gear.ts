@@ -24,6 +24,7 @@
 
 import type { Ability, Character } from "./types.ts";
 import { modifier } from "./utils.ts";
+import { orreryWares } from "./orrery.ts";
 
 export interface GearEffect {
   scores?: Partial<Record<Ability, number>>;
@@ -38,11 +39,22 @@ export interface MerchantItem {
   desc: string;
   price: string;
   effect: GearEffect;
+  /** A rare relic rather than the usual junk. */
+  relic?: boolean;
 }
+
+// The stall's stock comes from the Grand Orrery: every decided entry in its
+// resources.md with a **Sold:** line (orrery.ts's orreryWares), under
+// "## Peddlers' wares" or anywhere else in the file. A new item added there
+// turns up at the stall on its own. The lists below are the same wares as
+// they stood when they moved to the Orrery, kept only as a fallback for
+// before the first read of the Orrery (or when it can't be reached), and so
+// a listing posted from them can still be bought.
 
 // Cheap, secondhand, unmistakably D&D-flavored goods — nothing a wealthy
 // merchant would bother stocking. Small bonuses to match the small prices.
 export const MERCHANT_ITEMS: MerchantItem[] = [
+  { name: "Empty wooden bowl", desc: "an empty wooden bowl, licked clean by the last owner's dog", price: "1 copper", effect: { scores: { WIS: 1 } } },
   { name: "Dented tin flask", desc: "a dented tin flask that swears it once held dragon's-breath brandy", price: "3 copper", effect: { scores: { CON: 1 } } },
   { name: "Warding chalk", desc: "a bundle of chalk sticks for warding sigils, mostly unbroken", price: "2 copper", effect: { scores: { WIS: 1 } } },
   { name: "Lucky rabbit's foot", desc: "one (1) lucky rabbit's foot, still faintly twitching", price: "5 copper", effect: { scores: { DEX: 1 } } },
@@ -94,6 +106,25 @@ export const LEGENDARY_ITEMS: MerchantItem[] = [
   { name: "Hammer of Thunderbolts", desc: "the Hammer of Thunderbolts, a dwarven masterwork the peddler mistook for a 'really good doorstop'", price: "135 gold", effect: { scores: { STR: 2 }, hp: 8 } },
   { name: "Scroll of Protection from Everything", desc: "the Scroll of Protection from Everything, written in a language that only exists in dreams", price: "55 gold", effect: { hp: 12 } },
 ];
+for (const i of LEGENDARY_ITEMS) i.relic = true;
+
+export interface MerchantStock {
+  /** The usual junk. */
+  wares: MerchantItem[];
+  /** Rare relics (may be empty). */
+  relics: MerchantItem[];
+  /** True when it came from the Grand Orrery, false for the fallback lists. */
+  fromOrrery: boolean;
+}
+
+/** What the peddlers can put on the stall right now: the Orrery's wares
+ * once it has been read, otherwise the fallback lists above. */
+export function merchantStock(): MerchantStock {
+  const live: MerchantItem[] = orreryWares().map((w) => ({ name: w.name, desc: w.desc, price: w.price, effect: w.effect, relic: w.relic }));
+  const wares = live.filter((i) => !i.relic);
+  if (!wares.length) return { wares: MERCHANT_ITEMS, relics: LEGENDARY_ITEMS, fromOrrery: false };
+  return { wares, relics: live.filter((i) => i.relic), fromOrrery: true };
+}
 
 const ABILITY_ORDER: Ability[] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
 const SCORE_CAP = 20;
@@ -114,11 +145,13 @@ export function effectText(e: GearEffect): string {
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-/** The catalog entry for a listing's item description (null for anything
- * not in the catalog, e.g. a listing posted before an item was renamed). */
+/** The catalog entry for a listing's item description: the Orrery's stock
+ * first, then the fallback lists, so a listing posted before a change can
+ * still be bought (null for anything in neither). */
 export function findMerchantItem(itemDesc: string): MerchantItem | null {
   const d = norm(itemDesc);
-  return [...MERCHANT_ITEMS, ...LEGENDARY_ITEMS].find((i) => norm(i.desc) === d) ?? null;
+  const { wares, relics } = merchantStock();
+  return [...wares, ...relics, ...MERCHANT_ITEMS, ...LEGENDARY_ITEMS].find((i) => norm(i.desc) === d) ?? null;
 }
 
 /** True if the character's sheet already carries this item. */
