@@ -24,11 +24,6 @@ export const POTIONS: Potion[] = [
   { key: "elixir_of_vitality", name: "Elixir of Vitality", price: 195 },
 ];
 
-/** Fallback only: the road's peddlers come from the Grand Orrery's people (its database)
- * (orrery.ts), and this list is used until the bot has read it. */
-export const MERCHANT_NAMES = [
-  "Wobble", "Pruneface Yorik", "Tansy Ninefingers", "Old Corrin", "Tam Pockets", "Squint", "Nan Gullyfoot", "Kettle", "Sella Windrags",
-];
 
 /** {owner} = merchant, {item} = item name, {desc} = its pitch. */
 export const LORE_TEMPLATES: string[] = [

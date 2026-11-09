@@ -47,31 +47,8 @@ export async function randomMerchantIntervalMs(broadcasterId = ""): Promise<numb
 
 // A different threadbare peddler each time — this is a traveling open stall,
 // not a single recurring shopkeeper. The names come from the Grand Orrery's
-// people (orrery.ts, from its database: the capital's and the road's peddlers); this list is
-// only the fallback until the bot has read it.
-const MERCHANT_NAMES: string[] = [
-  "Wobble",
-  "Pruneface Yorik",
-  "Tansy Ninefingers",
-  "Bregga Stumpteeth",
-  "Old Corrin",
-  "Widow Hesk",
-  "Tam Pockets",
-  "Fenwick Loose-Coin",
-  "Marda the Reformed Cutpurse",
-  "Grithnall the Threadbare",
-  "Squint",
-  "Nan Gullyfoot",
-  "Ossop the Unlucky",
-  "Beren Halfcoat",
-  "Ivy Scraptongue",
-  "Doras Milkbeard",
-  "Kettle",
-  "Ruel Tinkpocket",
-  "Sella Windrags",
-  "Podge Ashborn",
-  "Uther Nine-Debts",
-];
+// people (orrery.ts, from its database: the capital's and the road's
+// peddlers) and nowhere else.
 
 // Scene-setting openers. Each is a function of the merchant's name so the
 // same line never reads twice the same way in a row.
@@ -165,10 +142,12 @@ export interface MerchantOffer {
  * ad text together — so a caller (merchant_cron.ts) can post the ad and
  * persist what's currently on offer (for !haggle, see haggle.ts) from the
  * same roll instead of them drifting apart. */
-export function rollMerchantOffer(): MerchantOffer {
-  const fromOrrery = orreryPeddlers("all");
-  const name = pick(fromOrrery.length ? fromOrrery : MERCHANT_NAMES);
+export function rollMerchantOffer(): MerchantOffer | null {
+  const peddlers = orreryPeddlers("all");
   const stock = merchantStock();
+  // Nothing to sell until the Orrery has been read at least once.
+  if (!stock.wares.length) return null;
+  const name = peddlers.length ? pick(peddlers) : "A traveling peddler";
   // Occasionally the peddler stumbles onto a legendary relic instead of junk.
   if (stock.relics.length && Math.random() < LEGENDARY_CHANCE) {
     const relic = pick(stock.relics);
@@ -192,7 +171,7 @@ export function rollMerchantOffer(): MerchantOffer {
 
 /** One full merchant sales-pitch ad, ready to post to chat. */
 export function generateMerchantAd(): string {
-  return rollMerchantOffer().ad;
+  return rollMerchantOffer()?.ad ?? "";
 }
 
 /** Handles !market on | off | status | now. Returns true if the message matched. */
@@ -235,6 +214,10 @@ export async function handleMerchantCommand(
     }
     await ensureOrrery();
     const offer = rollMerchantOffer();
+    if (!offer) {
+      await sendChatMessage(`@${display} the peddlers have nothing to sell yet: GuildScribe hasn't been able to read the Grand Orrery. Try again in a few minutes.`, broadcasterId);
+      return true;
+    }
     if (await sendChatMessage(offer.ad, broadcasterId)) {
       await setMerchantListing(broadcasterId, offer.merchantName, offer.itemDesc, offer.priceText);
       await rescheduleMerchant(broadcasterId, Date.now() + await randomMerchantIntervalMs(broadcasterId));

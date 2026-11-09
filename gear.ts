@@ -43,86 +43,27 @@ export interface MerchantItem {
   relic?: boolean;
 }
 
-// The stall's stock comes from the Grand Orrery: every decided entry in its
-// resources.md with a **Sold:** line (orrery.ts's orreryWares), under
-// "## Peddlers' wares" or anywhere else in the file. A new item added there
-// turns up at the stall on its own. The lists below are the same wares as
-// they stood when they moved to the Orrery, kept only as a fallback for
-// before the first read of the Orrery (or when it can't be reached), and so
-// a listing posted from them can still be bought.
-
-// Cheap, secondhand, unmistakably D&D-flavored goods — nothing a wealthy
-// merchant would bother stocking. Small bonuses to match the small prices.
-export const MERCHANT_ITEMS: MerchantItem[] = [
-  { name: "Empty wooden bowl", desc: "an empty wooden bowl, licked clean by the last owner's dog", price: "1 copper", effect: { scores: { WIS: 1 } } },
-  { name: "Dented tin flask", desc: "a dented tin flask that swears it once held dragon's-breath brandy", price: "3 copper", effect: { scores: { CON: 1 } } },
-  { name: "Warding chalk", desc: "a bundle of chalk sticks for warding sigils, mostly unbroken", price: "2 copper", effect: { scores: { WIS: 1 } } },
-  { name: "Lucky rabbit's foot", desc: "one (1) lucky rabbit's foot, still faintly twitching", price: "5 copper", effect: { scores: { DEX: 1 } } },
-  { name: "Cracked scrying mirror", desc: "a cracked scrying mirror that only ever shows yesterday", price: "1 silver", effect: { scores: { INT: 1 } } },
-  { name: "Moth-eaten cloak", desc: "a moth-eaten cloak that almost passes for 'mysterious'", price: "4 copper", effect: { scores: { CHA: 1 } } },
-  { name: "Goblin-rated rope", desc: "a coil of rope, guaranteed to hold at least one goblin", price: "6 copper", effect: { scores: { STR: 1 } } },
-  { name: "Pickled owlbear whiskers", desc: "a jar of pickled owlbear whiskers (for luck, allegedly)", price: "8 copper", effect: { scores: { CON: 1 } } },
-  { name: "Blue-flame candle", desc: "a half-melted candle that burns a suspicious shade of blue", price: "1 copper", effect: { scores: { INT: 1 } } },
-  { name: "Badly loaded dice", desc: "a set of loaded dice, badly loaded — they just roll off the table", price: "2 copper", effect: { scores: { CHA: 1 } } },
-  { name: "Rusty holy symbol", desc: "a rusty holy symbol of a god nobody quite remembers anymore", price: "3 copper", effect: { scores: { WIS: 1 } } },
-  { name: "Whittled wooden dagger", desc: "a whittled wooden dagger, purely for show — please don't stab anyone", price: "1 copper", effect: { scores: { CHA: 1 } } },
-  { name: "Questionable trail rations", desc: "a satchel of trail rations that are 'mostly' still rations", price: "5 copper", effect: { hp: 2 } },
-  { name: "Single fine boot", desc: "a single boot, left foot, very fine make", price: "2 copper", effect: { speed: 5 } },
-  { name: "Maybe-enchanted river water", desc: "a vial of river water that 'might' be enchanted", price: "4 copper", effect: { hp: 2 } },
-  { name: "Scorched spellbook page", desc: "a scorched spellbook page with half a fireball recipe on it", price: "7 copper", effect: { scores: { INT: 1 } } },
-  { name: "Tavern-seeking compass", desc: "a tarnished brass compass that always points toward the nearest tavern", price: "3 copper", effect: { scores: { WIS: 1 } } },
-  { name: "'Gnomish gemstones'", desc: "a sack of glass beads, sold in good faith as 'gnomish gemstones'", price: "6 copper", effect: { scores: { CHA: 1 } } },
-  { name: "Patchwork healer's kit", desc: "a patchwork healer's kit missing only the important bits", price: "9 copper", effect: { hp: 3 } },
-  { name: "Wish-granting cricket", desc: "a caged cricket claimed to grant wishes if fed enough", price: "2 copper", effect: { scores: { WIS: 1 } } },
-  { name: "Hand-me-down shield", desc: "a hand-me-down shield, already dented — someone else did the work for you", price: "1 silver 2 copper", effect: { hp: 4 } },
-  { name: "Glowing string", desc: "a coil of faintly glowing string, source unknown, no refunds", price: "5 copper", effect: { scores: { DEX: 1 } } },
-  { name: "'Dragon' scales", desc: "a stack of 'authentic' dragon scales (dyed lizard, don't tell anyone)", price: "4 copper", effect: { scores: { CON: 1 } } },
-];
-
-// Rare, mostly-forgotten legendary relics. The peddler found them in a
-// bottomless sack and has no idea what they are, so they're priced like
-// curiosities — a steal for anyone who recognizes them. Prices stay in plain
-// "<n> gold" form so coins.ts's parseFirstPrice (and !haggle) can read them.
-// Bigger bonuses than the junk, as befits a relic.
-export const LEGENDARY_ITEMS: MerchantItem[] = [
-  { name: "Apparatus of Kwalish", desc: "the Apparatus of Kwalish, a lobster-shaped iron submersible, 'only slightly rusted shut'", price: "90 gold", effect: { scores: { CON: 2 }, hp: 5 } },
-  { name: "Iron Flask", desc: "an Iron Flask etched with sigils, humming faintly and rattling whenever you look away", price: "75 gold", effect: { scores: { WIS: 2 } } },
-  { name: "Cubic Gate", desc: "a Cubic Gate, a small stone cube with six faces, each one a door to somewhere else", price: "120 gold", effect: { scores: { INT: 2 }, speed: 10 } },
-  { name: "Ring of Three Wishes", desc: "the Ring of Three Wishes — the peddler swears it has 'at least two left'", price: "150 gold", effect: { scores: { CHA: 2, WIS: 1 }, hp: 5 } },
-  { name: "Fragarach", desc: "Fragarach, the Sword of Answering, which sulks in its sheath until someone lies to it", price: "110 gold", effect: { scores: { STR: 2 }, hp: 5 } },
-  { name: "Anstruth Harp", desc: "an Anstruth Harp, a bardic instrument of a lost college, still tuned to a forgotten song", price: "85 gold", effect: { scores: { CHA: 2 } } },
-  { name: "Talisman of Pure Good", desc: "a Talisman of Pure Good that glows warmly and makes the nearby chickens behave", price: "95 gold", effect: { scores: { WIS: 2 }, hp: 5 } },
-  { name: "Talisman of Ultimate Evil", desc: "a Talisman of Ultimate Evil, kept in a lead-lined pickle jar for everyone's safety", price: "40 gold", effect: { scores: { CHA: 2 } } },
-  { name: "Mirror of Life Trapping", desc: "a Mirror of Life Trapping with a crack down one side and a distinct sense of being watched", price: "70 gold", effect: { scores: { INT: 2 } } },
-  { name: "Cloak of Invisibility", desc: "the Cloak of Invisibility, 'sold as seen' (nobody has seen it yet)", price: "100 gold", effect: { scores: { DEX: 2 }, hp: 5 } },
-  { name: "Robe of the Archmagi", desc: "the Robe of the Archmagi, patched at the elbows and reeking of ozone", price: "130 gold", effect: { scores: { INT: 2 }, hp: 8 } },
-  { name: "Orb of Dragonkind", desc: "an Orb of Dragonkind that goes cold whenever a dragon is within a thousand miles", price: "140 gold", effect: { scores: { CHA: 2 }, hp: 8 } },
-  { name: "Rod of Seven Parts (6/7)", desc: "the Rod of Seven Parts — six of seven, the peddler is 'still looking for the last one'", price: "60 gold", effect: { scores: { WIS: 2 } } },
-  { name: "Staff of the Magi", desc: "the Staff of the Magi, a splintered old staff that crackles whenever it hears the word 'counterspell'", price: "125 gold", effect: { scores: { INT: 2 }, hp: 8 } },
-  { name: "Plate Armor of Etherealness", desc: "a Plate Armor of Etherealness that vanishes entirely, the peddler warns, 'if you get excited'", price: "115 gold", effect: { hp: 15 } },
-  { name: "Sword of Kas", desc: "the Sword of Kas, a pitch-black blade that whispers rude things about its former owner", price: "80 gold", effect: { scores: { STR: 2 } } },
-  { name: "Luck Blade", desc: "a Luck Blade with a sheepish grin and exactly one wish remaining", price: "105 gold", effect: { scores: { DEX: 2 }, hp: 5 } },
-  { name: "Ioun Stone of Mastery", desc: "an Ioun Stone of Mastery spinning lazily in the air above the table, bothering no one", price: "65 gold", effect: { scores: { INT: 1, WIS: 1 } } },
-  { name: "Hammer of Thunderbolts", desc: "the Hammer of Thunderbolts, a dwarven masterwork the peddler mistook for a 'really good doorstop'", price: "135 gold", effect: { scores: { STR: 2 }, hp: 8 } },
-  { name: "Scroll of Protection from Everything", desc: "the Scroll of Protection from Everything, written in a language that only exists in dreams", price: "55 gold", effect: { hp: 12 } },
-];
-for (const i of LEGENDARY_ITEMS) i.relic = true;
+// The stall's stock comes from the Grand Orrery and nowhere else: every
+// decided entry in its resources.md with a **Sold:** line (orrery.ts's
+// orreryWares). A new item added there turns up at the stall on its own. The
+// bot keeps no list of wares of its own; orrery.ts keeps the Orrery's last
+// good copy between restarts.
 
 export interface MerchantStock {
   /** The usual junk. */
   wares: MerchantItem[];
   /** Rare relics (may be empty). */
   relics: MerchantItem[];
-  /** True when it came from the Grand Orrery, false for the fallback lists. */
+  /** False only when the Orrery has never been read here (then it's empty). */
   fromOrrery: boolean;
 }
 
 /** What the peddlers can put on the stall right now: the Orrery's wares
- * once it has been read, otherwise the fallback lists above. */
+ * (empty if the Orrery has never been read here). */
 export function merchantStock(): MerchantStock {
   const live: MerchantItem[] = orreryWares().map((w) => ({ name: w.name, desc: w.desc, price: w.price, effect: w.effect, relic: w.relic }));
   const wares = live.filter((i) => !i.relic);
-  if (!wares.length) return { wares: MERCHANT_ITEMS, relics: LEGENDARY_ITEMS, fromOrrery: false };
+  if (!wares.length) return { wares: [], relics: [], fromOrrery: false };
   return { wares, relics: live.filter((i) => i.relic), fromOrrery: true };
 }
 
@@ -145,13 +86,12 @@ export function effectText(e: GearEffect): string {
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-/** The catalog entry for a listing's item description: the Orrery's stock
- * first, then the fallback lists, so a listing posted before a change can
- * still be bought (null for anything in neither). */
+/** The catalog entry for a listing's item description, from the Orrery's
+ * stock (null if the Orrery no longer sells it). */
 export function findMerchantItem(itemDesc: string): MerchantItem | null {
   const d = norm(itemDesc);
   const { wares, relics } = merchantStock();
-  return [...wares, ...relics, ...MERCHANT_ITEMS, ...LEGENDARY_ITEMS].find((i) => norm(i.desc) === d) ?? null;
+  return [...wares, ...relics].find((i) => norm(i.desc) === d) ?? null;
 }
 
 /** True if the character's sheet already carries this item. */

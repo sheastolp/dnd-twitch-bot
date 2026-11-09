@@ -45,7 +45,9 @@ export default async function () {
         postsSkippedOffline++;
       } else {
         const offer = rollMerchantOffer();
-        if (await sendChatMessage(offer.ad, broadcasterId)) {
+        // Nothing to sell until the Orrery has been read: skip this post.
+        if (!offer) postsSkippedOffline++;
+        else if (await sendChatMessage(offer.ad, broadcasterId)) {
           postsOk++;
           // Persisted so !haggle (haggle.ts) knows what's currently on
           // offer; each new ad overwrites the previous listing.

@@ -29,7 +29,7 @@
 //     moves a 1-9% cut of THEIR purse (at least 1 cp) into the swear jar.
 //     No character needed, no cooldown spent — every attempt costs.
 
-import { placeFor, placeText } from "./orrery.ts";
+import { orreryBotName, placeFor, placeText } from "./orrery.ts";
 import { getCharacter } from "./db.ts";
 import { resolvePlayerDuel } from "./combat.ts";
 import { recordBattle } from "./battle_log.ts";
@@ -76,16 +76,19 @@ export function botLogin(): string {
   return (Deno.env.get("TWITCH_BOT_LOGIN") ?? "guildscribebot").trim().replace(/^@/, "").toLowerCase();
 }
 
+// GuildScribe's own name in the Orrery (its person record), for the lines below.
+const S = () => orreryBotName();
+
 const BOT_DEFLECTIONS: ((name: string, coin: string) => string)[] = [
-  (n, c) => `🪶 @${n} reaches for the Scribe's purse and grabs an inkwell instead. The Scribe sighs, notes "attempted theft of a narrator" in the chronicle, and drops ${c} of ${n}'s coin in the swear jar for the trouble.`,
-  (n, c) => `📜 @${n} tries to rob the one who writes the story. The Scribe simply writes "${n} trips over their own feet" — and so it was. ${c} spills from their purse into the swear jar.`,
+  (n, c) => `🪶 @${n} reaches for ${S()}'s purse and grabs an inkwell instead. ${S()} sighs, notes "attempted theft of a narrator" in the chronicle, and drops ${c} of ${n}'s coin in the swear jar for the trouble.`,
+  (n, c) => `📜 @${n} tries to rob the one who writes the story. ${S()} simply writes "${n} trips over their own feet" — and so it was. ${c} spills from their purse into the swear jar.`,
   (n, c) => `🛡️ @${n} lunges at GuildScribe and is parried by a quill. A quill. ${c} of their coin goes in the swear jar as a fine for sheer embarrassment.`,
-  (n, c) => `🎲 @${n} rolls to rob the Scribe… natural 1. The whole tavern saw that. ${c} is confiscated and rattles into the swear jar.`,
-  (n, c) => `👻 @${n} picks the Scribe's pocket and finds only a note: "Nice try." Their own purse is ${c} lighter — the swear jar thanks them for their donation.`,
+  (n, c) => `🎲 @${n} rolls to rob ${S()}… natural 1. The whole tavern saw that. ${c} is confiscated and rattles into the swear jar.`,
+  (n, c) => `👻 @${n} picks ${S()}'s pocket and finds only a note: "Nice try." Their own purse is ${c} lighter — the swear jar thanks them for their donation.`,
 ];
 
 const BOT_DEFLECTIONS_BROKE = [
-  (n: string) => `🪶 @${n} tries to rob the Scribe and gets parried by a quill. The Scribe would fine you, but your purse is as empty as your plan.`,
+  (n: string) => `🪶 @${n} tries to rob ${S()} and gets parried by a quill. ${S()} would fine you, but your purse is as empty as your plan.`,
   (n: string) => `🎲 @${n} rolls to rob GuildScribe… natural 1. The swear jar wanted a cut, but you're too broke to even fine.`,
 ];
 

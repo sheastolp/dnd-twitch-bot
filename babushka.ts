@@ -16,7 +16,7 @@
 // AI replies go through openai.ts (OpenAI or Ollama, see there), same
 // pattern as npcs.ts / haggle.ts. MENTION_REPLY_MODEL picks the model.
 
-import { ensureOrrery, orreryPersonLine, orreryPromptLine } from "./orrery.ts";
+import { ensureOrrery, orreryBotPerson, orreryPromptLine } from "./orrery.ts";
 import { OpenAI } from "./openai.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
@@ -64,9 +64,13 @@ const FALLBACK_LINES = [
   "Devochka, malchik, whoever you are — drink tea, stop typing so much.",
 ];
 
-// In the Grand Orrery she is the Scribe, GuildScribe's senior guildscribe
-// (orrery.ts adds the decided lore when it can read it).
-const SCRIBE_IN_THE_ORRERY = `In the world of the Grand Orrery you are the Scribe, senior guildscribe at GuildScribe, the adventurers' guild hall in the Kingdom's capital: you sit at the front desk, keep the adventurers' parchments, and fine anyone who tries to rob you into the hall's swear jar.`;
+// Who she is in the Grand Orrery comes from the Orrery itself (her person
+// record, orrery.ts), never from text written here.
+function scribeInTheOrrery(): string {
+  const me = orreryBotPerson();
+  if (!me) return "";
+  return `In the world of the Grand Orrery you are ${me.name}${me.role ? `, ${me.role}` : ""}${me.line ? `: ${me.line}` : "."}`;
+}
 
 type Turn = { role: "user" | "assistant"; content: string };
 const history = new Map<string, Turn[]>();
@@ -111,7 +115,7 @@ async function generateReply(broadcasterId: string, display: string, message: st
       model: MODEL,
       max_completion_tokens: REPLY_MAX_TOKENS,
       messages: [
-        { role: "system", content: [SYSTEM_PROMPT, SCRIBE_IN_THE_ORRERY, orreryPersonLine("The Scribe"), orreryPromptLine("scribe")].filter(Boolean).join(" ") },
+        { role: "system", content: [SYSTEM_PROMPT, scribeInTheOrrery(), orreryPromptLine("scribe")].filter(Boolean).join(" ") },
         ...(history.get(broadcasterId) ?? []),
         { role: "user", content: `${display}: ${message || "(just tagged you and said nothing)"}` },
       ],

@@ -19,7 +19,6 @@ import {
   BOARD_REFRESH_MS,
   BOARD_SLOTS,
   BOUNTY_MAX_CR,
-  MERCHANT_NAMES,
   POTIONS,
   type Potion,
   STALL_LEGENDARY_CHANCE,
@@ -123,9 +122,9 @@ export function resolveOffer(o: StallOffer): ResolvedOffer | null {
 
 function rollOffer(exclude: StallOffer[] = []): StallOffer {
   const taken = new Set(exclude.map((o) => o.desc));
-  // The road's peddlers and the Orrery's wares (gear.ts's merchantStock), or the fallback lists.
+  // The road's peddlers and the Orrery's wares (gear.ts's merchantStock): the Orrery's, and nobody else's.
   const road = orreryPeddlers("road");
-  const peddlers = road.length ? road : MERCHANT_NAMES;
+  const peddlers = road.length ? road : ["A road peddler"];
   const { wares, relics } = merchantStock();
   let offer: StallOffer = { kind: "gear", desc: pick(wares).desc, merchant: pick(peddlers) };
   for (let i = 0; i < 20; i++) {
@@ -137,6 +136,8 @@ function rollOffer(exclude: StallOffer[] = []): StallOffer {
 
 function rollStall(): StallOffer[] {
   const out: StallOffer[] = [];
+  // Nothing on the stall until the Orrery has been read at least once.
+  if (!merchantStock().wares.length) return out;
   while (out.length < STALL_SLOTS) out.push(rollOffer(out));
   return out;
 }

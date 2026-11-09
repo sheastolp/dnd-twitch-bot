@@ -6,6 +6,9 @@
 import { randomEncounterMinLevel, type SoloMonster } from "./data.ts";
 import { type AdaptationRecord, describeTier, expectedHeroWinRate, type HuntableMonster } from "./bestiary.ts";
 import { escapeHtml } from "./utils.ts";
+import { orreryWorldName } from "./orrery.ts";
+// The name of the Orrery world its own creatures come from.
+const worldOf = () => orreryWorldName() || "Orrery";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 export function renderBestiaryPage(
@@ -38,12 +41,13 @@ export function renderBestiaryPage(
     const tierCell = tier
       ? `<span class="tier ${tier > 0 ? "up" : "down"}" title="${escapeHtml(describeTier(tier))}">🧠 ${tier > 0 ? "+" : "−"}${Math.abs(tier)}</span><div class="muted small">${escapeHtml(describeTier(tier))}</div>`
       : `<span class="muted">—</span>`;
+    const world = worldOf();
     const origin = m.learned
       ? `<span class="badge learned" title="Learned ${escapeHtml(new Date(m.learned.at).toISOString().slice(0, 10))}">learned${m.learned.by ? ` · ${escapeHtml(m.learned.by)}` : ""}</span>`
       : m.orrery
-      ? `<span class="badge" title="One of Verrowen's own creatures, from the Grand Orrery's bestiary">Verrowen</span>`
+      ? `<span class="badge" title="One of ${escapeHtml(world)}'s own creatures, from the Grand Orrery's bestiary">${escapeHtml(world)}</span>`
       : `<span class="badge">core</span>`;
-    const search = [m.name, m.cr, m.learned ? "learned" : m.orrery ? "core verrowen" : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
+    const search = [m.name, m.cr, m.learned ? "learned" : m.orrery ? `core ${world.toLowerCase()}` : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
     const cmd = `!dndduel ${m.name.toLowerCase()}`;
     return `<tr data-search="${escapeHtml(search)}" data-cr="${m.crValue}" data-tier="${tier}" data-learned="${m.learned ? 1 : 0}">` +
       `<td><strong>${escapeHtml(m.name)}</strong><div class="muted small"><code>${escapeHtml(cmd)}</code></div></td>` +

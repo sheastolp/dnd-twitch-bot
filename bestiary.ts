@@ -30,7 +30,7 @@
 //   !bestiary forget <name>      mod: remove + block a learned monster
 //   !bestiary reset <name|all>   mod: clear adaptation back to tier 0
 
-import { ensureOrrery, orreryBeasts, orreryCreature, placeForMonster, type FightPlace } from "./orrery.ts";
+import { ensureOrrery, orreryBeasts, orreryCreature, orreryWorldName, placeForMonster, type FightPlace } from "./orrery.ts";
 import { sqlite } from "./sqlite.ts";
 import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { lookup5e } from "./lookups.ts";
@@ -554,7 +554,7 @@ export async function handleBestiaryCommand(
     return true;
   }
   const a = await getAdaptation(broadcasterId, base.name);
-  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : base.orrery ? "of Verrowen" : "core";
+  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : base.orrery ? `of ${orreryWorldName() || "the Orrery"}` : "core";
   const verrowen = orreryCreature(base.name);
   const lore = verrowen ? ` ${verrowen.icon ? verrowen.icon + " " : ""}${verrowen.does}${verrowen.does && !/[.!?]$/.test(verrowen.does) ? "." : ""} Found in ${verrowen.place.replace(/^The /, "the ")}.` : "";
   const record = a.heroWins + a.monsterWins

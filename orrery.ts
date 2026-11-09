@@ -25,7 +25,10 @@
 //                line, which a peddler's !haggle replies play to. The public
 //                records carry no secrets.
 //
-// The bot's own lists are only a fallback until the first good read.
+// The bot keeps no universe content of its own: no names, wares or lore. The
+// Orrery is the only copy. Its last good read is kept in a file
+// (ORRERY_CACHE, next to the bot's database), so a restart while GitHub is
+// out of reach still has the Orrery, never a hand-written list.
 //
 // The Orrery is the source: when a name, a line, a beast or a ware changes
 // there, the bot follows on its next check. Don't change universe content
@@ -65,7 +68,7 @@ import type { SoloMonster } from "./data.ts";
 // The Orrery's client, pinned to a commit of grand-orrery: bump it to take a
 // newer client. (The Discord bot's sync copies only ./ imports, so this URL
 // reaches it unchanged.)
-import { Orrery } from "https://cdn.jsdelivr.net/gh/sheastolp/grand-orrery@d36189e0b485d1db062b57d3182b5d6f3091654a/client/orrery.js";
+import { fileCache, Orrery } from "https://cdn.jsdelivr.net/gh/sheastolp/grand-orrery@d91122f2f80a0f98644f9c473142be268c9a9530/client/orrery.js";
 
 const ENABLED = (Deno.env.get("ORRERY") ?? "on").toLowerCase() !== "off";
 const BRANCH = Deno.env.get("ORRERY_BRANCH") || "main";
@@ -75,6 +78,13 @@ const RETRY_MS = 2 * 60_000;
 const REPO = Deno.env.get("ORRERY_REPO") || "sheastolp/grand-orrery";
 const GH_TOKEN = Deno.env.get("ORRERY_GITHUB_TOKEN") || "";
 const FETCH_TIMEOUT_MS = 8_000;
+// Where the Orrery's last good copy is kept between restarts.
+const CACHE_FILE = Deno.env.get("ORRERY_CACHE") ||
+  (Deno.env.get("DB_PATH") || "./data/guildscribe.sqlite").replace(/[^/\\]*$/, "") + `orrery-${BRANCH}.json`;
+// Which of the Orrery's worlds GuildScribe's hall is in (an id in the Orrery).
+const WORLD = Deno.env.get("ORRERY_WORLD") || "verrowen";
+// Who GuildScribe itself is in the Orrery (a person's id there).
+const BOT_PERSON = Deno.env.get("ORRERY_BOT_PERSON") || "the-scribe";
 
 export type PlaceUse = "hunts" | "duels" | "robberies" | "raids";
 
@@ -396,13 +406,19 @@ function useEntities(entities: OrreryEntity[]) {
   bestiary = bestiaryFromEntities(entities);
   lore = loreFromEntities(entities);
   wares = waresFromEntities(entities);
+  worldName = entities.find((e) => e.type === "world" && e.id === WORLD)?.name || "";
+  const me = entities.find((e) => e.type === "person" && e.id === BOT_PERSON);
+  botPerson = me ? { name: me.name, role: me.role || "", line: me.line || "" } : null;
+  placeNames = entities.filter((e) => e.type === "place" && isCanon(e) && e.name).map((e) => e.name);
 }
 
 async function load(): Promise<void> {
   let fresh: boolean;
   if (!db) {
-    db = new Orrery({ repo: REPO, branch: BRANCH, refreshMinutes: 0, githubToken: GH_TOKEN || null, fetch: timedFetch });
-    fresh = await db.ready();
+    db = new Orrery({ repo: REPO, branch: BRANCH, refreshMinutes: 0, githubToken: GH_TOKEN || null, fetch: timedFetch, cache: fileCache(CACHE_FILE) });
+    await db.ready();
+    // A fresh read, or the last good copy from before the restart.
+    fresh = db.loaded;
   } else {
     fresh = await db.refresh();
   }
@@ -509,8 +525,8 @@ const keyOf = (s: string) => s.trim().toLowerCase();
 // ---------------------------------------------------------------------------
 
 /** The Orrery's peddlers: "capital" (the market-square stall), "road" (the
- * Wandering Clerk's road), or "all". Empty before the first good read, so
- * callers keep their own list as a fallback. */
+ * Wandering Clerk's road), or "all". Empty only if the Orrery has never been
+ * read on this bot. */
 export function orreryPeddlers(where: "capital" | "road" | "all" = "all"): string[] {
   refreshSoon();
   const p = roster.peddlers;
@@ -622,9 +638,35 @@ export function placeText(p: FightPlace | null): string {
 
 export type LoreFor = "scribe" | "peddler" | "npc";
 
+// Which lore sentences matter to whom: plain words, plus the names the Orrery
+// itself gives (its places and its peddlers), never names written here.
 const GUILD_WORDS = /GuildScribe|Scribe|guildscribe|adventurer|bount|arena|parchment|compan|Archives|draft|census/;
-const PEDDLER_WORDS = /peddler|market|stall|Wandering Clerk|relic|merchant|Woodland Road|GuildScribe is/;
-const WORLD_WORDS = /Monster Wood|corrupt Kingdom|GuildScribe is|blight|goblin|Woodland Road|divination/i;
+let worldName = "";
+let botPerson: { name: string; role: string; line: string } | null = null;
+/** Who GuildScribe is in the Orrery (its name, role and line), or null. */
+export function orreryBotPerson() {
+  refreshSoon();
+  return botPerson;
+}
+/** What GuildScribe is called in chat lines: its Orrery name, or "GuildScribe". */
+export function orreryBotName(): string {
+  return orreryBotPerson()?.name || "GuildScribe";
+}
+let placeNames: string[] = [];
+const namesRe = (names: string[]) => names.filter((n) => n.length >= 4).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+function peddlerWords(): RegExp {
+  const n = namesRe([...roster.peddlers.capital, ...roster.peddlers.road]);
+  return new RegExp(`peddler|market|stall|relic|merchant|road|GuildScribe is${n ? "|" + n : ""}`);
+}
+function worldWords(): RegExp {
+  const n = namesRe(placeNames);
+  return new RegExp(`kingdom|GuildScribe is|blight|goblin|wood|divination${n ? "|" + n : ""}`, "i");
+}
+/** The name of the Orrery world GuildScribe's hall is in, or "". */
+export function orreryWorldName(): string {
+  refreshSoon();
+  return worldName;
+}
 
 /** A block of decided Orrery lore for an AI prompt, sized for small models,
  * or "" when there's none. */
@@ -641,8 +683,8 @@ export function orreryLoreFor(who: LoreFor, max = 1600): string {
   const used = parts.join(" ").length;
   const room = Math.max(200, max - used);
   if (who === "scribe") add(sentencesAbout(beyond, GUILD_WORDS, room));
-  else if (who === "peddler") add(sentencesAbout(beyond, PEDDLER_WORDS, room));
-  else add(sentencesAbout(beyond, WORLD_WORDS, room));
+  else if (who === "peddler") add(sentencesAbout(beyond, peddlerWords(), room));
+  else add(sentencesAbout(beyond, worldWords(), room));
   const text = parts.join(" ").slice(0, max);
   return text;
 }
@@ -651,5 +693,5 @@ export function orreryLoreFor(who: LoreFor, max = 1600): string {
 export function orreryPromptLine(who: LoreFor, max = 1600): string {
   const text = orreryLoreFor(who, max);
   if (!text) return "";
-  return `The world you live in is Verrowen, from the Grand Orrery. Draw on this lore when it fits, never contradict it, and don't recite it: ${text}`;
+  return `The world you live in is ${worldName || "a world"} of the Grand Orrery. Draw on this lore when it fits, never contradict it, and don't recite it: ${text}`;
 }

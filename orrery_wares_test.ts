@@ -4,7 +4,8 @@
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { type OrreryEntity, parseSold, setOrreryForTest, waresFromEntities } from "./orrery.ts";
-import { findMerchantItem, LEGENDARY_ITEMS, MERCHANT_ITEMS, merchantStock } from "./gear.ts";
+import { findMerchantItem, merchantStock } from "./gear.ts";
+import { rollMerchantOffer } from "./merchant.ts";
 
 // resources.md's items as the Orrery's build writes them into the database.
 const ITEMS: OrreryEntity[] = [
@@ -33,35 +34,30 @@ Deno.test("waresFromEntities keeps decided items with a Sold line, once each", (
   assertEquals(w[2].effect, { scores: { WIS: 2, INT: 1 }, hp: 5, speed: 10 });
 });
 
-Deno.test("the stall sells the Orrery's wares, and falls back without them", () => {
+Deno.test("the stall sells the Orrery's wares, and nothing of its own without them", () => {
   setOrreryForTest({ places: [], creatures: [] }, { sections: {} }, undefined, []);
   assertEquals(merchantStock().fromOrrery, false);
-  assertEquals(merchantStock().wares, MERCHANT_ITEMS);
+  assertEquals(merchantStock().wares, []);
+  assertEquals(rollMerchantOffer(), null);
 
   setOrreryForTest({ places: [], creatures: [] }, { sections: {} }, undefined, waresFromEntities(ITEMS));
   const s = merchantStock();
   assert(s.fromOrrery);
   assertEquals(s.wares.map((i) => i.name), ["Empty wooden bowl", "Hand-me-down shield"]);
   assertEquals(s.relics.map((i) => i.name), ["Rod of Seven Parts (6/7)"]);
-  // An old listing from the fallback list can still be bought.
-  assertEquals(findMerchantItem(MERCHANT_ITEMS[3].desc)?.name, MERCHANT_ITEMS[3].name);
+  assert(rollMerchantOffer()!.ad.includes("—"));
   assertEquals(findMerchantItem("hand-me-down shield")?.price, "1 silver 2 copper");
 });
 
 // The real documents, built by the Orrery's own build when the grand-orrery
-// checkout sits next to this repo: every ware it sells matches the fallback
-// list exactly, so a listing or a sheet from before the move reads the same
-// either way.
+// checkout sits next to this repo: the stall has wares and relics to sell.
 Deno.test({
-  name: "grand-orrery's database carries every stall ware",
+  name: "grand-orrery's database stocks the stall",
   ignore: (() => { try { Deno.statSync(new URL("../grand-orrery/tools/build.mjs", import.meta.url)); return false; } catch { return true; } })(),
   async fn() {
     const { build } = await import(new URL("../grand-orrery/tools/build.mjs", import.meta.url).href);
     const live = waresFromEntities(build().entities);
-    const strip = (i: { name: string; desc: string; price: string; effect: unknown; relic?: boolean }) =>
-      ({ name: i.name, desc: i.desc, price: i.price, effect: i.effect, relic: !!i.relic });
-    const sorted = <T extends { name: string }>(l: T[]) => [...l].sort((a, b) => a.name.localeCompare(b.name));
-    assertEquals(sorted(live.filter((w) => !w.relic).map(strip)), sorted(MERCHANT_ITEMS.map(strip)));
-    assertEquals(sorted(live.filter((w) => w.relic).map(strip)), sorted(LEGENDARY_ITEMS.map(strip)));
+    assert(live.some((w) => !w.relic));
+    assert(live.some((w) => w.relic));
   },
 });
