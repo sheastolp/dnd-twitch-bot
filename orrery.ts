@@ -68,7 +68,7 @@ import type { SoloMonster } from "./data.ts";
 // The Orrery's client, pinned to a commit of grand-orrery: bump it to take a
 // newer client. (The Discord bot's sync copies only ./ imports, so this URL
 // reaches it unchanged.)
-import { fileCache, Orrery } from "https://cdn.jsdelivr.net/gh/sheastolp/grand-orrery@d91122f2f80a0f98644f9c473142be268c9a9530/client/orrery.js";
+import { fileCache, Orrery } from "https://cdn.jsdelivr.net/gh/sheastolp/grand-orrery@45c7741a590b29ba77f657881db19fea4553e5b6/client/orrery.js";
 
 const ENABLED = (Deno.env.get("ORRERY") ?? "on").toLowerCase() !== "off";
 const BRANCH = Deno.env.get("ORRERY_BRANCH") || "main";
@@ -76,6 +76,7 @@ const REFRESH_MS = Math.max(1, Number(Deno.env.get("ORRERY_REFRESH_MIN") ?? "5")
 // After a failed read, try again sooner than a full refresh.
 const RETRY_MS = 2 * 60_000;
 const REPO = Deno.env.get("ORRERY_REPO") || "sheastolp/grand-orrery";
+const BASE_URL = Deno.env.get("ORRERY_BASE_URL") || "https://sheamus-tuf-gaming-fx705dt-fx705dt.tail2c8da4.ts.net:8443";  // the laptop host that serves the database; the client falls back to GitHub when it can't be reached
 const GH_TOKEN = Deno.env.get("ORRERY_GITHUB_TOKEN") || "";
 const FETCH_TIMEOUT_MS = 8_000;
 // Where the Orrery's last good copy is kept between restarts.
@@ -415,7 +416,7 @@ function useEntities(entities: OrreryEntity[]) {
 async function load(): Promise<void> {
   let fresh: boolean;
   if (!db) {
-    db = new Orrery({ repo: REPO, branch: BRANCH, refreshMinutes: 0, githubToken: GH_TOKEN || null, fetch: timedFetch, cache: fileCache(CACHE_FILE) });
+    db = new Orrery({ baseUrl: BASE_URL, repo: REPO, branch: BRANCH, refreshMinutes: 0, githubToken: GH_TOKEN || null, fetch: timedFetch, cache: fileCache(CACHE_FILE) });
     await db.ready();
     // A fresh read, or the last good copy from before the restart.
     fresh = db.loaded;
