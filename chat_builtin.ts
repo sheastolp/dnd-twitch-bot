@@ -506,7 +506,7 @@ export async function handleBuiltinChatCommand(ctx: {
       );
       if (targetUser === chatter) await whisperImportHint(chatter, broadcasterId);
     }
-  } else if (/^!lurk$/i.test(chatMessage)) {
+  } else if (/^!lurk(?:\s+.*)?$/i.test(chatMessage)) {
     await sendChatMessage(`Thank you, @${display}, for your attendance. The ledger has been noted.`, broadcasterId);
   } else if (await shoutoutClaims(chatMessage, broadcasterId)) {
     await handleShoutout(chatMessage, display, broadcasterId, isModerator);
