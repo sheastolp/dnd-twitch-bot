@@ -17,6 +17,7 @@ import { PUBLIC_ORIGIN } from "./config.ts";
 import { warmFivetools } from "./fivetools.ts";
 import { syncStreamListening } from "./stream_listen.ts";
 import { runHydrationReminders } from "./hydrate.ts";
+import { runShotTitleCheck } from "./shots_auto.ts";
 
 const PORT = Number(Deno.env.get("PORT") || 8801);
 const HOST = Deno.env.get("HOST") || "127.0.0.1";
@@ -50,6 +51,8 @@ every("offlinelock_cron", 1, () => runOfflineLock());
 every("stream_offline_cron", 1, () => runStreamOfflineGrace());
 // Shot counter hydration reminders (hydrate.ts), each channel on its own shots.hydrate interval.
 every("hydrate_cron", 1, () => runHydrationReminders());
+// The shot counter follows the stream title ("drunk …" turns it on; shots_auto.ts).
+every("shots_title_cron", 2, () => runShotTitleCheck());
 
 // Hearing the streamer for the shot counter (stream_listen.ts): start/stop
 // audio captures as channels go live or switch it on/off.

@@ -41,6 +41,17 @@ export async function ensureShotTables() {
       updated_at INTEGER
     )`,
   );
+  // Turning on from the stream title (shots_auto.ts): auto_on = GuildScribe
+  // switched it on itself; manual = 'on'/'off' when a person flipped the
+  // switch this stream (written by db.ts setCommandGroupEnabled).
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS shot_title_auto (
+      broadcaster_id TEXT PRIMARY KEY,
+      auto_on INTEGER NOT NULL DEFAULT 0,
+      manual TEXT,
+      manual_at INTEGER
+    )`,
+  );
 }
 
 export async function getShotCount(broadcasterId: string): Promise<number> {
@@ -78,6 +89,7 @@ export async function resetShotsForNewStream(broadcasterId: string): Promise<voi
 
 export async function purgeShotData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM shot_counter WHERE broadcaster_id = ?", [broadcasterId]);
+  await sqlite.execute("DELETE FROM shot_title_auto WHERE broadcaster_id = ?", [broadcasterId]).catch(() => {});
 }
 
 /** "shot" → "shots", "glass" → "glasses", "whiskey" → "whiskeys", "brandy" → "brandies". */

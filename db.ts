@@ -458,11 +458,21 @@ export async function isCommandGroupEnabled(broadcasterId: string, group: string
   return row ? Number(row.enabled) === 1 : COMMAND_GROUPS[group]?.defaultOn === true;
 }
 
-export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean) {
+export async function setCommandGroupEnabled(broadcasterId: string, group: string, enabled: boolean, opts: { auto?: boolean } = {}) {
   await sqlite.execute(
     "INSERT OR REPLACE INTO command_toggles (broadcaster_id, group_name, enabled, updated_at) VALUES (?,?,?,?)",
     [broadcasterId, group, enabled ? 1 : 0, Date.now()],
   );
+  // The shot counter turns itself on/off from the stream title (shots_auto.ts);
+  // a person flipping it (dashboard, !feature, Mod center) wins for the rest
+  // of the stream, so remember that it was done by hand.
+  if (group === "shots" && !opts.auto) {
+    await sqlite.execute(
+      `INSERT INTO shot_title_auto (broadcaster_id, auto_on, manual, manual_at) VALUES (?, 0, ?, ?)
+       ON CONFLICT(broadcaster_id) DO UPDATE SET auto_on = 0, manual = excluded.manual, manual_at = excluded.manual_at`,
+      [broadcasterId, enabled ? "on" : "off", Date.now()],
+    ).catch(() => {});
+  }
 }
 
 export async function getDuel(broadcasterId: string) {

@@ -20,6 +20,7 @@ import { PUBLIC_ORIGIN } from "./config.ts";
 import { onRaidStreamStatus } from "./raid.ts";
 import { resetSavingThrowTally } from "./savingthrows.ts";
 import { resetShotsForNewStream } from "./shots.ts";
+import { onShotTitleStreamOnline } from "./shots_auto.ts";
 import { onChecklistStreamOnline } from "./checklist.ts";
 import { ensureFollowSubscription } from "./follow_thanks.ts";
 import { ensureCheerSubscription } from "./alerts.ts";
@@ -63,6 +64,8 @@ export async function onStreamOnline(broadcasterId: string, startedAt: unknown, 
   await resetSavingThrowTally(broadcasterId);
   // ...and a fresh shot counter (shots.ts).
   await resetShotsForNewStream(broadcasterId);
+  // ...switched on by itself when the title says e.g. "drunk" (shots_auto.ts).
+  try { await onShotTitleStreamOnline(broadcasterId); } catch (e) { await recordMonitorEvent("shots_title_error", String(e)); }
   // Start-of-stream checklist for the streamer (checklist.ts).
   if (!(await isChannelBlocked(broadcasterId))) await onChecklistStreamOnline(broadcasterId);
   // Channels connected before follow thank-yous existed (follow_thanks.ts).
