@@ -320,5 +320,12 @@ async function writeOption(broadcasterId: string, o: OptionDef, value: string | 
   cache.delete(broadcasterId);
 }
 
+/** Sets one option from a chat command (value already valid; null = default). */
+export async function setOptionValue(broadcasterId: string, key: string, value: string | null) {
+  const o = BY_KEY.get(key);
+  if (!o) throw new Error(`unknown option ${key}`);
+  await writeOption(broadcasterId, o, value);
+}
+
 /** Forget a channel's cached options (after a chat command changed one). */
 export const forgetOptionCache = (broadcasterId: string) => cache.delete(broadcasterId);

@@ -21,6 +21,33 @@ import { sendChatMessage } from "./twitch.ts";
 import { COMMAND_GROUPS, DEDICATED_LABELS, groupForMessage, TOGGLE_REQUIRES, toggleLabel, requiredLabel } from "./commandgroups.ts";
 import { loadSwitchStates, setSwitch } from "./dashboard.ts";
 import { splitChatMessage } from "./utils.ts";
+import { optWord, setOptionValue } from "./channel_options.ts";
+
+// Not a switch but an option (shots.listen, stream_listen.ts), so it gets its
+// own name here: !feature shot listen on|off|status.
+const SHOT_LISTEN_NAMES = new Set(["shotlisten", "shotslisten", "shotlistening", "shotslistening", "listen"]);
+
+async function handleShotListen(display: string, broadcasterId: string, isModerator: boolean, action: string) {
+  const label = `Shot listening ("that was stupid" / "I'm stupid" adds a shot)`;
+  const shotsOn = (await loadSwitchStates(broadcasterId)).shots;
+  const needs = shotsOn ? "" : " Heads-up — it also needs the Shot counter (!feature shots on).";
+  if (action === "status") {
+    const on = (await optWord(broadcasterId, "shots.listen")) === "on";
+    await sendChatMessage(`@${display} ${label} is ${on ? "on" : "off"}.${on ? needs : ""}${isModerator ? ` Switch it with !feature shot listen ${on ? "off" : "on"}.` : ""}`, broadcasterId);
+    return;
+  }
+  if (!isModerator) {
+    await sendChatMessage(`@${display} only the broadcaster or a moderator can switch shot listening ${action}.`, broadcasterId);
+    return;
+  }
+  const enabled = action === "on";
+  // "off" is the default, so off just drops the channel's own value.
+  await setOptionValue(broadcasterId, "shots.listen", enabled ? "on" : null);
+  await sendChatMessage(
+    `@${display} ${label} is now ${enabled ? "on — GuildScribe starts listening within a minute while you're live" : "off"}.${enabled ? needs : ""}`,
+    broadcasterId,
+  );
+}
 
 const ALIASES: Record<string, string> = {
   guildscribe: "bot", gold: "points", coin: "points", merchant: "market", stall: "market", haggle: "market",
@@ -79,6 +106,11 @@ export async function handleFeatureCommand(
     const on = keys.filter((k) => states[k]), off = keys.filter((k) => !states[k]);
     const text = `On: ${on.join(", ") || "none"}. Off: ${off.join(", ") || "none"}.`;
     for (const part of splitChatMessage(text, 450)) await sendChatMessage(part, broadcasterId);
+    return true;
+  }
+
+  if (SHOT_LISTEN_NAMES.has(name.toLowerCase().replace(/^!/, "").replace(/[\s_-]+/g, ""))) {
+    await handleShotListen(display, broadcasterId, isModerator, action);
     return true;
   }
 
