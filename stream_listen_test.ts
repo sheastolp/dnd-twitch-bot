@@ -24,14 +24,17 @@ Deno.test("cleanTranscript drops made-up lines", () => {
 });
 
 Deno.test("the listen log page shows heard lines, escaped, and filters them", async () => {
+  const { ensureTables } = await import("./db_schema.ts");
+  await ensureTables();
   const { note } = await import("./stream_listen.ts");
   const { renderListenPage, renderListenLogText } = await import("./listen_page.ts");
   note("said", "testchan", "oh <b>that was stupid</b>");
   note("shot", "testchan", 'heard "that was stupid" — +1, 1 shot this stream.');
   note("said", "otherchan", "hello there");
-  const html = renderListenPage(new URLSearchParams(), "");
+  const html = await renderListenPage(new URLSearchParams("channel=testchan"), "");
   assertEquals(html.includes("oh &lt;b&gt;that was stupid&lt;/b&gt;"), true);
   assertEquals(html.includes("<b>that was stupid</b>"), false);
+  assertEquals(html.includes("hello there"), false); // another channel's line
   const shots = renderListenLogText(new URLSearchParams("kind=shot&channel=testchan"));
   assertEquals(shots.includes("+1, 1 shot"), true);
   assertEquals(shots.includes("hello there"), false);

@@ -19,6 +19,7 @@
 //   !dashboard         (mod) get this channel's dashboard link
 //   !dashboard reset   (mod) invalidate the old link and issue a new one
 
+import { renderDashboardListenPage } from "./listen_page.ts";
 import { sendChatMessage, exchangeCode, getViewerIdentity, isUserModeratorOfChannel, listModeratedChannelIds, timingSafeEqual, env } from "./twitch.ts";
 import {
   getOrCreateDashboardKey,
@@ -901,6 +902,15 @@ export async function handleSwearJarForm(form: FormData, baseUrl: string, cookie
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/swearjar?${params.toString()}`);
+}
+
+// ── Shot listening log (listen_page.ts) — what was heard on this channel, same key + login ──
+
+export async function handleListenLogPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const html = await renderDashboardListenPage({ broadcasterId: auth.channelId, key: auth.key, params: url.searchParams });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 // ── Game stats (game_stats_page.ts) — what !stats shows, behind the same key + login ──
