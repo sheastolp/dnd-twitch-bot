@@ -1,6 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Deno HTTP handler (served by server.ts)
 
+import { onHydrateRedemption } from "./hydrate.ts";
 import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
@@ -426,6 +427,8 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (subscriptionType === "channel.channel_points_custom_reward_redemption.add") {
     try { await handleRedemptionEvent(body.event); } catch (e) { await recordMonitorEvent("redemption_error", String(e)); }
     try { await onSoundAlertRedemption(body.event); } catch (e) { await recordMonitorEvent("sound_alert_error", String(e)); }
+    // A "Hydrate" reward restarts the shot counter's hydration reminder timer (hydrate.ts).
+    try { await onHydrateRedemption(body.event); } catch (e) { await recordMonitorEvent("hydrate_redeem_error", String(e)); }
     return new Response("OK");
   }
 
