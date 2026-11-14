@@ -357,6 +357,14 @@ export async function settleDueAutohunts(broadcasterId: string, username?: strin
 }
 
 /** Handles !autohunt, !autohunt status|stop, !autohuntstatus, !autohuntstop. */
+/** "!auto hunt 1h" / "!auto-hunt" / "!auto_hunt status" → "!autohunt …", so
+ * the spaced spelling works everywhere !autohunt does (main.ts rewrites the
+ * message before the switch, lock and handler checks). Also the split
+ * status/stop words: "!auto hunt stop" → "!autohunt stop". */
+export function normalizeAutohuntSpelling(message: string): string {
+  return message.replace(/^!auto[\s_-]+hunt(?=\s|$|status\b|stop\b)/i, "!autohunt");
+}
+
 export async function handleAutohuntCommand(
   chatMessage: string,
   chatter: string,

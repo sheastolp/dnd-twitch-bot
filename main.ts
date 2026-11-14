@@ -31,7 +31,7 @@ import { ensureSavingThrowTables, purgeSavingThrowData } from "./savingthrows.ts
 import { ensureSwearJarTables, handleJarCommand, maybeChargeSwearJar, purgeSwearJarData } from "./swearjar.ts";
 import { checkFeatureLock, handleBoonCommand, handleRedemptionEvent } from "./redemptions.ts";
 import { disconnectRedemptionData, ensureRedemptionTables, purgeRedemptionData } from "./redemptions_db.ts";
-import { handleAutohuntCommand } from "./autohunt.ts";
+import { handleAutohuntCommand, normalizeAutohuntSpelling } from "./autohunt.ts";
 import { ensureBestiaryTables, getChannelRoster, handleBestiaryCommand, purgeBestiaryData } from "./bestiary.ts";
 import { ensureRaidTables, handleRaidCommand, maybeLaunchRaidSafe, purgeRaidData } from "./raid.ts";
 import { ensureHuntCooldownTables, handleHuntCooldownCommand, purgeHuntCooldownData } from "./huntcooldown.ts";
@@ -454,6 +454,8 @@ async function handleNotification(body: any): Promise<Response | void> {
   // Twitch's duplicate-message check, and some clients add zero-width
   // spaces; either one makes "!importchar" fail the handlers' exact matches.
   let chatMessage: string = String(body.event?.message?.text ?? "").replace(/[\u{E0000}͏​-‍⁠﻿]/gu, "").trim();
+  // "!auto hunt" means "!autohunt" (autohunt.ts).
+  chatMessage = normalizeAutohuntSpelling(chatMessage);
   const chatter: string = body.event?.chatter_user_login ?? "";
   const display: string = body.event?.chatter_user_name ?? chatter;
   const chatterId: string = body.event?.chatter_user_id ?? "";
