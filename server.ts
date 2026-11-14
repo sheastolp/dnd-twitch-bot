@@ -15,6 +15,7 @@ import runOfflineLock from "./stream_guard.ts";
 import { runStreamOfflineGrace } from "./stream_status.ts";
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { warmFivetools } from "./fivetools.ts";
+import { syncStreamListening } from "./stream_listen.ts";
 
 const PORT = Number(Deno.env.get("PORT") || 8801);
 const HOST = Deno.env.get("HOST") || "127.0.0.1";
@@ -46,6 +47,10 @@ every("watchtime_cron", cronMinutes("WATCHTIME_CRON_MINUTES", 5), () => runWatch
 every("offlinelock_cron", 1, () => runOfflineLock());
 // A dropped stream is only treated as ended once its 5-minute reconnect grace runs out (stream_status.ts).
 every("stream_offline_cron", 1, () => runStreamOfflineGrace());
+
+// Hearing the streamer for the shot counter (stream_listen.ts): start/stop
+// audio captures as channels go live or switch it on/off.
+setInterval(() => syncStreamListening().catch((e) => console.error("stream_listen failed:", e)), 30_000);
 
 // Download the 5e.tools archive (fivetools.ts) in the background so the first
 // !monster / !spell lookup that needs it doesn't wait on GitHub.
