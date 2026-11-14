@@ -131,7 +131,7 @@ export async function handleOperatorCallback(code: string | null, oauthError: st
     const session = await signSession(viewer.login, Date.now() + SESSION_TTL_MS);
     const res = operatorPage(
       "Operator login",
-      `<h1>Welcome, ${escapeHtml(viewer.display_name)}</h1><p>You're logged in to the operator pages for 12 hours.</p><ul class="list"><li><a href="/admin/channels">Channel connections</a></li><li><a href="/admin/logs">Operator logs</a></li><li><a href="/admin/motd">Message of the day</a></li><li><a href="/admin/eventsub">EventSub subscriptions</a></li></ul>`,
+      `<h1>Welcome, ${escapeHtml(viewer.display_name)}</h1><p>You're logged in to the operator pages for 12 hours.</p><ul class="list"><li><a href="/admin/channels">Channel connections</a></li><li><a href="/admin/logs">Operator logs</a></li><li><a href="/admin/listen">Shot listening (what GuildScribe heard)</a></li><li><a href="/admin/motd">Message of the day</a></li><li><a href="/admin/eventsub">EventSub subscriptions</a></li></ul>`,
     );
     res.headers.set("Set-Cookie", `${COOKIE}=${session}; Path=/admin; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; HttpOnly; Secure; SameSite=Strict`);
     return res;

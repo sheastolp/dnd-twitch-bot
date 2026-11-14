@@ -46,6 +46,7 @@ import { handleHowtoRoute } from "./howto.ts";
 import { FAVICON_PATHS, handleFavicon } from "./favicon.ts";
 import { handleSeoRoute, renderHomePage, seoHead } from "./seo_pages.ts";
 import { handleOrreryFeedRoute } from "./orrery_feed.ts";
+import { LISTEN_PAGE_CSS, renderListenLogText, renderListenPage } from "./listen_page.ts";
 
 async function retryPendingEventSubCancellations() {
   const pending = await getPendingEventSubCancellations(5);
@@ -700,6 +701,27 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     const body = renderAdminLogsPage({ status, overview, events, kindFilter, key: keyParam });
     return new Response(
       scrollDoc("GuildScribe Operator Logs", body, { width: 1140, head: `<meta http-equiv="refresh" content="30">`, css: LEDGER_CSS }),
+      { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
+    );
+  }
+
+  // What the shot counter's listening heard (listen_page.ts) — same auth as /admin/logs.
+  if (req.method === "GET" && (path === "/admin/listen" || path === "/admin/listen.txt")) {
+    const keyMatch = url.search.slice(1).match(/(?:^|&)key=([^&]*)/);
+    const keyParam = keyMatch ? decodeURIComponent(keyMatch[1]) : "";
+    if (!(await isOperatorRequest(req, keyParam))) return operatorUnauthorized();
+    if (path === "/admin/listen.txt") {
+      return new Response(renderListenLogText(url.searchParams), {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+    const auto = url.searchParams.get("auto") === "1";
+    return new Response(
+      scrollDoc("GuildScribe Shot Listening", renderListenPage(url.searchParams, keyParam), {
+        width: 1140,
+        head: auto ? `<meta http-equiv="refresh" content="5">` : "",
+        css: LEDGER_CSS + LISTEN_PAGE_CSS,
+      }),
       { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
     );
   }

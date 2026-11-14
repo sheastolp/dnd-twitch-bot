@@ -5,7 +5,9 @@
 //
 // GuildScribe only listens for one thing: the streamer saying "that was
 // stupid" or "I'm stupid". Each time, the shot counter (shots.ts) goes up
-// by one and chat is told. Nothing that was said is stored.
+// by one and chat is told. What was heard is kept in memory only (the
+// newest LOG_MAX lines, lost on restart, never in the database) for the
+// operator page /admin/listen (listen_page.ts), like UndercoverBurn's /logs.
 //
 // Per channel it's the "Count a shot when you say…" option on the Shot
 // counter card (shots.listen), and it only runs while the shots switch is on
@@ -94,6 +96,44 @@ let warnedNoKey = false;
 // attempts for a growing wait, logged once per pause.
 const health = { failures: 0, lastError: "", pausedUntil: 0 };
 
+// ── The listen log (/admin/listen) ──
+
+export type ListenLogKind = "said" | "shot" | "cooldown" | "status" | "error";
+export type ListenLogLine = { ts: number; login: string; kind: ListenLogKind; text: string };
+const LOG_MAX = 2000;
+const listenLog: ListenLogLine[] = [];
+export const LISTEN_LOG_MAX = LOG_MAX;
+export const listenLogStartedAt = Date.now();
+
+/** Logs to the console (journalctl) and keeps the line for /admin/listen. */
+export function note(kind: ListenLogKind, login: string, text: string) {
+  const line = `[listen] ${login ? `${login}: ` : ""}${text}`;
+  if (kind === "error") console.error(line);
+  else console.log(line);
+  listenLog.push({ ts: Date.now(), login, kind, text: text.slice(0, 2000) });
+  if (listenLog.length > LOG_MAX) listenLog.splice(0, listenLog.length - LOG_MAX);
+}
+
+/** The kept lines, oldest first. */
+export function getListenLog(): readonly ListenLogLine[] {
+  return listenLog;
+}
+
+/** What's being listened to right now and how the transcriber is doing. */
+export function getListenStatus() {
+  return {
+    host: IS_OPENAI ? "OpenAI" : new URL(BASE_URL).host,
+    model: MODEL,
+    hasKey: !IS_OPENAI || !!API_KEY,
+    unavailableUntil,
+    captures: [...captures.values()].map((c) => ({ login: c.login, startedAt: c.startedAt })),
+    retries: [...retries.entries()].map(([id, r]) => ({ broadcasterId: id, at: r.at })),
+    failures: health.failures,
+    lastError: health.lastError,
+    pausedUntil: health.pausedUntil,
+  };
+}
+
 /** Whether this channel wants listening right now (live, shots on, shots.listen on). */
 async function wantsListening(broadcasterId: string): Promise<boolean> {
   if (!(await isCommandGroupEnabled(broadcasterId, "shots"))) return false;
@@ -120,7 +160,7 @@ export async function syncStreamListening(): Promise<void> {
 
   for (const [id, cap] of captures) {
     if (!want.has(id)) {
-      console.log(`[listen] ${cap.login}: stopping (offline or switched off).`);
+      note("status", cap.login, "stopping (offline or switched off).");
       cap.abort.abort();
       captures.delete(id);
     }
@@ -130,7 +170,7 @@ export async function syncStreamListening(): Promise<void> {
 
   if (IS_OPENAI && !API_KEY) {
     if (!warnedNoKey) {
-      console.log("[listen] Not listening: set TRANSCRIBE_API_KEY or OPENAI_API_KEY, or TRANSCRIBE_BASE_URL for a local Whisper server.");
+      note("error", "", "Not listening: set TRANSCRIBE_API_KEY or OPENAI_API_KEY, or TRANSCRIBE_BASE_URL for a local Whisper server.");
       warnedNoKey = true;
     }
     return;
@@ -149,17 +189,19 @@ function startCapture(broadcasterId: string, login: string) {
   const abort = new AbortController();
   const cap: Capture = { login, startedAt: Date.now(), abort };
   captures.set(broadcasterId, cap);
-  console.log(`[listen] ${login}: listening (${IS_OPENAI ? "OpenAI" : new URL(BASE_URL).host}, ${MODEL}).`);
+  note("status", login, `listening (${IS_OPENAI ? "OpenAI" : new URL(BASE_URL).host}, ${MODEL}).`);
   runCapture(broadcasterId, login, abort.signal)
     .catch((err) => {
       const e = err as Error;
       if (e.name === "NotFound" || e.name === "NotCapable" || e.name === "PermissionDenied") {
-        console.error(
-          `[listen] Can't run ${STREAMLINK}/${FFMPEG} (${e.message}). Install streamlink and ffmpeg and start Deno with --allow-run=streamlink,ffmpeg. Trying again in 10 min.`,
+        note(
+          "error",
+          login,
+          `Can't run ${STREAMLINK}/${FFMPEG} (${e.message}). Install streamlink and ffmpeg and start Deno with --allow-run=streamlink,ffmpeg. Trying again in 10 min.`,
         );
         unavailableUntil = Date.now() + 10 * 60_000;
       } else if (!abort.signal.aborted) {
-        console.error(`[listen] ${login}: capture failed:`, e.message);
+        note("error", login, `capture failed: ${e.message}`);
       }
     })
     .finally(() => {
@@ -169,7 +211,7 @@ function startCapture(broadcasterId: string, login: string) {
       const prev = retries.get(broadcasterId)?.backoffMs ?? 0;
       const backoffMs = Date.now() - cap.startedAt > HEALTHY_RUN_MS ? 15_000 : Math.min(MAX_BACKOFF_MS, Math.max(15_000, prev * 2));
       retries.set(broadcasterId, { at: Date.now() + backoffMs, backoffMs });
-      console.log(`[listen] ${login}: capture ended, retrying in ${Math.round(backoffMs / 1000)}s.`);
+      note("status", login, `capture ended, retrying in ${Math.round(backoffMs / 1000)}s.`);
     });
 }
 
@@ -220,7 +262,7 @@ async function runCapture(broadcasterId: string, login: string, signal: AbortSig
       if (!text) continue;
       lastText = text;
       chain = chain.then(() => onLine(broadcasterId, login, text)).catch((e) =>
-        console.error(`[listen] ${login}: counting the shot failed:`, (e as Error).message)
+        note("error", login, `counting the shot failed: ${(e as Error).message}`)
       );
     }
   };
@@ -259,16 +301,21 @@ async function runCapture(broadcasterId: string, login: string, signal: AbortSig
 
 /** One transcribed line: a shot if it holds a phrase (and the cooldown's over). */
 async function onLine(broadcasterId: string, login: string, text: string) {
+  note("said", login, text);
   const said = heardPhrase(text);
   if (!said) return;
   const now = Date.now();
-  if (now - (lastShotAt.get(broadcasterId) ?? 0) < SHOT_COOLDOWN_MS) return;
+  if (now - (lastShotAt.get(broadcasterId) ?? 0) < SHOT_COOLDOWN_MS) {
+    note("cooldown", login, `heard "${said}" again within ${SHOT_COOLDOWN_MS / 1000}s — not counted.`);
+    return;
+  }
   // Switched off mid-stream: the capture stops on the next sync, but don't count meanwhile.
   if (!(await wantsListening(broadcasterId))) return;
   lastShotAt.set(broadcasterId, now);
-  console.log(`[listen] ${login} said "${said}": ${text.slice(0, 200)}`);
   const [n, w] = await Promise.all([adjustShots(broadcasterId, 1), shotWords(broadcasterId)]);
-  await sendChatMessage(pick(HEARD_LINES)(said, `${n} ${n === 1 ? w.one : w.many}`), broadcasterId);
+  const total = `${n} ${n === 1 ? w.one : w.many}`;
+  note("shot", login, `heard "${said}" — +1, ${total} this stream.`);
+  await sendChatMessage(pick(HEARD_LINES)(said, total), broadcasterId);
 }
 
 function concat(parts: Uint8Array[], size: number): Uint8Array {
@@ -286,7 +333,7 @@ async function logStderr(label: string, stream: ReadableStream<Uint8Array>) {
     const decoder = new TextDecoder();
     for await (const bytes of stream) {
       const t = decoder.decode(bytes, { stream: true }).trim();
-      if (t) console.log(`[listen] ${label}: ${t.slice(0, 300)}`);
+      if (t) note("error", label.split(" ")[0], `${label.split(" ").slice(1).join(" ")}: ${t.slice(0, 300)}`);
     }
   } catch { /* process ended */ }
 }
@@ -323,7 +370,7 @@ async function transcribeSegment(login: string, pcm: Uint8Array, prev: string): 
   try {
     const raw = await transcribe(pcm, login, prev);
     if (health.failures > 0) {
-      console.log("[listen] Transcription is working again.");
+      note("status", "", "Transcription is working again.");
       health.failures = 0;
       health.pausedUntil = 0;
     }
@@ -334,11 +381,13 @@ async function transcribeSegment(login: string, pcm: Uint8Array, prev: string): 
     const pause = pauseMs(health.failures);
     if (pause > 0) {
       health.pausedUntil = Date.now() + pause;
-      console.error(
-        `[listen] Transcription keeps failing (${health.lastError}). Pausing for ~${Math.round(pause / 60_000)} min — check TRANSCRIBE_BASE_URL, TRANSCRIBE_MODEL and the API key.`,
+      note(
+        "error",
+        "",
+        `Transcription keeps failing (${health.lastError}). Pausing for ~${Math.round(pause / 60_000)} min — check TRANSCRIBE_BASE_URL, TRANSCRIBE_MODEL and the API key.`,
       );
     } else {
-      console.error(`[listen] ${login}: transcription failed:`, health.lastError);
+      note("error", login, `transcription failed: ${health.lastError}`);
     }
     return null;
   }
