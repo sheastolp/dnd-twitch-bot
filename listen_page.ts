@@ -262,7 +262,7 @@ export async function renderDashboardListenPage(d: { broadcasterId: string; key:
   const name = escapeHtml(c?.name ?? d.broadcasterId);
 
   const body = `<header class="dash-top"><div><span class="pill">Shot counter · Listening log</span><h1>${name}</h1></div><a class="btn ghost" href="/dashboard?${qs}">← Dashboard</a></header>
-  <p>What GuildScribe heard on your stream while shot listening is on, newest first. Saying <strong>"that was stupid"</strong> or <strong>"I'm stupid"</strong> adds a shot — those lines are green. Only you and your mods can see this page. Nothing here is saved: it's the newest lines since the bot last restarted (${stamp(listenLogStartedAt)} UTC). Times are UTC.</p>
+  <p>What GuildScribe heard on your stream while shot listening is on, newest first. Saying <strong>"that was stupid"</strong>, <strong>"I'm stupid"</strong> or <strong>"that was worthy of one"</strong> adds a shot — those lines are green. Only you and your mods can see this page. Nothing here is saved: it's the newest lines since the bot last restarted (${stamp(listenLogStartedAt)} UTC). Times are UTC.</p>
   <div class="listen-stats">
     <div class="stat"><b>${escapeHtml(channelState(c, login))}</b>status</div>
     <div class="stat"><b>${all.filter((l) => l.kind === "shot").length}</b>shots poured (kept lines)</div>

@@ -28,7 +28,7 @@ import { optWord, setOptionValue } from "./channel_options.ts";
 const SHOT_LISTEN_NAMES = new Set(["shotlisten", "shotslisten", "shotlistening", "shotslistening", "listen"]);
 
 async function handleShotListen(display: string, broadcasterId: string, isModerator: boolean, action: string) {
-  const label = `Shot listening ("that was stupid" / "I'm stupid" adds a shot)`;
+  const label = `Shot listening ("that was stupid" / "I'm stupid" / "that was worthy of one" adds a shot)`;
   const shotsOn = (await loadSwitchStates(broadcasterId)).shots;
   const needs = shotsOn ? "" : " Heads-up — it also needs the Shot counter (!feature shots on).";
   if (action === "status") {

@@ -4,7 +4,7 @@
 // streamer pauses (vad.ts) and sent to a speech-to-text endpoint.
 //
 // GuildScribe only listens for one thing: the streamer saying "that was
-// stupid" or "I'm stupid". Each time, the shot counter (shots.ts) goes up
+// stupid", "I'm stupid" or "that was worthy of one". Each time, the shot counter (shots.ts) goes up
 // by one and chat is told. What was heard is kept in memory only (the
 // newest LOG_MAX lines, lost on restart, never in the database) for the
 // operator page /admin/listen (listen_page.ts), like UndercoverBurn's /logs.
@@ -59,10 +59,12 @@ const HEALTHY_RUN_MS = 2 * 60_000;
 
 /** The phrases, matched against the transcript lowercased with punctuation
  * dropped: "That was stupid.", "that was so stupid", "I'm stupid",
- * "im stupid", "I am stupid". */
+ * "im stupid", "I am stupid", "That was worthy of one", "that's worthy of
+ * one", "that was worthy of a shot" (Whisper may write "one" as "1"). */
 const PHRASES: { re: RegExp; said: string }[] = [
   { re: /\bthat was (?:so |really |pretty |just )?stupid\b/, said: "that was stupid" },
   { re: /\bi(?: ?m| am) (?:so |really |just )?stupid\b/, said: "I'm stupid" },
+  { re: /\bthat(?:s| was| is) (?:so |totally |definitely |really )?worthy of (?:one|1|a shot)\b/, said: "that was worthy of one" },
 ];
 
 /** Which phrase a transcript line contains, or null. */

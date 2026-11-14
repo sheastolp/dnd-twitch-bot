@@ -8,6 +8,10 @@ Deno.test("heardPhrase catches both phrases however they're written", () => {
   assertEquals(heardPhrase("I’m stupid, okay"), "I'm stupid");
   assertEquals(heardPhrase("im stupid"), "I'm stupid");
   assertEquals(heardPhrase("I am really stupid"), "I'm stupid");
+  assertEquals(heardPhrase("Oh, that was worthy of one."), "that was worthy of one");
+  assertEquals(heardPhrase("That's worthy of one, chat"), "that was worthy of one");
+  assertEquals(heardPhrase("that was worthy of 1"), "that was worthy of one");
+  assertEquals(heardPhrase("that was totally worthy of a shot"), "that was worthy of one");
 });
 
 Deno.test("heardPhrase ignores look-alikes", () => {
@@ -15,6 +19,8 @@ Deno.test("heardPhrase ignores look-alikes", () => {
   assertEquals(heardPhrase("him stupid? no"), null);
   assertEquals(heardPhrase("that wasn't stupid"), null);
   assertEquals(heardPhrase("you're stupid"), null);
+  assertEquals(heardPhrase("that was worthy of oneself"), null);
+  assertEquals(heardPhrase("that wasn't worthy of one"), null);
   assertEquals(heardPhrase(""), null);
 });
 
