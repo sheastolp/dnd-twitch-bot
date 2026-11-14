@@ -118,6 +118,8 @@ export const OPTIONS: OptionDef[] = [
   // Shot counter (shots.ts) — dashboard only, no chat command changes it.
   { key: "shots.word", bundle: "shots", label: "What's being counted", help: "One word, singular. The commands follow it (drink → !drink adds one, !drinks shows the count), and chat and the overlay say e.g. \"3 drinks\".", kind: "word",
     def: "shot", validate: (w) => shotWordProblem(w), suggest: ["shot", "drink", "sip", "beer", "chug"] },
+  { key: "shots.hydrate", bundle: "shots", label: "Remind you to drink water every", help: "While you're live with the shot counter on, GuildScribe reminds you in chat to hydrate with water or anything non-alcoholic (mentioning your count once there is one). The first reminder comes this long into the stream. off = no reminders.", kind: "duration", unit: "m",
+    def: 1800, min: 0, max: 14_400, suggest: ["off", "20m", "30m", "45m", "1h"] },
   { key: "shots.listen", bundle: "shots", label: "Add one when you say \"that was stupid\" or \"I'm stupid\"", help: "on = GuildScribe listens to your live stream's audio (like UndercoverBurn does), adds one each time it hears either phrase, and says so in chat. What it heard shows on the dashboard's 🎙 Listening log (kept in memory, cleared on restart, never saved). Only while you're live and the shot counter is on.", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
   // Song requests (songrequests.ts); mods skip every limit but "who".
