@@ -19,6 +19,7 @@
 //   !dashboard         (mod) get this channel's dashboard link
 //   !dashboard reset   (mod) invalidate the old link and issue a new one
 
+import { applyClipsForm, renderClipsPage } from "./clips_review.ts";
 import { renderDashboardListenPage } from "./listen_page.ts";
 import { sendChatMessage, exchangeCode, getViewerIdentity, isUserModeratorOfChannel, listModeratedChannelIds, timingSafeEqual, env } from "./twitch.ts";
 import {
@@ -90,7 +91,7 @@ import { parseIntervalMinutes, sanitizeTimedMessageText, MIN_INTERVAL_MINUTES, M
 import { PUBLIC_ORIGIN } from "./config.ts";
 import { page, renderDashboardPage, renderDashboardLoginGate, DEDICATED_TOGGLES, type DashboardData } from "./pages.ts";
 import { missingNeeds, quickChanges } from "./dashboard_quick.ts";
-import { optionInputs, saveOptionsFromForm } from "./channel_options.ts";
+import { optionInputs, optWord, saveOptionsFromForm, setOptionValue } from "./channel_options.ts";
 import { hasBotWhisperToken } from "./whisper.ts";
 import { getChannelStatus } from "./channel_status.ts";
 import { isBotAdminLogin } from "./bot_admins.ts";
@@ -902,6 +903,32 @@ export async function handleSwearJarForm(form: FormData, baseUrl: string, cookie
   const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
   if (result) params.set(result.ok ? "notice" : "error", result.message);
   return redirectTo(`${baseUrl}/dashboard/swearjar?${params.toString()}`);
+}
+
+// ── Clip review (clips_review.ts) — held clips to edit and post, same key + login ──
+
+export async function handleClipsPage(url: URL, cookieHeader: string | null): Promise<Response> {
+  const auth = await authorizeDashboard(url.searchParams.get("channel") ?? "", url.searchParams.get("key") ?? "", PUBLIC_ORIGIN, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const b = await getBroadcaster(auth.channelId);
+  const html = await renderClipsPage({
+    broadcasterId: auth.channelId,
+    broadcasterName: String(b?.display_name || b?.login || auth.channelId),
+    key: auth.key,
+    reviewOn: (await optWord(auth.channelId, "clips.review")) === "on",
+    notice: url.searchParams.get("notice") ?? undefined,
+    error: url.searchParams.get("error") ?? undefined,
+  });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+export async function handleClipsForm(form: FormData, baseUrl: string, cookieHeader: string | null): Promise<Response> {
+  const auth = await authFromForm(form, baseUrl, cookieHeader);
+  if (auth instanceof Response) return auth;
+  const result = await applyClipsForm(auth.channelId, form, (on) => setOptionValue(auth.channelId, "clips.review", on ? "on" : null));
+  const params = new URLSearchParams({ channel: auth.channelId, key: auth.key });
+  params.set(result.ok ? "notice" : "error", result.message);
+  return redirectTo(`${baseUrl}/dashboard/clips?${params.toString()}`);
 }
 
 // ── Shot listening log (listen_page.ts) — what was heard on this channel, same key + login ──

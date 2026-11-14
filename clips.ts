@@ -4,10 +4,18 @@
 // token (clips:edit), waits for Twitch to finish it, then posts the link.
 // Dashboard group "clips". One clip per channel every CHANNEL_COOLDOWN_MS,
 // and per chatter every USER_COOLDOWN_MS.
+//
+// With the clips.review option on, a finished clip is held for the streamer
+// to edit on Twitch and post from the dashboard's 🎬 Clips page or with
+// !clip post (clips_review.ts) instead of being posted straight away.
+//   !clip review on|off   (mod) the option; !clip review (anyone) says which
+//   !clip post / !clip skip (mod) the newest held clip
 
 import { getBroadcaster, getCustomCommand } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { getScopedToken, helix, reconnectHint } from "./stream_guard.ts";
+import { optWord, setOptionValue } from "./channel_options.ts";
+import { clipPostLine, handleClipReviewChat, holdClip } from "./clips_review.ts";
 
 export const CLIP_SCOPE = "clips:edit";
 const CHANNEL_COOLDOWN_MS = 30_000;
@@ -21,6 +29,28 @@ export async function handleClipCommand(chatMessage: string, chatter: string, di
   if (!m) return false;
   if (await getCustomCommand(broadcasterId, `clip${m[1] ?? ""}`)) return false; // the channel's own command wins
   const duration = m[1] ? Number(m[1]) : 30;
+
+  // Review: !clip review [on|off], !clip post, !clip skip (bare !clip only).
+  if (!m[1] && m[2]) {
+    const rv = m[2].trim().match(/^review(?:\s+(on|off|status))?$/i);
+    if (rv) {
+      const action = (rv[1] ?? "status").toLowerCase();
+      if (action === "status" || !isModerator) {
+        const on = (await optWord(broadcasterId, "clips.review")) === "on";
+        await sendChatMessage(`@${display} 🎬 Clip review is ${on ? "on — clips wait for the streamer to edit and post them" : "off — clips post straight away"}.${isModerator ? ` Switch it with !clip review ${on ? "off" : "on"}.` : ""}`, broadcasterId);
+        return true;
+      }
+      await setOptionValue(broadcasterId, "clips.review", action === "on" ? "on" : null);
+      await sendChatMessage(`@${display} 🎬 Clip review is now ${action === "on" ? "on — new clips wait for the streamer to edit them on Twitch and post them (dashboard → 🎬 Clips, or !clip post)" : "off — clips post straight away"}.`, broadcasterId);
+      return true;
+    }
+    const reply = await handleClipReviewChat(m[2], display, broadcasterId, isModerator);
+    if (reply !== null) {
+      if (reply) await sendChatMessage(reply, broadcasterId);
+      return true;
+    }
+  }
+
   const b = await getBroadcaster(broadcasterId);
   if (!b || Number(b.is_live) !== 1) {
     await sendChatMessage(`@${display} the stream isn't live, so there's nothing to clip.`, broadcasterId);
@@ -49,6 +79,7 @@ export async function handleClipCommand(chatMessage: string, chatter: string, di
   let r = await create(true);
   if (!r.ok && r.status === 400 && title) r = await create(false); // e.g. the title didn't pass AutoMod
   const id = String(r.data?.data?.[0]?.id ?? "");
+  const editUrl = String(r.data?.data?.[0]?.edit_url ?? "");
   if (!r.ok || !id) {
     await sendChatMessage(`@${display} Twitch couldn't make that clip${r.status === 400 ? " (this category may not allow clips)" : ""}.`, broadcasterId);
     return true;
@@ -58,7 +89,11 @@ export async function handleClipCommand(chatMessage: string, chatter: string, di
     await sleep(wait);
     const g = await helix("GET", `/clips?id=${encodeURIComponent(id)}`, null);
     if (g.ok && g.data?.data?.length) {
-      await sendChatMessage(`🎬 ${display} clipped it${title ? ` — “${title}”` : ""}: https://clips.twitch.tv/${id}`, broadcasterId);
+      if ((await optWord(broadcasterId, "clips.review")) === "on") {
+        await holdClip({ broadcasterId, clipId: id, clipper: display, title: String(g.data.data[0].title ?? title), editUrl });
+      } else {
+        await sendChatMessage(clipPostLine(display, title, id), broadcasterId);
+      }
       return true;
     }
   }

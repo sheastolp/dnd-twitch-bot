@@ -87,6 +87,7 @@ import { ensureNightbotImportTables, purgeNightbotImportData } from "./nightbot_
 import { ensureStreamGuardTables, handleStreamGuardCommand, maybeHateRaid, purgeStreamGuardData } from "./stream_guard.ts";
 import { ensureFollowBotTables, handleFollowBotCommand, maybeBlockFollowBot, purgeFollowBotData } from "./followbots.ts";
 import { handleClipCommand } from "./clips.ts";
+import { ensureClipReviewTables, purgeClipReviewData } from "./clips_review.ts";
 import { ensureModLogTables, purgeModLogData } from "./mod_log.ts";
 import { ensureMotdTables, purgeMotdData } from "./motd.ts";
 import { onStreamOffline, onStreamOnline } from "./stream_status.ts";
@@ -183,6 +184,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureBestiaryTables,
   ensureChecklistTables,
   ensureShotTables,
+  ensureClipReviewTables,
   ensureSoundByteTables,
   ensureSoundAlertTables,
   ensureHoardTables,
@@ -662,6 +664,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeBestiaryData(broadcasterId);
       await purgeChecklistData(broadcasterId);
       await purgeShotData(broadcasterId);
+      await purgeClipReviewData(broadcasterId);
       await purgeSoundByteData(broadcasterId);
       await purgeSoundAlertData(broadcasterId);
       await purgeHoardData(broadcasterId);

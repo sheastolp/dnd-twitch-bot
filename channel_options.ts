@@ -124,6 +124,9 @@ export const OPTIONS: OptionDef[] = [
     def: 1800, min: 0, max: 14_400, suggest: ["off", "20m", "30m", "45m", "1h"] },
   { key: "shots.listen", bundle: "shots", label: "Add one when you say \"that was stupid\", \"I'm stupid\" or \"that was worthy of one\"", help: "on = GuildScribe listens to your live stream's audio (like UndercoverBurn does), adds one each time it hears one of those phrases, and says so in chat. What it heard shows on the dashboard's 🎙 Listening log (kept in memory, cleared on restart, never saved). Only while you're live and the shot counter is on.", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
+  // Clips (clips.ts / clips_review.ts)
+  { key: "clips.review", bundle: "clips", label: "Let me edit clips before they're posted", help: "on = a clip made with !clip waits on the dashboard's 🎬 Clips page instead of going straight to chat; you're whispered Twitch's edit link (trim it, rename it), then post it from that page or a mod types !clip post. Mods can switch it in chat with !clip review on/off.", kind: "word",
+    def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
   // Song requests (songrequests.ts); mods skip every limit but "who".
   { key: "songs.who", bundle: "songrequests", label: "Who can request songs", help: "subs = subscribers, VIPs and mods.", kind: "word",
     def: "everyone", choices: ["everyone", "subs", "vips", "mods"], suggest: ["everyone", "subs", "vips", "mods"] },

@@ -23,7 +23,7 @@ import { renderChannelCommandsPage } from "./commands_page.ts";
 import { isNpcEnabled } from "./social_db.ts";
 import { renderPublicQuotesPage } from "./quotes.ts";
 import { subscribeToRedemptions } from "./redemptions.ts";
-import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleListenLogPage, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSteamPage, handleSteamForm, handleSoundAlertsPage, handleSoundAlertsForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
+import { renderDashboard, handleDashboardStart, handleDashboardLogin, handleDashboardCallback, handleDashboardCommandsForm, handleDashboardTriggersForm, handleDashboardTimedMessagesForm, handleDashboardFeaturesForm, handleDashboardGo, handleBotCheckPage, handleBotCheckForm, handleAutoBanPage, handleAutoBanForm, handleModCenterPage, handleModCenterForm, handleBotListPage, handleBotListForm, handlePokeballPage, handlePokeballForm, handleSwearJarPage, handleSwearJarForm, handleListenLogPage, handleClipsPage, handleClipsForm, handleGameStatsPage, handleGameStatsForm, handleQuotesPage, handleQuotesForm, handleImportPage, handleImportForm, handleNightbotConnect, handleNowPlayingPage, handleNowPlayingForm, handleSpotifyConnect, handleTipsPage, handleTipsForm, handleSteamPage, handleSteamForm, handleSoundAlertsPage, handleSoundAlertsForm, handleSongListPage, handleSongListForm, handleMerchantSaleLogin, handleMerchantSalePage, handleMerchantSaleForm } from "./dashboard.ts";
 import { renderTipPage } from "./tips.ts";
 import { handleSteamUpload } from "./steam.ts";
 import { MAX_CLIP_BYTES } from "./soundalerts.ts";
@@ -561,6 +561,10 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
     // What !stats shows (game_stats_page.ts) — same gate.
     return await handleGameStatsPage(url, req.headers.get("Cookie"));
   }
+  if (req.method === "GET" && path === "/dashboard/clips") {
+    // Clips waiting for review (clips_review.ts) — same gate.
+    return await handleClipsPage(url, req.headers.get("Cookie"));
+  }
   if (req.method === "GET" && path === "/dashboard/listen") {
     // The shot counter's listening log for this channel (listen_page.ts) — same gate.
     return await handleListenLogPage(url, req.headers.get("Cookie"));
@@ -877,6 +881,9 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   }
   if (req.method === "POST" && path === "/dashboard/stats") {
     return await handleGameStatsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
+  }
+  if (req.method === "POST" && path === "/dashboard/clips") {
+    return await handleClipsForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
   }
   if (req.method === "POST" && path === "/dashboard/swearjar") {
     return await handleSwearJarForm(await req.formData(), PUBLIC_ORIGIN, req.headers.get("Cookie"));
