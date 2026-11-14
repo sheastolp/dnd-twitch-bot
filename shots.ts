@@ -20,7 +20,9 @@
 // word. Because the words can change, this module checks its own switch
 // (the group lists no command words), and a channel's own custom command of
 // the same name wins, as with !sound. The dashboard refuses a word that
-// would clash with a built-in command (shotWordProblem).
+// would clash with a built-in command (shotWordProblem). One typo is
+// forgiven (!shoit, !short, !hsot, !shtos — shotCommandFor), unless the typo
+// is a GuildScribe command or a custom command of its own.
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
@@ -109,13 +111,45 @@ const OTHER_BUILT_INS = [
   "onlinenotif", "onlinecheck", "offlinelock", "raidguard", "shield", "monster", "clip", "stats", "delve", "dndbot",
 ];
 
+/** Whether !word is one of GuildScribe's own commands. */
+function isBuiltInCommand(w: string): boolean {
+  return RESERVED_NAMES.has(w) || OTHER_BUILT_INS.includes(w) || Object.values(COMMAND_GROUPS).some((g) => g.commands.includes(w));
+}
+
 /** Why a word can't be the counted word (dashboard check), or null if it's fine. */
 export function shotWordProblem(word: string): string | null {
   for (const w of [word, pluralWord(word)]) {
-    if (RESERVED_NAMES.has(w) || OTHER_BUILT_INS.includes(w) || Object.values(COMMAND_GROUPS).some((g) => g.commands.includes(w))) {
-      return `!${w} is already a GuildScribe command — pick another word.`;
+    if (isBuiltInCommand(w)) return `!${w} is already a GuildScribe command — pick another word.`;
+  }
+  return null;
+}
+
+/** Edits between two words: an added, missing, changed or swapped letter counts one. */
+export function typoDistance(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
     }
   }
+  return d[a.length][b.length];
+}
+
+/** Which command a typed word means, typos included: !shoit / !short / !hsot →
+ * "one", !shtos → "many". One slip is forgiven for words of 4+ letters
+ * ("sip" is too short to guess at), never for a word that is a GuildScribe
+ * command of its own (!shop stays the shop). A word as close to both means
+ * "many", which only shows the count. */
+export function shotCommandFor(word: string, w: Words): "one" | "many" | null {
+  if (word === w.one) return "one";
+  if (word === w.many) return "many";
+  if (w.one.length < 4 || isBuiltInCommand(word)) return null;
+  const toOne = typoDistance(word, w.one), toMany = typoDistance(word, w.many);
+  if (toMany <= 1 && toMany <= toOne) return "many";
+  if (toOne <= 1) return "one";
   return null;
 }
 
@@ -145,15 +179,20 @@ export async function handleShotCommand(
 ): Promise<boolean> {
   const m = chatMessage.trim().match(/^!([a-z0-9]{2,25})(?:\s+(.*))?$/i);
   if (!m) return false;
-  const word = m[1].toLowerCase();
+  const typed = m[1].toLowerCase();
   const w = await shotWords(broadcasterId);
-  if (word !== w.one && word !== w.many) return false;
+  // Typos count too (!shoit, !short): `word` is the command it was meant as.
+  const meant = shotCommandFor(typed, w);
+  if (!meant) return false;
+  const word = meant === "one" ? w.one : w.many;
   // Switched off, or the channel has its own command of that name: fall through to it.
-  const [on, custom] = await Promise.all([
+  // (A typo also gives way to the channel's own command of the real word.)
+  const [on, custom, customReal] = await Promise.all([
     isCommandGroupEnabled(broadcasterId, "shots"),
-    getCustomCommand(broadcasterId, word),
+    getCustomCommand(broadcasterId, typed),
+    typed === word ? null : getCustomCommand(broadcasterId, word),
   ]);
-  if (!on || custom) return false;
+  if (!on || custom || customReal) return false;
   const arg = (m[2] ?? "").trim().toLowerCase();
 
   if (word === w.many || !isModerator) {
