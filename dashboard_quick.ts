@@ -116,6 +116,12 @@ export const QUICK_BUNDLES: QuickBundle[] = [
     switches: ["chatreader"],
   },
   {
+    key: "headpats", icon: "🫳", name: "Headpats",
+    what: "When chat says \"headpat\" or \"pat pat\", GuildScribe now and then gives you one (about 1 in 3, at most every 2 minutes). !headpat or !headpat @someone always gets one. No headpats while your avatar is on stream.",
+    yourPart: "When your avatar (PNGtuber / VTuber model) goes on stream, a mod types !avatar on; !avatar off when it's gone again. Tune how often under ⚙ Options.",
+    switches: ["headpats"],
+  },
+  {
     key: "clips", icon: "🎬", name: "Clips",
     what: "Anyone in chat clips the last 30 seconds with !clip [title] (!clip15 … !clip60 for other lengths), and GuildScribe posts the link. Turn on review under ⚙ Options and clips wait for you to trim and rename them on Twitch before they're posted.",
     yourPart: "Reconnect once if !clip says it can't make clips yet (it needs Twitch's clips permission). With review on, post or skip each clip from the dashboard's 🎬 Clips page, or a mod types !clip post.",

@@ -191,6 +191,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   shots: { section: "Stream overlays", label: "Shot counter (!shot — mods add one, !shots shows the count; Shots taken overlay)", commands: [] },
   // Everything else
   hug: { section: "Other", label: "Hugs (!hug)", commands: ["hug"], parent: "misc" },
+  // headpats.ts checks this switch itself (plain-chat headpats too) and yields to custom commands.
+  headpats: { section: "Other", label: "Headpats (\"headpat\" in chat sometimes gets one; !headpat [@user]; mods: !avatar on/off pauses them while the avatar's on stream)", commands: [] },
   clips: { section: "Other", label: "Clips (!clip [title], !clip45, !clip60)", commands: ["clip", "clip15", "clip20", "clip30", "clip45", "clip60"] },
   // funstuff.ts FUN_WORDS; "good bot" / "bad bot" replies check this switch too.
   funstuff: { section: "Other", label: "Fun stuff (!coinflip, !flip, !jumble, !tempc/!tempf, !dadjoke, !catfact, !dogpic, …)", commands: ["coinflip",  "flip",  "angryflip",  "unflip",  "jumble",  "tempc",  "tempf",  "dadjoke",  "animalfact",  "catfact",  "dogfact",  "otterfact",  "penguinfact",  "slothfact",  "owlfact",  "sharkfact",  "frogfact",  "cowfact",  "duckfact",  "foxfact",  "pandafact",  "capybarafact",  "axolotlfact",  "beefact",  "dolphinfact",  "wolffact",  "raccoonfact",  "octopusfact",  "kittyfact",  "puppyfact",  "doggofact",  "seaotterfact",  "capyfact",  "beesfact",  "honeybeefact",  "redfoxfact",  "catpic",  "dogpic",  "foxpic",  "duckpic",  "capybarapic",  "kittypic",  "puppypic",  "doggopic",  "capypic",  "redfoxpic"] },

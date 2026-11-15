@@ -1,6 +1,7 @@
 // GuildScribe — Twitch D&D bot entry point
 // Deno HTTP handler (served by server.ts)
 
+import { handleHeadpatCommand, maybeHeadpat } from "./headpats.ts";
 import { ensureHydrateTables, onHydrateRedemption, purgeHydrateData } from "./hydrate.ts";
 import { ensureTables, isChannelEnabled, setChannelEnabled, recordActivity, getBroadcaster, markBroadcasterDisconnected, disconnectBroadcasterData, purgeChannelData, isChannelBlocked, recordMonitorEvent, checkCommandRateLimit, claimEventSubMessage, queueEventSubCancellation, saveExtraEventSubSubscription, getExtraEventSubSubscriptions, deleteExtraEventSubSubscriptionById, isCommandGroupEnabled, setCommandGroupEnabled, setBroadcasterLiveStatus, markStreamStatusSubscribed, SCHEMA_HELPERS, sqlite } from "./db.ts";
 import { ensureSocialTables } from "./social_db.ts";
@@ -906,6 +907,9 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleClipCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (await handleFunCommand(chatMessage, display, broadcasterId)) return new Response("OK");
   if (!chatMessage.startsWith("!") && await isCommandGroupEnabled(broadcasterId, "funstuff") && await maybeBotBanter(chatMessage, broadcasterId)) return new Response("OK");
+  // Headpats (headpats.ts): !headpat, !avatar, and now and then a headpat for one mentioned in chat.
+  if (await handleHeadpatCommand(chatMessage, display, broadcasterId, String(connection.display_name || connection.login || "the streamer"), isModerator)) return new Response("OK");
+  if (await maybeHeadpat(chatMessage, display, broadcasterId, String(connection.display_name || connection.login || "the streamer"))) return new Response("OK");
   if (await handleWhisperTestCommand(chatMessage, chatterId, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
   if (await handleWhisperMeCommand(chatMessage, chatterId, display, broadcasterId)) return new Response("OK");
   if (await handleWhisperAllCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");

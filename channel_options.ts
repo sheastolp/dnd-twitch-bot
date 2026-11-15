@@ -124,6 +124,13 @@ export const OPTIONS: OptionDef[] = [
     def: 1800, min: 0, max: 14_400, suggest: ["off", "20m", "30m", "45m", "1h"] },
   { key: "shots.listen", bundle: "shots", label: "Add one when you say \"that was stupid\", \"I'm stupid\" or \"that was worthy of one\"", help: "on = GuildScribe listens to your live stream's audio (like UndercoverBurn does), adds one each time it hears one of those phrases, and says so in chat. What it heard shows on the dashboard's 🎙 Listening log (kept in memory, cleared on restart, never saved). Only while you're live and the shot counter is on.", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
+  // Headpats (headpats.ts)
+  { key: "headpats.chance", bundle: "headpats", label: "Answer a headpat in chat", help: "How often a \"headpat\" / \"pat pat\" in chat gets one back. !headpat always answers.", kind: "percent",
+    def: 33, min: 1, max: 100, suggest: ["10%", "33%", "50%", "100%"] },
+  { key: "headpats.cooldown", bundle: "headpats", label: "At most one headpat every", kind: "duration", unit: "m",
+    def: 120, min: 0, max: 3600, suggest: ["30s", "2m", "5m", "10m"] },
+  { key: "avatar.onStream", bundle: "headpats", label: "Avatar on stream (no headpats)", help: "on = your avatar (PNGtuber / VTuber model) is on stream, so no headpats. Mods switch it in chat with !avatar on / !avatar off.", kind: "word",
+    def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
   // Clips (clips.ts / clips_review.ts)
   { key: "clips.review", bundle: "clips", label: "Let me edit clips before they're posted", help: "on = a clip made with !clip waits on the dashboard's 🎬 Clips page instead of going straight to chat; you're whispered Twitch's edit link (trim it, rename it), then post it from that page or a mod types !clip post. Mods can switch it in chat with !clip review on/off.", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },

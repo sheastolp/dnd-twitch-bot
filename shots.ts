@@ -109,6 +109,7 @@ const OTHER_BUILT_INS = [
   "sound", "sounds", "quote", "quotes", "so", "shoutout", "chatreader", "overlays", "rally", "npc", "chronicle", "market",
   "haggle", "gear", "ball", "pokecatch", "automod", "permit", "boon", "botcheck", "hateraid", "followbots", "removebots",
   "onlinenotif", "onlinecheck", "offlinelock", "raidguard", "shield", "monster", "clip", "stats", "delve", "dndbot",
+  "headpat", "headpats", "avatar",
 ];
 
 /** Whether !word is one of GuildScribe's own commands. */
