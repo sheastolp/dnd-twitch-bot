@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { hydrationLine, sinceText } from "./hydrate.ts";
+import { hydrateRedeemLine, hydrationLine, sinceText } from "./hydrate.ts";
 
 Deno.test("hydration reminders: time since the last redeem, the count, non-alcoholic", () => {
   const w = { one: "shot", many: "shots" };
@@ -37,4 +37,10 @@ Deno.test("hydrate rewards restart the reminder timer", async () => {
   assertEquals(await lastHydrateRedeem("77"), { at: 12345, title: "Hydrate!" });
   assertEquals(await onHydrateRedemption({ broadcaster_user_id: "77", reward: { title: "Hug the streamer" } }, 99999), false);
   assertEquals(hydrationTimerStartedAt("77"), 12345);
+});
+
+Deno.test("a hydrate redeem says how long since the one before", () => {
+  const now = 50_000_000;
+  assertEquals(hydrateRedeemLine("Sheamus", "Hydrate!", { at: now - 47 * 60_000 }, now), `💧 Sheamus redeemed "Hydrate!" — drink up! It's been 47 minutes since the last one.`);
+  assertEquals(hydrateRedeemLine("Sheamus", "Hydrate!", null, now), `💧 Sheamus redeemed "Hydrate!" — drink up! That's the first one this stream.`);
 });

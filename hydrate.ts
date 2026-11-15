@@ -8,7 +8,8 @@
 // and starts when the channel is first seen live, so the first reminder
 // comes one interval into the stream (or after a bot restart), never the
 // moment it goes live. A channel-point reward with "hydrate" in its title
-// (onHydrateRedemption) restarts the timer and says so in chat, and every
+// (onHydrateRedemption) restarts the timer and tells chat how long it's
+// been since the redeem before it, and every
 // reminder says how long it's been since the last one (hydrate_redeems,
 // cleared when a new stream starts, so it survives a bot restart).
 
@@ -36,14 +37,21 @@ export async function onHydrateRedemption(event: any, now = Date.now()): Promise
   const title = String(event?.reward?.title ?? "");
   if (!id || !isHydrateReward(title)) return false;
   lastReminder.set(id, now);
+  const previous = await lastHydrateRedeem(id);
   await saveRedeem(id, now, title);
-  const everySec = await optNum(id, "shots.hydrate");
-  if (everySec <= 0 || !(await isCommandGroupEnabled(id, "shots"))) return true;
+  if (!(await isCommandGroupEnabled(id, "shots"))) return true;
   if (!(await isChannelEnabled(id)) || (await isChannelBlocked(id))) return true;
   const who = String(event?.user_name ?? event?.user_login ?? "Someone");
-  const mins = Math.round(everySec / 60);
-  await sendChatMessage(`💧 ${who} redeemed "${title}" — drink up! Next hydration reminder in ${mins} minute${mins === 1 ? "" : "s"}.`, id);
+  await sendChatMessage(hydrateRedeemLine(who, title, previous, now), id);
   return true;
+}
+
+/** The chat line for a hydrate redeem: how long since the one before it. */
+export function hydrateRedeemLine(who: string, title: string, previous: { at: number } | null, now = Date.now()): string {
+  const since = previous
+    ? `It's been ${sinceText(now - previous.at)} since the last one`
+    : "That's the first one this stream";
+  return `💧 ${who} redeemed "${title}" — drink up! ${since}.`;
 }
 
 /** When the next reminder is due for a channel (tests and the timer). */
