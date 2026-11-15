@@ -8,7 +8,9 @@
 // and starts when the channel is first seen live, so the first reminder
 // comes one interval into the stream (or after a bot restart), never the
 // moment it goes live. A channel-point reward with "hydrate" in its title
-// (onHydrateRedemption) restarts the timer and says so in chat.
+// (onHydrateRedemption) restarts the timer and says so in chat, and every
+// reminder says how long it's been since the last one (hydrate_redeems,
+// cleared when a new stream starts, so it survives a bot restart).
 
 import { sqlite } from "./sqlite.ts";
 import { sendChatMessage } from "./twitch.ts";
@@ -34,6 +36,7 @@ export async function onHydrateRedemption(event: any, now = Date.now()): Promise
   const title = String(event?.reward?.title ?? "");
   if (!id || !isHydrateReward(title)) return false;
   lastReminder.set(id, now);
+  await saveRedeem(id, now, title);
   const everySec = await optNum(id, "shots.hydrate");
   if (everySec <= 0 || !(await isCommandGroupEnabled(id, "shots"))) return true;
   if (!(await isChannelEnabled(id)) || (await isChannelBlocked(id))) return true;
@@ -48,22 +51,68 @@ export function hydrationTimerStartedAt(broadcasterId: string): number | undefin
   return lastReminder.get(broadcasterId);
 }
 
-const PLAIN = [
-  "💧 Hydration check! Grab some water (or anything without alcohol) — the quest goes better hydrated.",
-  "💧 The healer insists: drink some water. Non-alcoholic potions only for this one.",
-  "💧 Water break! A glass of something without alcohol keeps the adventurer on their feet.",
-  "💧 Even dragons drink water. Time for a non-alcoholic sip, streamer.",
+// ── The last hydrate redeem this stream (survives a bot restart) ──
+
+export async function ensureHydrateTables() {
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS hydrate_redeems (
+      broadcaster_id TEXT PRIMARY KEY,
+      redeemed_at INTEGER NOT NULL,
+      reward_title TEXT NOT NULL DEFAULT ''
+    )`,
+  );
+}
+
+async function saveRedeem(broadcasterId: string, at: number, title: string) {
+  await sqlite.execute(
+    "INSERT OR REPLACE INTO hydrate_redeems (broadcaster_id, redeemed_at, reward_title) VALUES (?, ?, ?)",
+    [broadcasterId, at, title.slice(0, 100)],
+  );
+}
+
+/** The last hydrate redeem this stream, or null. */
+export async function lastHydrateRedeem(broadcasterId: string): Promise<{ at: number; title: string } | null> {
+  const { rows } = await sqlite.execute("SELECT redeemed_at, reward_title FROM hydrate_redeems WHERE broadcaster_id = ?", [broadcasterId]);
+  const r = (rows as any[])[0];
+  return r ? { at: Number(r.redeemed_at), title: String(r.reward_title ?? "") } : null;
+}
+
+/** stream.online (stream_status.ts): a new stream has had no redeem yet. */
+export async function resetHydrationForNewStream(broadcasterId: string) {
+  lastReminder.delete(broadcasterId);
+  await sqlite.execute("DELETE FROM hydrate_redeems WHERE broadcaster_id = ?", [broadcasterId]).catch(() => {});
+}
+
+export async function purgeHydrateData(broadcasterId: string) {
+  await sqlite.execute("DELETE FROM hydrate_redeems WHERE broadcaster_id = ?", [broadcasterId]).catch(() => {});
+}
+
+/** 45_000 → "1 minute", 75 min → "1 hour 15 minutes". */
+export function sinceText(ms: number): string {
+  const mins = Math.max(1, Math.round(ms / 60_000));
+  const h = Math.floor(mins / 60), m = mins % 60;
+  const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (!h) return part(m, "minute");
+  return m ? `${part(h, "hour")} ${part(m, "minute")}` : part(h, "hour");
+}
+
+const TAILS = [
+  "grab some water (or anything without alcohol)!",
+  "time for a glass of water — non-alcoholic, please!",
+  "the healer insists on some water. Non-alcoholic potions only!",
+  "even dragons drink water. Time for a non-alcoholic sip!",
 ];
 
-const WITH_SHOTS = [
-  (n: string) => `💧 ${n} down this stream — chase it with some water (or anything non-alcoholic)!`,
-  (n: string) => `💧 Hydration check: ${n} so far, so the next one's water. Non-alcoholic, please!`,
-  (n: string) => `💧 The barkeep slides over a glass of water: ${n} in, time to hydrate with something non-alcoholic.`,
-];
-
-/** The reminder text for a channel with `count` shots so far. */
-export function hydrationLine(count: number, w: { one: string; many: string }): string {
-  return count > 0 ? pick(WITH_SHOTS)(`${count} ${count === 1 ? w.one : w.many}`) : pick(PLAIN);
+/** The reminder text: how long since the last hydrate redeem (or that there
+ * hasn't been one this stream), the shot count once there is one, and a
+ * nudge toward water or anything non-alcoholic. */
+export function hydrationLine(count: number, w: { one: string; many: string }, lastRedeem: { at: number; title: string } | null, now = Date.now()): string {
+  const reward = lastRedeem?.title ? `“${lastRedeem.title}”` : "hydrate";
+  const since = lastRedeem
+    ? `It's been ${sinceText(now - lastRedeem.at)} since the last ${reward} redeem`
+    : "No hydrate redeem yet this stream";
+  const shots = count > 0 ? ` and ${count} ${count === 1 ? `${w.one} is` : `${w.many} are`} down` : "";
+  return `💧 Hydration check! ${since}${shots} — ${pick(TAILS)}`;
 }
 
 /** One tick: post the reminder in every live channel that's due. */
@@ -88,8 +137,8 @@ export async function runHydrationReminders(now = Date.now()): Promise<void> {
       if (now - since < everySec * 1000) continue;
       lastReminder.set(id, now);
       if (!(await isChannelEnabled(id)) || (await isChannelBlocked(id))) continue;
-      const [count, w] = await Promise.all([getShotCount(id), shotWords(id)]);
-      await sendChatMessage(hydrationLine(count, w), id);
+      const [count, w, redeem] = await Promise.all([getShotCount(id), shotWords(id), lastHydrateRedeem(id)]);
+      await sendChatMessage(hydrationLine(count, w, redeem, now), id);
     } catch (e) {
       console.error(`hydration reminder failed for ${id}:`, e);
     }
