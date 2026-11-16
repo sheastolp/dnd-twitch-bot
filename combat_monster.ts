@@ -12,6 +12,7 @@ import { getCharacter, getMonsterDuel, sqlite } from "./db.ts";
 import { sendChatMessage, sendChatMessages } from "./twitch.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
+import { wowLootNote } from "./wow_loot.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { claimHunt } from "./huntcooldown.ts";
 import { withArticle, forfeitIfIdleMonsterDuel } from "./combat_shared.ts";
@@ -224,7 +225,7 @@ export async function handleMonsterDuelCommand(
         }`;
       }
       const paid = await awardMonsterLoot([username], monster.cr, broadcasterId);
-      lootNote = soloLootNote(paid);
+      lootNote = soloLootNote(paid) + await wowLootNote(broadcasterId, username, monster.name, monster.cr, monster.crValue);
       loot = lootSummary(paid);
       bountyNote = await creditBounty(broadcasterId, username, monster.name);
     }
@@ -316,7 +317,7 @@ export async function handleMonsterDuelCommand(
         : "";
       const lootNote = soloLootNote(
         await awardMonsterLoot([username], String(active.monster_cr ?? "1"), broadcasterId),
-      );
+      ) + await wowLootNote(broadcasterId, username, String(active.monster_name), String(active.monster_cr ?? "1"));
       const bountyNote = await creditBounty(broadcasterId, username, String(active.monster_name));
       await sendChatMessage(
         `@${display} ${playerResult} ${active.monster_name} is defeated! ${

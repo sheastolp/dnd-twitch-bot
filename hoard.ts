@@ -48,6 +48,7 @@ import { recordBattle } from "./battle_log.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot, lootSummary, soloLootNote } from "./loot.ts";
+import { wowLootNote } from "./wow_loot.ts";
 import { claimHunt, waitText } from "./huntcooldown.ts";
 import { fightSummary, hpLeft } from "./whisper.ts";
 import { duelNarration } from "./narration.ts";
@@ -242,7 +243,7 @@ export async function handleHoardCommand(
         const xp = await awardMonsterXp(chatter, monster.cr, broadcasterId);
         if (xp) rewards += ` +${xp.gained} XP${xp.leveledTo ? ` — 🎉 leveled up to ${xp.leveledTo}!` : ""}`;
         const paid = await awardMonsterLoot([chatter], monster.cr, broadcasterId);
-        rewards += soloLootNote(paid);
+        rewards += soloLootNote(paid) + await wowLootNote(broadcasterId, chatter, monster.name, monster.cr, monster.crValue);
         loot = lootSummary(paid);
         bounty = await creditBounty(broadcasterId, chatter, monster.name, p);
         await savePlayer(broadcasterId, chatter, p);

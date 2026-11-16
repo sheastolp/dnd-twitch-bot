@@ -30,7 +30,7 @@ export function renderBestiaryPage(
     parts.push(lv ? `random from Lv ${lv}` : "by name only");
     if (m.crValue >= raidMinCr) parts.push("raid boss");
     const wow = (m as HuntableMonster).azeroth ? azerothInfo(m.name) : null;
-    if (wow) parts.push(`${azerothWhere(wow)}, WoW Lv ${wow.level}`);
+    if (wow) parts.push(wow.raid || wow.worldBoss ? `${azerothWhere(wow)}${wow.worldBoss ? ", world boss" : ""}` : `${azerothWhere(wow)}, WoW Lv ${wow.level}`);
     return parts.join(" · ");
   };
 

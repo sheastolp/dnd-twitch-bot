@@ -36,7 +36,7 @@ import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, SOLO_MONS
 import { lookup5e } from "./lookups.ts";
 import { sendChatMessage } from "./twitch.ts";
 import { isCommandGroupEnabled } from "./db.ts";
-import { AZEROTH_MONSTERS, azerothInfo, azerothPlaceLine, azerothWhere } from "./wow_monsters.ts";
+import { azerothInfo, azerothRoster, azerothPlaceLine, azerothWhere } from "./wow_monsters.ts";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -151,7 +151,7 @@ export async function getChannelRoster(broadcasterId: string): Promise<HuntableM
   let azeroth: HuntableMonster[] = [];
   try {
     if (await isCommandGroupEnabled(broadcasterId, "wowmonsters")) {
-      azeroth = AZEROTH_MONSTERS.filter((m) => !taken.has(keyOf(m.name))).map((m) => ({ ...m, azeroth: true }));
+      azeroth = azerothRoster().filter((m) => !taken.has(keyOf(m.name))).map((m) => ({ ...m, azeroth: true }));
     }
   } catch (e) {
     console.error("bestiary azeroth read failed", e);
@@ -590,7 +590,9 @@ export async function handleBestiaryCommand(
   const learning = a.tier
     ? ` 🧠 Adaptation ${signedTier(a.tier)}: ${describeTier(a.tier)}.`
     : "";
-  const where = wowInfo ? ` Found in ${azerothWhere(wowInfo)}, WoW level ${wowInfo.level}${wowInfo.boss ? (wowInfo.dungeon ? " boss" : " rare elite") : ""}.` : "";
+  const where = wowInfo
+    ? ` Found in ${azerothWhere(wowInfo)}${wowInfo.raid || wowInfo.worldBoss ? `, a ${wowInfo.raid ? "raid" : "world"} boss` : `, WoW level ${wowInfo.level}${wowInfo.boss ? (wowInfo.dungeon ? " boss" : " rare elite") : ""}`}.`
+    : "";
   await say(`📖 ${base.name} (${origin}): ${statLine(base)} before level scaling.${lore}${where}${record}${learning} Hunt: !dndduel ${base.name.toLowerCase()}`);
   return true;
 }

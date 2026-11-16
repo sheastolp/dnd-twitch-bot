@@ -34,6 +34,11 @@ export interface AzerothInfo {
   dungeon?: boolean;
   /** New in WoW: Forever. */
   forever?: boolean;
+  /** A raid boss (zone is the raid), or a world boss out in the open. */
+  raid?: boolean;
+  worldBoss?: boolean;
+  /** Not huntable (or a raid quest) before this time: Forever's raids. */
+  opensAt?: number;
 }
 
 type Entry = [name: string, level: number, zone: string, kind: AzerothKind, flags?: "boss" | "dungeon" | "dungeon boss" | "forever dungeon" | "forever dungeon boss"];
@@ -137,6 +142,29 @@ const ENTRIES: Entry[] = [
   ["Shaper's Terrace Guardian", 59, "Shaper's Terrace", "construct", "forever dungeon"],
 ];
 
+/** WoW: Forever's raids open December 9, 2026 (3 PM PST, like its launch). */
+export const FOREVER_RAIDS_OPEN = Date.UTC(2026, 11, 9, 23, 0, 0);
+
+/** Raid and world bosses: name, CR (raid quests need RAID_MIN_CR, 13+), raid
+ * or zone, kind, flags. Forever's boss names are from guides and the game's
+ * files ahead of the raids opening — each raid's likely last boss and one more. */
+type RaidEntry = [name: string, cr: number, zone: string, kind: AzerothKind, flags: "raid" | "world" | "forever raid"];
+const RAID_ENTRIES: RaidEntry[] = [
+  ["Onyxia", 13, "Onyxia's Lair", "dragonkin", "raid"],
+  ["Lord Kazzak", 13, "the Blasted Lands", "brute", "world"],
+  ["Azuregos", 13, "Azshara", "dragonkin", "world"],
+  ["Hakkar the Soulflayer", 14, "Zul'Gurub", "caster", "raid"],
+  ["Ossirian the Unscarred", 14, "Ruins of Ahn'Qiraj", "brute", "raid"],
+  ["Ragnaros", 15, "Molten Core", "elemental", "raid"],
+  ["Nefarian", 16, "Blackwing Lair", "dragonkin", "raid"],
+  ["C'Thun", 17, "Temple of Ahn'Qiraj", "caster", "raid"],
+  ["Kel'Thuzad", 17, "Naxxramas", "undead", "raid"],
+  ["Deepscar Matriarch", 13, "Barrow Deeps", "beast", "forever raid"],
+  ["Sonya Darkhallow", 14, "Barrow Deeps", "caster", "forever raid"],
+  ["Nythus the Dreambound", 15, "Hyjal Summit", "caster", "forever raid"],
+  ["The Wild King", 16, "Hyjal Summit", "brute", "forever raid"],
+];
+
 /** The core table's median stat block per CR (SOLO_MONSTERS, Nov 2026). */
 const CR_BASE: Record<string, { ac: number; hp: number; attack: number; die: number; bonus: number }> = {
   "1/8": { ac: 14, hp: 9, attack: 3, die: 6, bonus: 1 },
@@ -152,6 +180,11 @@ const CR_BASE: Record<string, { ac: number; hp: number; attack: number; die: num
   "8": { ac: 15, hp: 136, attack: 8, die: 10, bonus: 6 },
   "9": { ac: 17, hp: 152, attack: 9, die: 10, bonus: 6 },
   "10": { ac: 17, hp: 161, attack: 9, die: 10, bonus: 5 },
+  "13": { ac: 18, hp: 180, attack: 11, die: 10, bonus: 6 },
+  "14": { ac: 18, hp: 187, attack: 11, die: 10, bonus: 6 },
+  "15": { ac: 19, hp: 207, attack: 11, die: 10, bonus: 6 },
+  "16": { ac: 19, hp: 225, attack: 12, die: 10, bonus: 7 },
+  "17": { ac: 19, hp: 256, attack: 13, die: 10, bonus: 7 },
 };
 
 const CR_STEPS: Array<[string, number]> = [
@@ -179,18 +212,19 @@ const KIND: Record<AzerothKind, [number, number, number, number, number]> = {
 };
 
 /** The 5e block for a WoW foe of `level` and `kind`. */
-export function azerothStatBlock(name: string, level: number, kind: AzerothKind, boss: boolean): SoloMonster {
+export function azerothStatBlock(name: string, level: number, kind: AzerothKind, boss: boolean, fixedCr?: number): SoloMonster {
   // Below level 3, the first critters stay under the CR a level-1 hero aims at.
   const hero = Math.max(0.5, Math.min(20, level / 3));
   const target = (hero + 1) / 4;
-  const [cr, crValue] = snapCr(boss ? target * 1.5 + 0.5 : target);
+  const [cr, crValue] = fixedCr ? [String(fixedCr), fixedCr] as [string, number] : snapCr(boss ? target * 1.5 + 0.5 : target);
   const b = CR_BASE[cr];
   const [ac, hpX, hit, die, dmg] = KIND[kind];
   return {
     name,
     cr,
     crValue,
-    ac: Math.max(10, b.ac + ac + (boss ? 1 : 0)),
+    // Never more than 2 over the CR's usual AC (a dragonkin raid boss stays hittable).
+    ac: Math.max(10, Math.min(b.ac + 2, b.ac + ac + (boss ? 1 : 0))),
     hp: Math.max(6, Math.round(b.hp * hpX * (boss ? 1.1 : 1))),
     attack: b.attack + hit,
     die: Math.min(12, b.die + die),
@@ -207,7 +241,26 @@ export const AZEROTH_MONSTERS: SoloMonster[] = ENTRIES.map(([name, level, zone, 
     forever: /forever/.test(flags) || undefined,
   });
   return azerothStatBlock(name, level, kind, boss);
-});
+}).concat(RAID_ENTRIES.map(([name, cr, zone, kind, flags]) => {
+  const forever = flags === "forever raid";
+  AZEROTH_INFO.set(name.toLowerCase(), {
+    zone, level: 63, kind, boss: true,
+    raid: flags !== "world" || undefined,
+    worldBoss: flags === "world" || undefined,
+    forever: forever || undefined,
+    opensAt: forever ? FOREVER_RAIDS_OPEN : undefined,
+  });
+  return azerothStatBlock(name, 60, kind, true, cr);
+}));
+
+/** The Azeroth foes that can be met at `now`: Forever's raid bosses wait for
+ * their raids to open. */
+export function azerothRoster(now = Date.now()): SoloMonster[] {
+  return AZEROTH_MONSTERS.filter((m) => {
+    const at = AZEROTH_INFO.get(m.name.toLowerCase())?.opensAt;
+    return !at || at <= now;
+  });
+}
 
 export function azerothInfo(name: string): AzerothInfo | null {
   return AZEROTH_INFO.get(String(name).toLowerCase()) ?? null;
@@ -216,6 +269,7 @@ export function azerothInfo(name: string): AzerothInfo | null {
 /** "Elwynn Forest", "the Deadmines (dungeon)", "Hall of Thanes (Forever dungeon)". */
 export function azerothWhere(info: AzerothInfo): string {
   const place = info.zone.replace(/^The /, "the ");
+  if (info.raid) return `${place} (${info.forever ? "Forever " : ""}raid)`;
   return info.dungeon ? `${place} (${info.forever ? "Forever " : ""}dungeon)` : place;
 }
 
@@ -223,6 +277,8 @@ export function azerothWhere(info: AzerothInfo): string {
 export function azerothPlaceLine(name: string): { name: string; line: string } | null {
   const info = azerothInfo(name);
   if (!info) return null;
+  if (info.raid) return { name: info.zone, line: `In ${info.zone.replace(/^The /, "the ")}${info.forever ? " (WoW: Forever)" : ""} — a raid boss (💀 level ??).` };
+  if (info.worldBoss) return { name: info.zone, line: `Out in ${info.zone} — a world boss (💀 level ??).` };
   const lvl = `WoW level ${info.level}${info.boss ? (info.dungeon ? " boss" : " rare elite") : ""}`;
   const line = info.dungeon
     ? `Deep in ${info.zone.replace(/^The /, "the ")}${info.forever ? " (WoW: Forever)" : ""} — ${lvl}.`
@@ -236,7 +292,7 @@ const normPlace = (s: string) => s.toLowerCase().replace(/^the\s+/, "").replace(
 export function azerothReply(arg: string): string {
   const q = normPlace(arg.trim());
   const byZone = new Map<string, { names: string[]; info: AzerothInfo }>();
-  for (const [name] of ENTRIES) {
+  for (const [name] of [...ENTRIES, ...RAID_ENTRIES]) {
     const info = azerothInfo(name)!;
     const z = byZone.get(info.zone) ?? { names: [], info };
     z.names.push(name);
@@ -244,19 +300,28 @@ export function azerothReply(arg: string): string {
   }
   if (!q) {
     const dungeons = [...byZone.values()].filter((z) => z.info.dungeon).length;
-    return `🌍 Azeroth bestiary: ${AZEROTH_MONSTERS.length} WoW Classic + Forever foes from ${byZone.size - dungeons} zones and ${dungeons} dungeons. ` +
-      `WoW heroes (!wowchar) meet them most on a random !hunt; anyone can hunt one by name (!hunt hogger). ` +
-      `!azeroth dungeons, !azeroth forever, or !azeroth <zone or dungeon>.`;
+    const raids = [...byZone.values()].filter((z) => z.info.raid).length;
+    return `🌍 Azeroth bestiary: ${AZEROTH_MONSTERS.length} WoW Classic + Forever foes from ${byZone.size - dungeons - raids} zones, ${dungeons} dungeons and ${raids} raids. ` +
+      `WoW heroes (!wowchar) meet them most on a random !hunt; anyone can hunt one by name (!hunt hogger); raid bosses turn up as raid quests. ` +
+      `!azeroth dungeons, !azeroth raids, !azeroth forever, or !azeroth <zone, dungeon or raid>.`;
   }
   if (q === "dungeons" || q === "dungeon" || q === "bosses") {
     const list = [...byZone.entries()].filter(([, z]) => z.info.dungeon && !z.info.forever)
       .map(([zone, z]) => `${zone.replace(/^The /, "")} (${Math.min(...z.names.map((n) => azerothInfo(n)!.level))}+)`);
     return `🏰 Classic dungeons: ${list.join(", ")}. !azeroth <dungeon> for its bosses; !azeroth forever for Forever's.`;
   }
+  if (q === "raids" || q === "raid" || q === "worldbosses") {
+    const raids = [...byZone.entries()].filter(([, z]) => z.info.raid)
+      .map(([zone, z]) => `${zone}${z.info.forever ? "*" : ""} (${z.names.join(", ")})`);
+    const world = [...byZone.entries()].filter(([, z]) => z.info.worldBoss).map(([zone, z]) => `${z.names.join(", ")} in ${zone}`);
+    const opens = Date.now() < FOREVER_RAIDS_OPEN ? " *Forever's raids open Dec 9." : " *new in Forever.";
+    return `☠️ Raids: ${raids.join(", ")}. World bosses: ${world.join(", ")}. They come as raid quests (!rally) or by name.${opens}`;
+  }
   if (q === "forever") {
-    const list = [...byZone.entries()].filter(([, z]) => z.info.forever)
+    const list = [...byZone.entries()].filter(([, z]) => z.info.forever && z.info.dungeon)
       .map(([zone, z]) => `${zone.replace(/^The /, "")} (${Math.min(...z.names.map((n) => azerothInfo(n)!.level))}+)`);
-    return `✨ WoW: Forever dungeons: ${list.join(", ")}. !azeroth <dungeon> for who's inside.`;
+    const raids = [...byZone.entries()].filter(([, z]) => z.info.forever && z.info.raid).map(([zone]) => zone);
+    return `✨ WoW: Forever dungeons: ${list.join(", ")}. Raids: ${raids.join(", ")}${Date.now() < FOREVER_RAIDS_OPEN ? " (open Dec 9)" : ""}. !azeroth <dungeon or raid> for who's inside.`;
   }
   const hit = [...byZone.entries()].find(([zone]) => normPlace(zone) === q) ??
     [...byZone.entries()].find(([zone]) => normPlace(zone).includes(q));
@@ -264,7 +329,10 @@ export function azerothReply(arg: string): string {
   const [zone, z] = hit;
   const foes = z.names.map((n) => {
     const m = AZEROTH_MONSTERS.find((x) => x.name === n)!;
-    return `${n} (WoW ${azerothInfo(n)!.level}, CR ${m.cr})`;
+    const i = azerothInfo(n)!;
+    return `${n} (${i.raid || i.worldBoss ? "💀 ??" : `WoW ${i.level}`}, CR ${m.cr})`;
   });
+  const closed = z.info.opensAt && Date.now() < z.info.opensAt ? " Opens Dec 9, 2026 — until then it can't be hunted." : "";
+  if (z.info.raid) return `☠️ ${zone}${z.info.forever ? " (WoW: Forever)" : ""}: ${foes.join(", ")}. A raid boss can be a stream's raid quest (!rally) or hunted by name.${closed}`;
   return `${z.info.dungeon ? "🏰" : "🌲"} ${zone}${z.info.forever ? " (WoW: Forever)" : ""}: ${foes.join(", ")}. Hunt one: !hunt ${z.names[z.names.length - 1].toLowerCase()}`;
 }

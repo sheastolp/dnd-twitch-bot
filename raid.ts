@@ -42,6 +42,8 @@
 // Heroes always start a raid at full HP, so a wipe costs nothing but time.
 
 import { placeForMonster, placeText } from "./orrery.ts";
+import { azerothPlaceLine } from "./wow_monsters.ts";
+import { wowGroupLootNote } from "./wow_loot.ts";
 import { sqlite } from "./sqlite.ts";
 import { getBroadcaster, getCharacter, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent } from "./db.ts";
 import { SOLO_MONSTERS, type SoloMonster } from "./data.ts";
@@ -244,7 +246,8 @@ export async function createRaidQuest(
     ? `It gathers its strength for ${waitText(RAID_SECOND_QUEST_DELAY_SECONDS * 1000)} — then type`
     : "Type";
   // Where it came from, from the Grand Orrery's bestiary (orrery.ts).
-  const where = placeText(placeForMonster(boss.name, 20, "raids"));
+  // A World of Warcraft raid or world boss comes from its raid (wow_monsters.ts).
+  const where = placeText(azerothPlaceLine(boss.name) ?? placeForMonster(boss.name, 20, "raids"));
   return `📯 RAID QUEST${ofStream} posted on the guild board! ${where ? where + " " : ""}${withArticle(boss.name)} (CR ${boss.cr}${tierTag(boss.tier)}, AC ${boss.ac}, HP ${boss.hp}) threatens the realm — ` +
     `far too much for one hero. ${held} !rally to sound the war horn; anyone with a saved hero can join within ${waitText(opts.musterMs)} ` +
     `(up to ${opts.partyMax}). Its wounds carry over between raids${cd > 0 ? `, one raid every ${waitText(cd * 1000)}` : ""}. ` +
@@ -482,6 +485,8 @@ export async function maybeLaunchRaid(broadcasterId: string, opts: { force?: boo
     );
     const won = await changed(slain, async () => true);
     const rewards = won ? await payRaidRewards(broadcasterId, q.monster_cr, contributors) : { note: "", hoard: "" };
+    // Two drops for the WoW heroes who struck it, by Need roll (wow_loot.ts).
+    if (won) rewards.note += await wowGroupLootNote(broadcasterId, Object.keys(contributors), boss.name, q.monster_cr, 0, 2);
     const learnNote = won ? await recordMonsterOutcome(broadcasterId, boss.name, true, raidLevel(heroes)) : "";
     if (won) await recordBattle(broadcasterId, { kind: "raid", side: raidSide, foe: boss.name, outcome: "win" });
     let bountyNote = "";

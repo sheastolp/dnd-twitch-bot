@@ -24,7 +24,7 @@ Deno.test("every Azeroth foe has a sane, unique stat block", () => {
     assert(!core.has(m.name.toLowerCase()), `${m.name} shadows a core monster`);
     assert(!seen.has(m.name.toLowerCase()), `${m.name} twice`);
     seen.add(m.name.toLowerCase());
-    assert(m.hp >= 6 && m.ac >= 10 && m.ac <= 20 && m.die <= 12 && m.attack > 0, m.name);
+    assert(m.hp >= 6 && m.ac >= 10 && m.ac <= 21 && m.die <= 12 && m.attack > 0, m.name);
     assert(azerothInfo(m.name), m.name);
   }
   assert(AZEROTH_MONSTERS.length >= 80);
@@ -50,7 +50,8 @@ Deno.test("the channel roster has Azeroth by default; the switch takes it out", 
   await setCommandGroupEnabled("2002", "wowmonsters", false);
   const off = await getChannelRoster("2002");
   assert(!off.some((m) => m.azeroth));
-  assertEquals(off.length + AZEROTH_MONSTERS.length, on.length);
+  const { azerothRoster } = await import("./wow_monsters.ts");
+  assertEquals(off.length + azerothRoster().length, on.length);
 });
 
 Deno.test("a WoW hero's random hunt is mostly Azeroth; a named one opens in its zone", async () => {
@@ -77,4 +78,28 @@ Deno.test("!azeroth lists zones, dungeons and Forever's dungeons", () => {
   assertMatch(azerothReply("deadmines"), /Rhahk'Zor.*Mr\. Smite.*Edwin VanCleef.*!hunt edwin vancleef/);
   assertMatch(azerothReply("alcaz"), /Alcaz Prison \(WoW: Forever\): Overseer Wrex/);
   assertMatch(azerothReply("narnia"), /no zone or dungeon/);
+});
+
+Deno.test("raid bosses: CR 13+ for raid quests, Forever's raids wait for Dec 9", async () => {
+  const { azerothRoster, FOREVER_RAIDS_OPEN } = await import("./wow_monsters.ts");
+  const { RAID_MIN_CR, pickRaidBoss } = await import("./raid.ts");
+  const raids = AZEROTH_MONSTERS.filter((m) => azerothInfo(m.name)?.raid || azerothInfo(m.name)?.worldBoss);
+  assert(raids.length >= 12);
+  for (const m of raids) assert(m.crValue >= RAID_MIN_CR && m.crValue <= 17, `${m.name} CR ${m.cr}`);
+  const before = azerothRoster(FOREVER_RAIDS_OPEN - 1).map((m) => m.name);
+  const after = azerothRoster(FOREVER_RAIDS_OPEN).map((m) => m.name);
+  assert(!before.includes("The Wild King") && after.includes("The Wild King"));
+  assert(before.includes("Ragnaros") && before.includes("Faldrim Anvilmar"));
+  // From a roster of only Azeroth, the raid board posts an Azeroth raid boss, HP multiplied.
+  const boss = pickRaidBoss(() => 0.5, azerothRoster(FOREVER_RAIDS_OPEN), 5);
+  assert(azerothInfo(boss.name)?.boss);
+  assertEquals(boss.hp, AZEROTH_MONSTERS.find((m) => m.name === boss.name)!.hp * 5);
+  // Raid bosses never turn up on a random hunt, even for a level-20 WoW hero.
+  for (let i = 0; i < 100; i++) {
+    const m = (await summonMonster("2001", 20, null, { azeroth: true }))!;
+    assert(!azerothInfo(m.name)?.raid, m.name);
+  }
+  assertMatch((await summonMonster("2001", 20, "ragnaros"))!.place!.line, /In Molten Core — a raid boss/);
+  assertMatch(azerothReply("raids"), /Molten Core \(Ragnaros\).*Hyjal Summit\* \(Nythus the Dreambound, The Wild King\).*Lord Kazzak in the Blasted Lands/);
+  assertMatch(azerothReply("hyjal"), /☠️ Hyjal Summit \(WoW: Forever\): Nythus the Dreambound/);
 });
