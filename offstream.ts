@@ -44,7 +44,7 @@ export async function maybeOffstreamInvite(userId: string, login: string, broadc
       getCharacter(login.toLowerCase(), broadcasterId).catch(() => null),
     ]);
     const channel = String(b?.display_name || b?.login || "The stream");
-    const hero = c?.race && c?.cls ? `your ${c.race} ${c.cls}` : null;
+    const hero = c?.race && c?.cls ? `your ${c.race} ${c.wow?.cls || c.cls}` : null;
     const text = offstreamInviteText(channel, hero);
     await sendWhisperParts(userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
   } catch (e) {

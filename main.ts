@@ -74,6 +74,7 @@ import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidTha
 import { groupForMessage } from "./commandgroups.ts";
 import { page } from "./pages.ts";
 import { handleBg3Command } from "./bg3.ts";
+import { handleWowCharCommand } from "./wow_chars.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } from "./checklist.ts";
@@ -858,6 +859,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // Command handlers (return true if handled)
   if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return new Response("OK");
   if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
+  if (await handleWowCharCommand(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
   if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return new Response("OK");
   if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");

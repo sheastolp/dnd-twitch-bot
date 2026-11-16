@@ -19,6 +19,17 @@ export function formatRaceName(race: string, subrace: string | null) {
   return ns === nr || ns.endsWith(` ${nr}`) ? subrace.trim() : `${subrace.trim()} ${race.trim()}`;
 }
 
+/** The class chat sees: a WoW character's WoW class ("Shaman"), else the 5e
+ * class. Mechanics always use `cls`, never this. */
+export function heroClass(c: { cls?: string; wow?: { cls: string } | null }) {
+  return String(c.wow?.cls || c.cls || "");
+}
+
+/** "High Elf Wizard", "Orc Warrior", "Windshaper Skyborne Druid". */
+export function heroTitle(c: { race: string; subrace: string | null; cls?: string; wow?: { cls: string } | null }) {
+  return `${formatRaceName(c.race, c.subrace)} ${heroClass(c)}`;
+}
+
 export function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[c]!));
 }

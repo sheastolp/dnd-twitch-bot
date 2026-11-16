@@ -128,6 +128,12 @@ export async function ensureTables() {
         /* column already exists */
       }
     }
+    // A World of Warcraft character's faction and WoW class (wow_chars.ts).
+    try {
+      await sqlite.execute(`ALTER TABLE ${table} ADD COLUMN wow TEXT`);
+    } catch (_) {
+      /* column already exists */
+    }
     try {
       await sqlite.execute(`ALTER TABLE ${table} ADD COLUMN xp INTEGER DEFAULT 0`);
     } catch (_) {

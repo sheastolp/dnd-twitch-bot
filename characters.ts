@@ -6,7 +6,7 @@ import {
   pick,
   modifier,
   rollStat,
-  formatRaceName,
+  heroTitle,
   formatStatLine,
   splitChatMessage,
 } from "./utils.ts";
@@ -216,7 +216,7 @@ export async function adjustLevel(username: string, delta: number, broadcasterId
 
 function describeImport(e: { channel: string; character: Character }) {
   const c = e.character;
-  return `Level ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} from ${e.channel}`;
+  return `Level ${c.level} ${heroTitle(c)} from ${e.channel}`;
 }
 
 // Everything that names another channel goes by whisper, never into this
@@ -286,7 +286,7 @@ async function handleImportChar(username: string, display: string, broadcasterId
     await saveCreationSession({ username, step: "confirm_importchar", sourceChannel: pick.broadcasterId }, broadcasterId);
     const existing = await getCharacter(username, broadcasterId);
     const warning = existing
-      ? ` ⚠️ This overwrites your active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}) in ${here}.`
+      ? ` ⚠️ This overwrites your active ${heroTitle(existing)} (Level ${existing.level}) in ${here}.`
       : "";
     whispered = await whisperChatter(
       `📜 Import your ${describeImport(pick)} into ${here}? It's a copy — the original stays where it is.${warning} Type !answer yes in ${here}'s chat to import, or !answer no to cancel.`,
@@ -409,13 +409,13 @@ export async function handleCreationCommand(
     const preview = customCharacterFromSession(s);
     const existing = await getCharacter(username, broadcasterId);
     const warning = existing
-      ? `⚠️ This will overwrite your active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}). `
+      ? `⚠️ This will overwrite your active ${heroTitle(existing)} (Level ${existing.level}). `
       : "";
     const yesAction = existing ? "overwrite and save" : "save";
     await creationReply(
       display,
       broadcasterId,
-      `${warning}Confirm: level 1 ${formatRaceName(preview.race, preview.subrace)} ${preview.cls}, ${formatStatLine(preview)}. ` +
+      `${warning}Confirm: level 1 ${heroTitle(preview)}, ${formatStatLine(preview)}. ` +
         `Reply !answer yes to ${yesAction} or !answer no to restart.`,
     );
     return true;
@@ -427,7 +427,7 @@ export async function handleCreationCommand(
       await saveCharacter(c, broadcasterId);
       await clearCreationSession(username, broadcasterId);
       await sendChatMessage(
-        `@${display} created a level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)}`,
+        `@${display} created a level 1 ${heroTitle(c)}! ${formatStatLine(c)}`,
         broadcasterId,
       );
       await whisperChatter("Character saved! Use !char, !levelup, !savechar, and !loadchar.");
@@ -451,7 +451,7 @@ export async function handleCreationCommand(
       await clearCreationSession(username, broadcasterId);
       const forSomeoneElse = targetUser !== username;
       await sendChatMessage(
-        `@${display} rolled a new level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}${forSomeoneElse ? ` for @${targetUser}` : ""}, overwriting the old one! ${formatStatLine(c)}`,
+        `@${display} rolled a new level 1 ${heroTitle(c)}${forSomeoneElse ? ` for @${targetUser}` : ""}, overwriting the old one! ${formatStatLine(c)}`,
         broadcasterId,
       );
     } else if (answer.toLowerCase() === "no") {
@@ -472,7 +472,7 @@ export async function handleCreationCommand(
       const c = s.sourceChannel ? await importCharacter(username, s.sourceChannel, broadcasterId) : null;
       await sendChatMessage(
         c
-          ? `@${display} imported your level ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)}`
+          ? `@${display} imported your level ${c.level} ${heroTitle(c)}! ${formatStatLine(c)}`
           : `@${display} that character isn't there anymore — nothing was imported.`,
         broadcasterId,
       );

@@ -6,7 +6,7 @@
 // and a one-line flavor hook, formatted as a single chat message.
 
 import type { Ability, Character } from "./types.ts";
-import { pick, modifier, formatRaceName, formatStatLine } from "./utils.ts";
+import { pick, modifier, heroTitle, formatStatLine } from "./utils.ts";
 import { classes } from "./data.ts";
 import { getCreationSession, saveCreationSession, clearCreationSession, saveCharacter, getCharacter } from "./db.ts";
 import { sendChatMessage } from "./twitch.ts";
@@ -490,7 +490,7 @@ export async function handleBg3Command(
       broadcasterId,
     );
     await sendChatMessage(
-      `@${display} 🎲 Rolled ${formatRaceName(loadout.race, loadout.subrace)} ${loadout.cls} (${loadout.subclass}), ` +
+      `@${display} 🎲 Rolled ${heroTitle(loadout)} (${loadout.subclass}), ` +
         `${loadout.background} · ${loadout.alignment}. Now ${bg3PointBuyPrompt()}`,
       broadcasterId,
     );
@@ -514,11 +514,11 @@ export async function handleBg3Command(
     const preview = buildBg3Character(username, s);
     const existing = await getCharacter(username, broadcasterId);
     const warning = existing
-      ? `⚠️ This will overwrite your active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}). `
+      ? `⚠️ This will overwrite your active ${heroTitle(existing)} (Level ${existing.level}). `
       : "";
     const yesAction = existing ? "overwrite and save" : "save";
     await sendChatMessage(
-      `@${display} ${warning}Confirm: level 1 ${formatRaceName(preview.race, preview.subrace)} ${preview.cls} (${s.subclass}), ` +
+      `@${display} ${warning}Confirm: level 1 ${heroTitle(preview)} (${s.subclass}), ` +
         `${s.background}, ${s.alignment} | ${formatStatLine(preview)}. Reply !answer yes to ${yesAction} or !answer no to restart.`,
       broadcasterId,
     );
@@ -531,7 +531,7 @@ export async function handleBg3Command(
       await saveCharacter(c, broadcasterId);
       await clearCreationSession(username, broadcasterId);
       await sendChatMessage(
-        `@${display} Character saved! ${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)} — ${baseUrl}/?user=${username}&channel=${broadcasterId}`,
+        `@${display} Character saved! ${heroTitle(c)} — ${formatStatLine(c)} — ${baseUrl}/?user=${username}&channel=${broadcasterId}`,
         broadcasterId,
       );
     } else if (answer.toLowerCase() === "no") {

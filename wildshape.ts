@@ -141,7 +141,7 @@ export async function handleWildShapeCommand(
     return true;
   }
   if (String(c.cls).toLowerCase() !== "druid") {
-    await say(`Wild Shape is a Druid feature, and you're a ${c.cls}.`);
+    await say(`Wild Shape is a Druid feature, and you're a ${c.wow?.cls || c.cls}.`);
     return true;
   }
   if (c.level < 2) {

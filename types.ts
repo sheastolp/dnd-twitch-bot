@@ -35,6 +35,15 @@ export type Character = {
   abilities: string[];
   /** A Druid's active !wildshape form (wildshape.ts), set by getCharacter. */
   wildForm?: WildForm;
+  /** A World of Warcraft character (wow_chars.ts): its faction and WoW class.
+   * `cls` stays the 5e class that does the fighting; `race` is the WoW race. */
+  wow?: WowIdentity | null;
+};
+
+export type WowIdentity = {
+  faction: "Alliance" | "Horde";
+  /** The WoW class chat sees ("Warrior", "Shaman" …). */
+  cls: string;
 };
 
 /** One attack from a beast's stat block: +bonus to hit, dice d die + mod damage. */

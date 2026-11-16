@@ -44,7 +44,20 @@ export function rowToCharacter(r: any): Character {
     items: JSON.parse(r.items || "[]"),
     feats: JSON.parse(r.feats || "[]"),
     abilities: JSON.parse(r.abilities || "[]"),
+    wow: parseWow(r.wow),
   };
+}
+
+/** The `wow` column: {"faction","cls"} for a WoW character, else null. */
+function parseWow(raw: unknown): Character["wow"] {
+  if (!raw) return null;
+  try {
+    const w = JSON.parse(String(raw));
+    if ((w?.faction === "Alliance" || w?.faction === "Horde") && typeof w?.cls === "string" && w.cls) {
+      return { faction: w.faction, cls: w.cls };
+    }
+  } catch { /* bad JSON: a plain character */ }
+  return null;
 }
 
 export async function getCharacter(username: string, broadcasterId: string) {
@@ -84,8 +97,8 @@ export async function saveCharacter(c: Character, broadcasterId: string) {
   await sqlite.execute("UPDATE channel_characters SET updated_at = ? WHERE broadcaster_id = ? AND username = ?", [now, broadcasterId, c.username]);
   await sqlite.execute(
     `INSERT OR REPLACE INTO characters
-      (broadcaster_id,username,race,subrace,class,level,xp,str,dex,con,int,wis,cha,speed,hp_max,hp_current,proficiency,traits,spells,items,feats,abilities)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (broadcaster_id,username,race,subrace,class,level,xp,str,dex,con,int,wis,cha,speed,hp_max,hp_current,proficiency,traits,spells,items,feats,abilities,wow)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       broadcasterId,
       c.username,
@@ -109,6 +122,7 @@ export async function saveCharacter(c: Character, broadcasterId: string) {
       JSON.stringify(c.items),
       JSON.stringify(c.feats),
       JSON.stringify(c.abilities),
+      c.wow ? JSON.stringify({ faction: c.wow.faction, cls: c.wow.cls }) : null,
     ],
   );
 }
@@ -126,8 +140,8 @@ export async function backupCharacter(username: string, broadcasterId: string) {
   if (!c) return false;
   await sqlite.execute(
     `INSERT OR REPLACE INTO character_backups
-      (broadcaster_id,username,race,subrace,class,level,xp,str,dex,con,int,wis,cha,speed,hp_max,hp_current,proficiency,traits,spells,items,feats,abilities)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (broadcaster_id,username,race,subrace,class,level,xp,str,dex,con,int,wis,cha,speed,hp_max,hp_current,proficiency,traits,spells,items,feats,abilities,wow)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       broadcasterId,
       c.username,
@@ -151,6 +165,7 @@ export async function backupCharacter(username: string, broadcasterId: string) {
       JSON.stringify(c.items),
       JSON.stringify(c.feats),
       JSON.stringify(c.abilities),
+      c.wow ? JSON.stringify({ faction: c.wow.faction, cls: c.wow.cls }) : null,
     ],
   );
   return true;

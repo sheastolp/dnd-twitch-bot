@@ -2,7 +2,7 @@
 
 import type { Character } from "./types.ts";
 import { abilityNames } from "./data.ts";
-import { modifier, formatRaceName, escapeHtml } from "./utils.ts";
+import { modifier, formatRaceName, heroTitle, heroClass, escapeHtml } from "./utils.ts";
 import type { MapRow, MapToken, PartyRosterEntry } from "./db.ts";
 import { MAP_TEMPLATES, TERRAINS, tokenColor } from "./maps.ts";
 import { formatCoins } from "./coins.ts";
@@ -21,7 +21,7 @@ export function renderCharacterPage(c: Character) {
   const name = escapeHtml(c.username);
   return scrollDoc(
     `${name}'s Character`,
-    `<span class="pill">Adventurer's sheet</span><h1>${name}</h1><p class="intro">Level ${c.level} ${escapeHtml(formatRaceName(c.race, c.subrace))} ${escapeHtml(c.cls)}</p>
+    `<span class="pill">Adventurer's sheet</span><h1>${name}</h1><p class="intro">Level ${c.level} ${escapeHtml(heroTitle(c))}</p>
 <div class="stats"><div class="stat"><b>${c.hpCurrent}/${c.hpMax}</b>Hit points</div><div class="stat"><b>${c.speed} ft</b>Speed</div><div class="stat"><b>+${c.proficiency}</b>Proficiency</div></div>
 <h2>Ability scores</h2><div class="abilities">${abilities}</div>
 <h2>Traits</h2><p>${c.traits.length ? c.traits.map(escapeHtml).join(" · ") : `<span class="muted">None recorded.</span>`}</p>
@@ -187,7 +187,7 @@ export function renderRosterPage(
   }
   const charLink = (username: string) =>
     `${baseUrl}/?user=${encodeURIComponent(username)}&channel=${encodeURIComponent(broadcasterId)}`;
-  const summary = (c: Character) => `Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls}`;
+  const summary = (c: Character) => `Lv ${c.level} ${heroTitle(c)}`;
 
   const partyCards = parties.length
     ? parties
@@ -217,8 +217,8 @@ export function renderRosterPage(
         .map((c) => {
           const memberOf = partiesByUser.get(c.username.toLowerCase()) ?? [];
           const nick = nickOf(c.username);
-          const search = [c.username, nick, c.race, c.subrace ?? "", c.cls, ...memberOf].join(" ").toLowerCase();
-          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td>${nick ? escapeHtml(nick) : `<span class="muted">—</span>`}</td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(c.cls)}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td>${goldCell(c.username)}<td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
+          const search = [c.username, nick, c.race, c.subrace ?? "", c.cls, c.wow?.cls ?? "", c.wow?.faction ?? "", ...memberOf].join(" ").toLowerCase();
+          return `<tr data-search="${escapeHtml(search)}"><td><a href="${charLink(c.username)}">${escapeHtml(c.username)}</a></td><td>${nick ? escapeHtml(nick) : `<span class="muted">—</span>`}</td><td class="num">${c.level}</td><td>${escapeHtml(formatRaceName(c.race, c.subrace))}</td><td>${escapeHtml(heroClass(c))}</td><td class="num">${c.hpCurrent}/${c.hpMax}</td>${goldCell(c.username)}<td>${memberOf.length ? memberOf.map(escapeHtml).join(", ") : `<span class="muted">—</span>`}</td></tr>`;
         })
         .join("")
     : "";

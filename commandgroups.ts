@@ -92,7 +92,8 @@ export const COMMAND_GROUPS: Record<string, CommandGroup> = {
   div2build: { section: "The Division 2", label: "Random agent build (!div2build)", commands: ["div2build"] },
   div2loot: { section: "The Division 2", label: "Loot drop & tonight's op (!div2loot, !div2mission)", commands: ["div2loot", "div2mission"] },
   div2lookup: { section: "The Division 2", label: "Knowledgebase (!div2lookup, !div2)", commands: ["div2lookup", "div2"] },
-  // World of Warcraft (wow_forever.ts).
+  // World of Warcraft (wow_forever.ts, wow_chars.ts).
+  wowchar: { section: "World of Warcraft", label: "Make a WoW Classic/Forever hero who plays the game (!wowchar)", commands: ["wowchar"], parent: "character" },
   wowforever: { section: "World of Warcraft", label: "WoW Forever launch countdown (!wow:forever)", commands: ["wow:forever", "wowforever"], defaultOn: true },
   // Guild archives
   rules: { section: "Guild archives", label: "Spells, classes & rules (!rules, !spell, !class, !feat, !monster)", commands: ["rules", "rule", "spell", "class", "feat", "monster"], parent: "archives" },

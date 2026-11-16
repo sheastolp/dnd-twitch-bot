@@ -7,7 +7,7 @@
 import { abilitySummary } from "./combat_abilities.ts";
 import { getCharacter } from "./db.ts";
 import { sendChatMessages } from "./twitch.ts";
-import { formatRaceName } from "./utils.ts";
+import { heroTitle } from "./utils.ts";
 
 /** Handles !abilities [@user]. Returns true if the message matched. */
 export async function handleAbilitiesCommand(
@@ -31,7 +31,7 @@ export async function handleAbilitiesCommand(
   const s = abilitySummary(c);
   const who = self ? "your" : `@${target}'s`;
   await sendChatMessages(
-    `⚔️ @${display} ${who} Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls}: ${s.attack}. ` +
+    `⚔️ @${display} ${who} Lv ${c.level} ${heroTitle(c)}: ${s.attack}. ` +
       `Abilities: ${s.abilities.length ? s.abilities.join(" · ") : "none yet"}.` +
       (s.next ? ` Next: ${s.next}.` : ""),
     broadcasterId,

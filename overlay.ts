@@ -41,7 +41,7 @@ import { getRaidRosterStatus } from "./raid.ts";
 import { getJarTotal } from "./swearjar.ts";
 import { lookupViewerNames } from "./mentions.ts";
 import { formatCoins } from "./coins.ts";
-import { formatRaceName } from "./utils.ts";
+import { formatRaceName, heroClass } from "./utils.ts";
 import { DUEL_IDLE_TIMEOUT_MS } from "./combat_shared.ts";
 import { renderThemePage } from "./overlay_theme.ts";
 import { SCENES } from "./overlay_scenes.ts";
@@ -301,7 +301,7 @@ async function loadGuild(channelId: string, limit: number): Promise<OverlayData[
       name: names.get(c.username.toLowerCase()) ?? c.username,
       level: c.level,
       race: formatRaceName(c.race, c.subrace),
-      cls: c.cls,
+      cls: heroClass(c),
       hp: c.hpCurrent,
       hpMax: c.hpMax,
     })),

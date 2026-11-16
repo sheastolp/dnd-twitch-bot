@@ -55,7 +55,7 @@ import { withArticle } from "./combat_shared.ts";
 import { applyGear, effectText, ownsGear } from "./gear.ts";
 import { formatCoins } from "./coins.ts";
 import { adjustBalance, canEarnGold, getBalance, isPointsEnabled, trySpend } from "./points_db.ts";
-import { formatRaceName, heroAc, pick } from "./utils.ts";
+import { heroTitle, heroAc, pick } from "./utils.ts";
 import type { Character } from "./types.ts";
 import {
   type Bounty,
@@ -155,7 +155,7 @@ function lore(o: ResolvedOffer): string {
 
 function sheetLine(c: Character, name: string, coin: number | null): string {
   const ac = heroAc(c, 11).ac;
-  return `${name} — Lv ${c.level} ${formatRaceName(c.race, c.subrace)} ${c.cls} | ${c.hpMax} HP | AC ${ac} | XP ${c.xp ?? 0}` +
+  return `${name} — Lv ${c.level} ${heroTitle(c)} | ${c.hpMax} HP | AC ${ac} | XP ${c.xp ?? 0}` +
     (coin !== null ? ` | 🪙 ${formatCoins(coin)}` : "") + ` | ${plural((c.items ?? []).length, "item")} on the sheet`;
 }
 

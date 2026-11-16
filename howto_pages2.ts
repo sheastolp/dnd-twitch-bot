@@ -11,7 +11,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
     audience: "Everyone",
     summary: "Make a character, hunt your first monster, level up and join a party.",
     steps: [
-      `Make a character. <code>!createchar</code> rolls one instantly; <code>!newchar</code> walks you through race, class and scores (answer with <code>!answer &lt;choice&gt;</code>); <code>!bg3</code> rolls a Baldur's Gate 3 style hero you finish with point-buy.`,
+      `Make a character. <code>!createchar</code> rolls one instantly; <code>!newchar</code> walks you through race, class and scores (answer with <code>!answer &lt;choice&gt;</code>); <code>!bg3</code> rolls a Baldur's Gate 3 style hero you finish with point-buy; <code>!wowchar</code> makes a World of Warcraft (Classic + Forever) hero — Alliance or Horde — who duels, hunts and raids with everyone else.`,
       `Check your sheet with <code>!char</code>. It links to a full character page.`,
       `Hunt: <code>!dndduel</code> sends you against a monster scaled to your level, or name one: <code>!dndduel goblin</code>. Slain monsters give <strong>XP</strong> and a little coin.`,
       `Got a few minutes? <code>!autohunt 30m</code> sends your hero hunting on its own and reports back.`,

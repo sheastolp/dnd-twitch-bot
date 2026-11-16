@@ -12,7 +12,7 @@ import { lookup5e, formatSpellSections, formatLookup, formatMonsterBrief } from 
 import { maybeLearnFromLookup } from "./bestiary.ts";
 import { env, sendChatMessage, sendChatMessages, sendSpellSections, getShoutoutProfile } from "./twitch.ts";
 import { setWhisperReplies } from "./whisper.ts";
-import { formatRaceName, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
+import { heroTitle, formatStatLine, resolveCheckWithDc, modifier, logRowText, type CheckKind } from "./utils.ts";
 import { PLAIN_SAVE, recordSavingThrow, getSavingThrowTally, resetSavingThrowTally, savingThrowTallyText } from "./savingthrows.ts";
 import { rollDice, rollSaveContest } from "./dice.ts";
 import { getBossSaves } from "./boss_saves.ts";
@@ -444,7 +444,7 @@ export async function handleBuiltinChatCommand(ctx: {
     const shmashTarget = shmashMatch[1] ? shmashMatch[1].toLowerCase().replace(/[,:]+$/, "") : null;
     const actorChar = await getCharacter(chatter, broadcasterId);
     const actorDesc = actorChar
-      ? `@${display}'s ${formatRaceName(actorChar.race, actorChar.subrace)} ${actorChar.cls}`
+      ? `@${display}'s ${heroTitle(actorChar)}`
       : `@${display}`;
     if (!shmashTarget) {
       await sendChatMessage(renderShmash(actorDesc), broadcasterId);
@@ -453,7 +453,7 @@ export async function handleBuiltinChatCommand(ctx: {
     } else {
       const targetChar = await getCharacter(shmashTarget, broadcasterId);
       const targetDesc = targetChar
-        ? `@${shmashTarget}'s ${formatRaceName(targetChar.race, targetChar.subrace)} ${targetChar.cls}`
+        ? `@${shmashTarget}'s ${heroTitle(targetChar)}`
         : `@${shmashTarget}`;
       await sendChatMessage(renderShmash(actorDesc, targetDesc), broadcasterId);
     }
@@ -475,14 +475,14 @@ export async function handleBuiltinChatCommand(ctx: {
         );
         const forSomeoneElse = targetUser !== chatter;
         await sendChatMessage(
-          `@${display} ⚠️ ${forSomeoneElse ? `@${targetUser} already has` : "you already have"} an active ${formatRaceName(existing.race, existing.subrace)} ${existing.cls} (Level ${existing.level}). Reply !answer yes to overwrite with a new random character, or !answer no to keep it.`,
+          `@${display} ⚠️ ${forSomeoneElse ? `@${targetUser} already has` : "you already have"} an active ${heroTitle(existing)} (Level ${existing.level}). Reply !answer yes to overwrite with a new random character, or !answer no to keep it.`,
           broadcasterId,
         );
       } else {
         const c = generateCharacter(targetUser);
         await saveCharacter(c, broadcasterId);
         await sendChatMessage(
-          `@${display} created a level 1 ${formatRaceName(c.race, c.subrace)} ${c.cls}! ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
+          `@${display} created a level 1 ${heroTitle(c)}! ${formatStatLine(c)} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
           broadcasterId,
         );
       }
@@ -494,7 +494,7 @@ export async function handleBuiltinChatCommand(ctx: {
     if (c) {
       const label = targetUser === chatter ? "" : `@${targetUser} `;
       await sendChatMessage(
-        `@${display} ${label}${formatRaceName(c.race, c.subrace)} ${c.cls} — ${formatStatLine(c)}${c.items?.length ? ` | 🎒 ${c.items.length} gear (!gear)` : ""} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
+        `@${display} ${label}${c.wow ? `${c.wow.faction === "Horde" ? "🐺" : "🦁"} ${c.wow.faction} ` : ""}${heroTitle(c)}${c.wow ? ` (5e ${c.cls})` : ""} — ${formatStatLine(c)}${c.items?.length ? ` | 🎒 ${c.items.length} gear (!gear)` : ""} — ${baseUrl}/?user=${targetUser}&channel=${broadcasterId}`,
         broadcasterId,
       );
     } else {

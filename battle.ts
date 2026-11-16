@@ -135,11 +135,11 @@ export function fighterLine(
   if (k.beast) {
     // Wild Shape: the attacks are the form's own (kitLine lists them).
     const ac = fighterAc(c, acBase);
-    return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"} in ${k.beast.name} form, ${hp}/${c.hpMax} HP, AC ${ac.ac} (${ac.why}), ` +
+    return `${name}: Lv ${c.level ?? "?"} ${c.wow?.cls ? `${c.wow.cls} (${c.cls})` : c.cls ?? "hero"} in ${k.beast.name} form, ${hp}/${c.hpMax} HP, AC ${ac.ac} (${ac.why}), ` +
       `${k.attacks || "no"} attack${k.attacks === 1 ? "" : "s"} a turn at the form's bonuses${edgeText}.${kitLine(k)}`;
   }
   const swings = k.attacks > 1 ? `${k.attacks} attacks a turn, each ` : "attack ";
-  return `${name}: Lv ${c.level ?? "?"} ${c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${heroAc(c, acBase).ac} (${heroAcWhy(acBase, c)}), ` +
+  return `${name}: Lv ${c.level ?? "?"} ${c.wow?.cls ? `${c.wow.cls} (${c.cls})` : c.cls ?? "hero"}, ${hp}/${c.hpMax} HP, AC ${heroAc(c, acBase).ac} (${heroAcWhy(acBase, c)}), ` +
     `${swings}d20 ${signed(k.mod)} ${k.ability} +${k.prof} prof${edgeText}, ` +
     `damage ${k.dice}d${k.die}${k.dmgMod ? ` ${signed(k.dmgMod)} ${k.ability}` : ""}${edge ? ` +${edge} edge` : ""}.${kitLine(k)}`;
 }

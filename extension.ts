@@ -19,7 +19,7 @@ import { getBalance, isPointsEnabled } from "./points_db.ts";
 import { getOverlayData, type OverlayData } from "./overlay.ts";
 import { lookupViewerNames } from "./mentions.ts";
 import { formatCoins } from "./coins.ts";
-import { formatRaceName, heroAc, modifier } from "./utils.ts";
+import { formatRaceName, heroAc, heroClass, modifier } from "./utils.ts";
 import { XP_THRESHOLDS } from "./characters.ts";
 import { env, getAppToken } from "./twitch.ts";
 import { getDelveOptions, getDelveSnapshot } from "./idle.ts";
@@ -133,7 +133,7 @@ async function loadViewer(channelId: string, userId: string) {
     character = {
       level: c.level,
       race: formatRaceName(c.race, c.subrace),
-      cls: c.cls,
+      cls: heroClass(c),
       hp: c.hpCurrent,
       hpMax: c.hpMax,
       ac: heroAc(c, 10).ac,
