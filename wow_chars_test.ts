@@ -135,8 +135,16 @@ Deno.test("a race decides the faction when only one fits; impossible pairs are c
   assertMatch(r.reply, /Alliance or for the Horde\? \(Skyborne can be either\)/);
   r = await say("sky", "!answer horde");
   assertMatch(r.reply, /Windshaper Skyborne Druid/);
+  // Random saves at once, like !createchar…
   r = await say("rnd", "!wowchar random");
-  assertMatch(r.reply, /Level 1 (🦁 Alliance|🐺 Horde) /);
+  assertMatch(r.reply, /(For the Alliance!|Lok'tar ogar!) Rolled and saved your level 1 /);
+  const rnd = await getCharacter("rnd", CH);
+  assert(rnd?.wow, "saved as a WoW hero");
+  // …but asks before replacing a hero.
+  r = await say("rnd", "!wowchar random");
+  assertMatch(r.reply, /⚠️ This replaces your active .*Not saved yet — reply !answer yes/);
+  r = await say("rnd", "!answer no");
+  assertEquals((await getCharacter("rnd", CH))?.race, rnd!.race);
   r = await say("x", "!wowchar classes");
   assertMatch(r.reply, /Alliance: Human/);
   r = await say("x", "!answer yes");

@@ -155,6 +155,13 @@ function classTable(): string {
   ).join(" | ");
 }
 
+/** "🐺 Lok'tar ogar! Saved your level 1 Orc Warrior — <stats>. …" */
+function savedText(c: Character, username: string, broadcasterId: string, baseUrl: string, how: string): string {
+  return `${FACTION_ICON[c.wow!.faction]} ${c.wow!.faction === "Horde" ? "Lok'tar ogar!" : "For the Alliance!"} ` +
+    `${how.charAt(0).toUpperCase() + how.slice(1)} your level 1 ${heroTitle(c)} (fights as a 5e ${c.cls}) — ${formatStatLine(c)}. ` +
+    `Duel, !hunt and raid like any adventurer. ${baseUrl}/?user=${username}&channel=${broadcasterId}`;
+}
+
 /** Asks for whatever is still missing, or moves on to the confirm step. */
 async function nextStep(s: any, display: string, broadcasterId: string, username: string) {
   const say = (t: string) => sendChatMessage(`@${display} ${t}`, broadcasterId);
@@ -214,7 +221,7 @@ async function nextStep(s: any, display: string, broadcasterId: string, username
   await say(
     `${warning}${wc.icon} Level 1 ${wowLabel(preview)} — ${wc.blurb}; fights as a 5e ${wc.dnd}. ` +
       `${formatStatLine(preview)} | ${race.traits.slice(0, 3).join(", ")}. ` +
-      `Reply !answer yes to save, !answer reroll for new scores, or !answer no to stop.`,
+      `Not saved yet — reply !answer yes to save it, !answer reroll for new scores, or !answer no to stop.`,
   );
 }
 
@@ -246,6 +253,15 @@ export async function handleWowCharCommand(
       s.background = race.faction;
       s.race = race.name;
       s.cls = pick(race.classes);
+      // Like !createchar: saved at once, unless it would replace a hero (then
+      // the confirm step below asks first).
+      if (!(await getCharacter(username, broadcasterId))) {
+        const c = buildWowCharacter(username, { faction: race.faction, race: race.name, cls: s.cls }, rollSix());
+        await saveCharacter(c, broadcasterId);
+        await clearCreationSession(username, broadcasterId);
+        await say(savedText(c, username, broadcasterId, baseUrl, "rolled and saved"));
+        return true;
+      }
     } else if (arg) {
       const p = parseWowPicks(arg);
       if (p.unknown.length && !p.faction && !p.race && !p.cls) {
@@ -298,11 +314,7 @@ export async function handleWowCharCommand(
       const c = buildWowCharacter(username, { faction: s.background, race: s.race, cls: s.cls }, s.scores);
       await saveCharacter(c, broadcasterId);
       await clearCreationSession(username, broadcasterId);
-      await say(
-        `${FACTION_ICON[c.wow!.faction]} ${c.wow!.faction === "Horde" ? "Lok'tar ogar!" : "For the Alliance!"} ` +
-          `Saved your level 1 ${heroTitle(c)} — ${formatStatLine(c)}. Duel, !hunt and raid like any adventurer. ` +
-          `${baseUrl}/?user=${username}&channel=${broadcasterId}`,
-      );
+      await say(savedText(c, username, broadcasterId, baseUrl, "saved"));
       return true;
     } else if (a === "no" || a === "n") {
       await clearCreationSession(username, broadcasterId);
