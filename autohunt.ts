@@ -23,6 +23,7 @@ import { recordBattle } from "./battle_log.ts";
 import { simulateMonsterFight } from "./battle.ts";
 import { awardMonsterXp } from "./characters.ts";
 import { awardMonsterLoot } from "./loot.ts";
+import { awardWowDrop, bestDropIn, QUALITY_ICON } from "./wow_loot.ts";
 import { formatCoins } from "./coins.ts";
 import { claimHunt, getHuntCooldownMs, stampHunt } from "./huntcooldown.ts";
 import { sendChatMessages } from "./twitch.ts";
@@ -262,9 +263,16 @@ export async function settleAutohunt(
       }
       const paid = await awardMonsterLoot([username], monster.cr, bid);
       copper += paid?.[0]?.copper ?? 0;
+      // A WoW hero's kill drops an item too (wow_loot.ts); gray junk is sold on the spot.
+      let drop = "";
+      if (c.wow) {
+        const w = await awardWowDrop(bid, username, monster.name, monster.cr, monster.crValue);
+        copper += w.copper;
+        drop = ` 🎁 ${QUALITY_ICON[w.drop.quality]} [${w.drop.item}]${w.copper ? " (sold)" : ""}`;
+      }
       // Hunt and Hoard bounties count autohunt kills too (no-op with monster hunts off).
       const bounty = await creditBounty(bid, username, monster.name);
-      lines.push(`✔ beat ${monster.name} in ${fight.rounds} rd${fight.rounds === 1 ? "" : "s"} (you ${fight.playerHp}/${c.hpMax} HP)${bounty}`);
+      lines.push(`✔ beat ${monster.name} in ${fight.rounds} rd${fight.rounds === 1 ? "" : "s"} (you ${fight.playerHp}/${c.hpMax} HP)${drop}${bounty}`);
     } else {
       losses++;
       lines.push(`✘ fell to ${monster.name} (it kept ${fight.monsterHp}/${monster.hp} HP)`);
@@ -290,7 +298,8 @@ export async function settleAutohunt(
 
   const shown = lines.slice(0, MAX_LISTED_BOUTS).join(" · ") +
     (lines.length > MAX_LISTED_BOUTS ? ` · …and ${lines.length - MAX_LISTED_BOUTS} more` : "");
-  const gains = `+${xp} XP${copper > 0 ? `, 🪙 +${formatCoins(copper)}` : ""}`;
+  const best = bestDropIn(lines.join("\n"));
+  const gains = `+${xp} XP${copper > 0 ? `, 🪙 +${formatCoins(copper)}` : ""}${best ? `, 🎁 best drop ${best}` : ""}`;
   const levelNote = levels > 0 ? ` 🎉 Leveled up to ${lastLevel}!` : "";
 
   // Re-read for the whole trip's tally and bout log, this settle included.
@@ -305,11 +314,12 @@ export async function settleAutohunt(
     const recent = lines.length ? `Latest: ${shown}. ` : "";
     const battles = all ? `Battles: ${all}. ` : "";
     const lv = fresh.levels_gained > 0 ? ` 🎉 Leveled up ${fresh.levels_gained} time${fresh.levels_gained === 1 ? "" : "s"}!` : "";
+    const tripBest = bestDropIn(fresh.log);
     // Measure to the scheduled end, not to now: an offline channel's session is
     // only settled once the stream returns, possibly hours after it finished.
     const ran = Math.min(now, fresh.ends_at) - fresh.started_at;
     const head = `🏹 autohunt over after ${formatDuration(ran)} (${why}): `;
-    const tail = `Trip total: ${total}.${lv}`;
+    const tail = `Trip total: ${total}.${tripBest ? ` 🎁 Best drop: ${tripBest}.` : ""}${lv}`;
     return {
       text: `${tag}${name} ${head}${battles}${tail}`,
       summary: `${lead}${head}${recent}${tail}`,

@@ -12,7 +12,8 @@
 // world bosses (wow_monsters.ts) blue and purple. Items are trophies for chat:
 // nothing goes on the sheet and nothing changes a fight; only gray junk turns
 // into coin (and only while coin can be earned, like every drop — loot.ts).
-// D&D heroes get their usual loot only. A party hunt's one drop, and a raid's
+// Autohunts drop one per bout won (awardWowDrop; the report names the best,
+// bestDropIn). D&D heroes get their usual loot only. A party hunt's one drop, and a raid's
 // two, go by a Need roll among the WoW heroes who were there.
 
 import { getCharacter } from "./db.ts";
@@ -126,6 +127,33 @@ async function vendor(broadcasterId: string, user: string, d: WowDrop): Promise<
 }
 
 const sold = (copper: number) => (copper ? `, vendored +${formatCoins(copper)}` : "");
+
+/** Rolls one drop for `user` (a WoW hero — the caller checks) and vendors it
+ * if it's junk. Autohunts use this per bout. */
+export async function awardWowDrop(
+  broadcasterId: string,
+  user: string,
+  monsterName: string,
+  cr: string,
+  crValue = 0,
+): Promise<{ drop: WowDrop; copper: number }> {
+  const drop = rollWowDrop(monsterName, cr, crValue);
+  return { drop, copper: await vendor(broadcasterId, user, drop) };
+}
+
+const RANK: Quality[] = ["Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary"];
+const ICON_QUALITY = new Map(Object.entries(QUALITY_ICON).map(([q, i]) => [i, q as Quality]));
+
+/** The best drop named anywhere in `text` (bout lines, a trip log), as
+ * dropText shows it; "" when there is none. */
+export function bestDropIn(text: string): string {
+  let best: { q: Quality; item: string } | null = null;
+  for (const m of String(text).matchAll(/(⚫|⚪|🟢|🔵|🟣|🟠) \[([^\]]+)\]/gu)) {
+    const q = ICON_QUALITY.get(m[1]);
+    if (q && (!best || RANK.indexOf(q) > RANK.indexOf(best.q))) best = { q, item: m[2] };
+  }
+  return best ? dropText({ quality: best.q, item: best.item, vendorCopper: 0 }) : "";
+}
 
 /** A solo kill: " 🎁 Loot: 🟢 [Chain Gloves of the Bear] (Uncommon)." for a
  * WoW hero, "" for anyone else. Never throws. */

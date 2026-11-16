@@ -63,3 +63,35 @@ Deno.test("only WoW heroes get a drop; a group's goes by Need roll", async () =>
   const both = await wowGroupLootNote(CH, ["thrall", "jaina", "bob"], "Onyxia", "13");
   assertMatch(both, /— (thrall|jaina) wins the Need roll \(\d+\)/);
 });
+
+Deno.test("autohunts: every win by a WoW hero drops an item, and reports name the best", async () => {
+  const CH = "4002";
+  const { ensureAutohuntTables, createAutohuntSession } = await import("./autohunt_db.ts");
+  const { ensureBestiaryTables } = await import("./bestiary.ts");
+  const { ensureHuntCooldownTables } = await import("./huntcooldown.ts");
+  const { ensureBattleLogTables } = await import("./battle_log.ts");
+  const { settleAutohunt } = await import("./autohunt.ts");
+  await ensureAutohuntTables();
+  await ensureBestiaryTables();
+  await ensureHuntCooldownTables();
+  await ensureBattleLogTables();
+  // A strong hero, so most bouts are wins.
+  const hero = buildWowCharacter("rexxar", { faction: "Horde", race: "Orc", cls: "Hunter" }, [18, 18, 18, 18, 18, 18]);
+  await saveCharacter({ ...hero, level: 5, hpMax: 60, hpCurrent: 60, proficiency: 3 }, CH);
+  await saveCharacter({ ...generateCharacter("bob"), level: 5, hpMax: 60, hpCurrent: 60 }, CH);
+  const now = Date.now();
+  const session = (u: string) => ({
+    broadcaster_id: CH, username: u, display_name: u, started_at: now - 60 * 60_000, ends_at: now - 1,
+    next_at: now - 60 * 60_000, bouts: 0, wins: 0, losses: 0, total_xp: 0, total_copper: 0, levels_gained: 0,
+    reports_sent: 0, log: "", user_id: "",
+  });
+  await createAutohuntSession(session("rexxar"));
+  const r = (await settleAutohunt(session("rexxar"), { now }))!;
+  const wins = (r.detail.match(/✔ beat/g) ?? []).length;
+  assert(wins > 0, r.detail);
+  assertEquals((r.detail.match(/✔ beat [^\n]*🎁 (⚫|⚪|🟢|🔵|🟣|🟠) \[/g) ?? []).length, wins);
+  assertMatch(r.text, /🎁 Best drop: (⚫|⚪|🟢|🔵|🟣|🟠) \[/);
+  await createAutohuntSession(session("bob"));
+  const b = (await settleAutohunt(session("bob"), { now }))!;
+  assert(!/🎁/.test(b.detail + b.text), "no items for a D&D hero");
+});
