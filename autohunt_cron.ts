@@ -17,6 +17,7 @@ import { ensureAutohuntTables, getDueAutohuntSessions } from "./autohunt_db.ts";
 import { ensureBestiaryTables } from "./bestiary.ts";
 import { type AutohuntReport, postAutohuntReports, settleAutohunt } from "./autohunt.ts";
 import { ensureRaidTables, getExpiredRaidMusters, maybeLaunchRaid, postRaidReminders } from "./raid.ts";
+import { ensureFactionWarTables, getExpiredFactionWars, maybeResolveFactionWar } from "./wow_factionwar.ts";
 
 export default async function () {
   await ensureTables();
@@ -51,6 +52,16 @@ export default async function () {
       await postAutohuntReports(list, broadcasterId);
     } catch (e) {
       await recordMonitorEvent("autohunt_post_error", `${broadcasterId}: ${String(e)}`);
+    }
+  }
+
+  // Same fallback for faction war musters (wow_factionwar.ts).
+  await ensureFactionWarTables();
+  for (const broadcasterId of await getExpiredFactionWars(now)) {
+    try {
+      await maybeResolveFactionWar(broadcasterId, { now });
+    } catch (e) {
+      await recordMonitorEvent("factionwar_error", `${broadcasterId}: ${String(e)}`);
     }
   }
 

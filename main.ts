@@ -75,6 +75,7 @@ import { groupForMessage } from "./commandgroups.ts";
 import { page } from "./pages.ts";
 import { handleBg3Command } from "./bg3.ts";
 import { handleWowCharCommand } from "./wow_chars.ts";
+import { ensureFactionWarTables, handleFactionWarCommand, maybeResolveFactionWarSafe, purgeFactionWarData } from "./wow_factionwar.ts";
 import { handleWebRoute } from "./web_routes.ts";
 import { handleBuiltinChatCommand } from "./chat_builtin.ts";
 import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } from "./checklist.ts";
@@ -181,6 +182,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureHuntCooldownTables,
   ensureWildShapeTables,
   ensureRaidTables,
+  ensureFactionWarTables,
   ensureViewerNameTables,
   ensureWatchtimeTables,
   ensureBestiaryTables,
@@ -635,6 +637,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     await purgeHuntCooldownData(broadcasterId, purge);
     await purgeWildShapeData(broadcasterId);
     await purgeRaidData(broadcasterId, purge);
+    await purgeFactionWarData(broadcasterId);
     await purgeViewerNames(broadcasterId);
     await purgeReplyPages(broadcasterId);
     await purgeSeImportData(broadcasterId);
@@ -777,6 +780,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   // Bookkeeping the reply doesn't depend on runs alongside it (defer —
   // awaited before the response is returned) instead of in front of it.
   defer(maybeLaunchRaidSafe(broadcasterId)); // due raid musters launch on any chat message
+  defer(maybeResolveFactionWarSafe(broadcasterId)); // and due faction wars are fought
   // Watch-time clock (see watchtime.ts): every message while live, commands included.
   if (Number(connection.is_live) === 1) defer(trackWatchtime(broadcasterId, chatter, display));
   // Ad-break heads-up (adalerts.ts): at most one schedule check a minute per channel.
@@ -860,6 +864,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleCreationCommand(chatter, display, broadcasterId, chatMessage)) return new Response("OK");
   if (await handleBg3Command(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
   if (await handleWowCharCommand(chatter, display, broadcasterId, chatMessage, baseUrl)) return new Response("OK");
+  if (await handleFactionWarCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleInitiativeCommand(chatMessage, broadcasterId, display, isModerator, chatter)) return new Response("OK");
   if (await handlePartyCommand(chatMessage, chatter, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handlePartyDuelCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
