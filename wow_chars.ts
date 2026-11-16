@@ -216,12 +216,15 @@ async function nextStep(s: any, display: string, broadcasterId: string, username
   await saveCreationSession(s, broadcasterId);
   const preview = buildWowCharacter(username, { faction, race: s.race, cls: s.cls }, s.scores);
   const existing = await getCharacter(username, broadcasterId);
-  const warning = existing ? `⚠️ This replaces your active ${heroTitle(existing)} (Level ${existing.level}). ` : "";
   const wc = WOW_CLASSES[s.cls as WowClassName];
+  // What to type comes first, so nobody misses that it isn't saved yet.
+  const replaces = existing ? ` (replaces your Level ${existing.level} ${heroTitle(existing)})` : "";
+  const reroll = s.hook === "random" ? "!answer reroll for a whole new hero" : "!answer reroll for new scores";
+  const stats = (["STR", "DEX", "CON", "INT", "WIS", "CHA"] as const).map((a) => `${a} ${preview.scores[a]}`).join(" ");
   await say(
-    `${warning}${wc.icon} Level 1 ${wowLabel(preview)} — ${wc.blurb}; fights as a 5e ${wc.dnd}. ` +
-      `${formatStatLine(preview)} | ${race.traits.slice(0, 3).join(", ")}. ` +
-      `Not saved yet — reply !answer yes to save it, !answer reroll for new scores, or !answer no to stop.`,
+    `⚠️ NOT SAVED YET — type !answer yes to keep this hero${replaces}, ${reroll}, or !answer no. ` +
+      `${wc.icon} Level 1 ${wowLabel(preview)} (fights as a 5e ${wc.dnd}; ${wc.blurb}) | ${stats} | HP ${preview.hpMax} | ` +
+      `${race.traits.slice(0, 3).join(", ")}.`,
   );
 }
 
@@ -253,6 +256,7 @@ export async function handleWowCharCommand(
       s.background = race.faction;
       s.race = race.name;
       s.cls = pick(race.classes);
+      s.hook = "random"; // a reroll at the confirm step rolls a whole new hero
       // Like !createchar: saved at once, unless it would replace a hero (then
       // the confirm step below asks first).
       if (!(await getCharacter(username, broadcasterId))) {
@@ -310,6 +314,13 @@ export async function handleWowCharCommand(
     const a = answer.toLowerCase();
     if (a === "reroll" || a === "re-roll") {
       s.scores = rollSix();
+      if (s.hook === "random") {
+        // A random hero rerolls whole: faction, race, class and scores.
+        const race = pick(WOW_RACES);
+        s.background = race.faction;
+        s.race = race.name;
+        s.cls = pick(race.classes);
+      }
     } else if (a === "yes" || a === "y") {
       const c = buildWowCharacter(username, { faction: s.background, race: s.race, cls: s.cls }, s.scores);
       await saveCharacter(c, broadcasterId);
@@ -321,7 +332,7 @@ export async function handleWowCharCommand(
       await say("WoW character discarded. Start again any time with !wowchar.");
       return true;
     } else {
-      await say("Reply !answer yes to save, !answer reroll for new scores, or !answer no to stop.");
+      await say(`not saved yet — type !answer yes to keep it, ${s.hook === "random" ? "!answer reroll for a whole new hero" : "!answer reroll for new scores"}, or !answer no.`);
       return true;
     }
   } else {

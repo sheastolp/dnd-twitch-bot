@@ -99,8 +99,9 @@ Deno.test("!wowchar in one go, then confirm and save", async () => {
   assert(r.handled);
   assertMatch(r.reply, /Level 1 🐺 Horde Tauren Warrior/);
   assertMatch(r.reply, /5e Fighter/);
+  assertMatch(r.reply, /^@cairne ⚠️ NOT SAVED YET — type !answer yes to keep this hero, !answer reroll for new scores, or !answer no\./);
   r = await say("cairne", "!answer reroll");
-  assertMatch(r.reply, /Tauren Warrior/);
+  assertMatch(r.reply, /Tauren Warrior/); // picked by hand: only the scores change
   r = await say("cairne", "!answer yes");
   assertMatch(r.reply, /Lok'tar ogar!.*Tauren Warrior/);
   const c = await getCharacter("cairne", CH);
@@ -142,7 +143,16 @@ Deno.test("a race decides the faction when only one fits; impossible pairs are c
   assert(rnd?.wow, "saved as a WoW hero");
   // …but asks before replacing a hero.
   r = await say("rnd", "!wowchar random");
-  assertMatch(r.reply, /⚠️ This replaces your active .*Not saved yet — reply !answer yes/);
+  assertMatch(r.reply, /^@rnd ⚠️ NOT SAVED YET — type !answer yes to keep this hero \(replaces your Level 1 .+\), !answer reroll for a whole new hero, or !answer no\./);
+  // A random hero rerolls whole: race and class can change, not just scores.
+  const seen = new Set<string>();
+  for (let i = 0; i < 12; i++) {
+    r = await say("rnd", "!answer reroll");
+    const m = r.reply.match(/Level 1 (?:🦁 Alliance|🐺 Horde) (.+?) \(fights as/);
+    assert(m, r.reply);
+    seen.add(m[1]);
+  }
+  assert(seen.size > 1, `reroll changed the hero: ${[...seen].join(" / ")}`);
   r = await say("rnd", "!answer no");
   assertEquals((await getCharacter("rnd", CH))?.race, rnd!.race);
   r = await say("x", "!wowchar classes");
