@@ -324,7 +324,9 @@ export async function handlePartyDuelCommand(
     // target is scaled to the party's average level the same way a random
     // pick is; the group-size tweak below applies to both.
     // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
-    const summoned = await summonMonster(broadcasterId, avgLevel, namedBase ? namedBase.name : null);
+    const summoned = await summonMonster(broadcasterId, avgLevel, namedBase ? namedBase.name : null, {
+      azeroth: livingMembers.some((n) => chars[n].wow),
+    });
     if (!summoned) return true; // unreachable: namedBase was just resolved
     const monster = summoned;
     const sizeScale = 0.5 + livingMembers.length * 0.22; // 1p~0.72, 2p~0.94, 3p~1.16

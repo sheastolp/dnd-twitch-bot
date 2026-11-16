@@ -25,6 +25,7 @@ import { startGuideText } from "./start.ts";
 import { rollBG3Character, rollBG3Companion, rollBG3Origin, rollBG3Loot, rollBG3Camp } from "./bg3.ts";
 import { findBg3Entry, formatBg3Entry, parseBg3LookupQuery, bg3CategoryList } from "./bg3lookup.ts";
 import { wowForeverCountdown } from "./wow_forever.ts";
+import { azerothReply } from "./wow_monsters.ts";
 import { div2Index, rollDiv2Build, rollDiv2Loot, rollDiv2Mission, div2LookupReply } from "./division2.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
 import { delveHelpText, getDelveOptions } from "./idle.ts";
@@ -424,6 +425,8 @@ export async function handleBuiltinChatCommand(ctx: {
     await sendChatMessage(rollDiv2Mission(display), broadcasterId);
   } else if (/^!div2lookup(?:\s+.*)?$/i.test(chatMessage)) {
     await sendChatMessages(div2LookupReply(display, chatMessage.replace(/^!div2lookup\s*/i, "").trim()), broadcasterId);
+  } else if (/^!azeroth(?:\s+.*)?$/i.test(chatMessage)) {
+    await sendChatMessage(`@${display} ${azerothReply(chatMessage.replace(/^!azeroth\s*/i, ""))}`, broadcasterId);
   } else if (/^!wow:?forever$/i.test(chatMessage)) {
     await sendChatMessage(wowForeverCountdown(display), broadcasterId);
   } else if (/^!hug(?:\s+@?\S+)?$/i.test(chatMessage)) {

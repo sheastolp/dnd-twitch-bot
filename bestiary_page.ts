@@ -7,6 +7,7 @@ import { randomEncounterMinLevel, type SoloMonster } from "./data.ts";
 import { type AdaptationRecord, describeTier, expectedHeroWinRate, type HuntableMonster } from "./bestiary.ts";
 import { escapeHtml } from "./utils.ts";
 import { orreryWorldName } from "./orrery.ts";
+import { azerothInfo, azerothWhere } from "./wow_monsters.ts";
 // The name of the Orrery world its own creatures come from.
 const worldOf = () => orreryWorldName() || "Orrery";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
@@ -28,6 +29,8 @@ export function renderBestiaryPage(
     const parts: string[] = [];
     parts.push(lv ? `random from Lv ${lv}` : "by name only");
     if (m.crValue >= raidMinCr) parts.push("raid boss");
+    const wow = (m as HuntableMonster).azeroth ? azerothInfo(m.name) : null;
+    if (wow) parts.push(`${azerothWhere(wow)}, WoW Lv ${wow.level}`);
     return parts.join(" · ");
   };
 
@@ -46,8 +49,10 @@ export function renderBestiaryPage(
       ? `<span class="badge learned" title="Learned ${escapeHtml(new Date(m.learned.at).toISOString().slice(0, 10))}">learned${m.learned.by ? ` · ${escapeHtml(m.learned.by)}` : ""}</span>`
       : m.orrery
       ? `<span class="badge" title="One of ${escapeHtml(world)}'s own creatures, from the Grand Orrery's bestiary">${escapeHtml(world)}</span>`
+      : m.azeroth
+      ? `<span class="badge" title="World of Warcraft (Classic + Forever), from the Azeroth bestiary">Azeroth</span>`
       : `<span class="badge">core</span>`;
-    const search = [m.name, m.cr, m.learned ? "learned" : m.orrery ? `core ${world.toLowerCase()}` : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
+    const search = [m.name, m.cr, m.learned ? "learned" : m.orrery ? `core ${world.toLowerCase()}` : m.azeroth ? "azeroth wow warcraft" : "core", tier ? "adapting" : "", m.crValue >= raidMinCr ? "raid" : ""].join(" ").toLowerCase();
     const cmd = `!dndduel ${m.name.toLowerCase()}`;
     return `<tr data-search="${escapeHtml(search)}" data-cr="${m.crValue}" data-tier="${tier}" data-learned="${m.learned ? 1 : 0}">` +
       `<td><strong>${escapeHtml(m.name)}</strong><div class="muted small"><code>${escapeHtml(cmd)}</code></div></td>` +

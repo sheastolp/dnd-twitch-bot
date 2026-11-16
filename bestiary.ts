@@ -35,6 +35,8 @@ import { sqlite } from "./sqlite.ts";
 import { findMonsterByName, pickMonsterForLevel, scaleMonsterForLevel, SOLO_MONSTERS, type SoloMonster } from "./data.ts";
 import { lookup5e } from "./lookups.ts";
 import { sendChatMessage } from "./twitch.ts";
+import { isCommandGroupEnabled } from "./db.ts";
+import { AZEROTH_MONSTERS, azerothInfo, azerothPlaceLine, azerothWhere } from "./wow_monsters.ts";
 
 // ---------------------------------------------------------------------------
 // Tuning
@@ -99,7 +101,7 @@ const keyOf = (name: string) => name.trim().toLowerCase();
 // Roster (core + learned)
 // ---------------------------------------------------------------------------
 
-export type HuntableMonster = SoloMonster & { learned?: { by: string; at: number }; orrery?: boolean };
+export type HuntableMonster = SoloMonster & { learned?: { by: string; at: number }; orrery?: boolean; azeroth?: boolean };
 
 // Short per-isolate memo: the roster is read on every hunt, and learning or
 // forgetting invalidates it immediately.
@@ -143,7 +145,18 @@ export async function getChannelRoster(broadcasterId: string): Promise<HuntableM
   const verrowen: HuntableMonster[] = orreryBeasts()
     .filter((m) => !taken.has(keyOf(m.name)))
     .map((m) => ({ ...m, orrery: true }));
-  const roster = [...SOLO_MONSTERS, ...verrowen, ...learned].sort(crSort);
+  for (const m of verrowen) taken.add(keyOf(m.name));
+  // World of Warcraft monsters and dungeon bosses (wow_monsters.ts), behind
+  // the channel's "wowmonsters" switch (on by default).
+  let azeroth: HuntableMonster[] = [];
+  try {
+    if (await isCommandGroupEnabled(broadcasterId, "wowmonsters")) {
+      azeroth = AZEROTH_MONSTERS.filter((m) => !taken.has(keyOf(m.name))).map((m) => ({ ...m, azeroth: true }));
+    }
+  } catch (e) {
+    console.error("bestiary azeroth read failed", e);
+  }
+  const roster = [...SOLO_MONSTERS, ...verrowen, ...azeroth, ...learned].sort(crSort);
   rosterCache.set(broadcasterId, { at: Date.now(), roster });
   return roster;
 }
@@ -295,6 +308,10 @@ export async function summonMonster(
   broadcasterId: string,
   level: number,
   name?: string | null,
+  // A World of Warcraft hero (or a party with one): a random pick is usually
+  // (AZEROTH_ODDS) from the Azeroth bestiary, when the channel has it; anyone
+  // else meets one now and then (AZEROTH_STRAY_ODDS).
+  opts: { azeroth?: boolean } = {},
 ): Promise<SummonedMonster | null> {
   const roster = await getChannelRoster(broadcasterId);
   let scaled: SoloMonster;
@@ -303,11 +320,20 @@ export async function summonMonster(
     if (!base) return null;
     scaled = scaleMonsterForLevel(base, level);
   } else {
-    scaled = pickMonsterForLevel(level, roster);
+    const azeroth = roster.filter((m) => m.azeroth);
+    const rest = roster.filter((m) => !m.azeroth);
+    const odds = opts.azeroth ? AZEROTH_ODDS : AZEROTH_STRAY_ODDS;
+    scaled = pickMonsterForLevel(level, azeroth.length && (!rest.length || Math.random() < odds) ? azeroth : rest);
   }
   const { tier } = await getAdaptation(broadcasterId, scaled.name);
-  return { ...applyAdaptation(stripMeta(scaled), tier), place: placeForMonster(scaled.name, level) };
+  const wow = roster.some((m) => m.azeroth && m.name === scaled.name) ? azerothPlaceLine(scaled.name) : null;
+  return { ...applyAdaptation(stripMeta(scaled), tier), place: wow ?? placeForMonster(scaled.name, level) };
 }
+
+/** How often a WoW hero's random hunt is a monster of Azeroth. */
+export const AZEROTH_ODDS = 0.7;
+/** How often a D&D hero's is (a stray from the other world). */
+export const AZEROTH_STRAY_ODDS = 0.1;
 
 /** Drop bestiary-only metadata before a stat block goes into a fight/table. */
 export function stripMeta(m: SoloMonster): SoloMonster {
@@ -554,7 +580,8 @@ export async function handleBestiaryCommand(
     return true;
   }
   const a = await getAdaptation(broadcasterId, base.name);
-  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : base.orrery ? `of ${orreryWorldName() || "the Orrery"}` : "core";
+  const origin = base.learned ? `learned${base.learned.by ? ` from ${base.learned.by}` : ""}` : base.orrery ? `of ${orreryWorldName() || "the Orrery"}` : base.azeroth ? "of Azeroth" : "core";
+  const wowInfo = base.azeroth ? azerothInfo(base.name) : null;
   const verrowen = orreryCreature(base.name);
   const lore = verrowen ? ` ${verrowen.icon ? verrowen.icon + " " : ""}${verrowen.does}${verrowen.does && !/[.!?]$/.test(verrowen.does) ? "." : ""} Found in ${verrowen.place.replace(/^The /, "the ")}.` : "";
   const record = a.heroWins + a.monsterWins
@@ -563,6 +590,7 @@ export async function handleBestiaryCommand(
   const learning = a.tier
     ? ` 🧠 Adaptation ${signedTier(a.tier)}: ${describeTier(a.tier)}.`
     : "";
-  await say(`📖 ${base.name} (${origin}): ${statLine(base)} before level scaling.${lore}${record}${learning} Hunt: !dndduel ${base.name.toLowerCase()}`);
+  const where = wowInfo ? ` Found in ${azerothWhere(wowInfo)}, WoW level ${wowInfo.level}${wowInfo.boss ? (wowInfo.dungeon ? " boss" : " rare elite") : ""}.` : "";
+  await say(`📖 ${base.name} (${origin}): ${statLine(base)} before level scaling.${lore}${where}${record}${learning} Hunt: !dndduel ${base.name.toLowerCase()}`);
   return true;
 }

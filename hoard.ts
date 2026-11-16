@@ -223,7 +223,7 @@ export async function handleHoardCommand(
 
     case "hunt": {
       if (!c) return say(noHero).then(() => true);
-      const monster = await summonMonster(broadcasterId, c.level, arg || null);
+      const monster = await summonMonster(broadcasterId, c.level, arg || null, { azeroth: !!c.wow });
       if (!monster) {
         await say(`no quarry known as "${arg}". Check !bounties for the board, !bestiary for every huntable monster, or !hunt with no name and let fate pick.`);
         return true;

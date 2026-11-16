@@ -246,7 +246,7 @@ export async function settleAutohunt(
       break;
     }
     // From the channel's live bestiary, level-scaled then adapted (bestiary.ts).
-    const monster = (await summonMonster(bid, c.level))!;
+    const monster = (await summonMonster(bid, c.level, null, { azeroth: !!c.wow }))!;
     const fight = simulateMonsterFight(c, session.display_name, monster);
     await recordMonsterOutcome(bid, monster.name, fight.won, c.level);
     await recordBattle(bid, { kind: "autohunt", side: String(session.display_name), foe: monster.name, outcome: fight.won ? "win" : "loss" });

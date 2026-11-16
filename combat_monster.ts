@@ -147,7 +147,7 @@ export async function handleMonsterDuelCommand(
     }
     const hp0 = c.hpMax;
     // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
-    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
+    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg, { azeroth: !!c.wow });
     if (!monster) {
       await sendChatMessage(
         `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling (or teach it to the bestiary), !bestiary for the list, or !dndduel monster classic for a random foe.`,
@@ -195,7 +195,7 @@ export async function handleMonsterDuelCommand(
       return true;
     }
     // Level-scaled from the channel's live bestiary, then adapted (bestiary.ts).
-    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg);
+    const monster = await summonMonster(broadcasterId, c.level, monsterNameArg, { azeroth: !!c.wow });
     if (!monster) {
       await sendChatMessage(
         `@${display} no bestiary match for "${monsterNameArg}". Try !monster <name> to check the spelling (or teach it to the bestiary), !bestiary for the list, or !dndduel for a random foe.`,
