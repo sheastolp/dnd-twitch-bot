@@ -279,6 +279,35 @@ export async function transferPoints(
   return "ok";
 }
 
+/** Mod transfer between two viewers, e.g. when someone changes their Twitch
+ * name and starts over under the new one. Moves `amount` copper (or the whole
+ * purse when `amount` is null), capped at what `from` actually holds. Returns
+ * how much moved and both balances afterwards; moved is 0 when `from` is broke. */
+export async function moveBalance(
+  broadcasterId: string,
+  from: string,
+  to: string,
+  toDisplay: string,
+  amount: number | null,
+): Promise<{ moved: number; fromBalance: number; toBalance: number }> {
+  const src = from.toLowerCase();
+  const res = await sqlite.execute(
+    "SELECT balance FROM points_balances WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, src],
+  );
+  const have = Number(res.rows[0]?.balance ?? 0);
+  const moved = Math.max(0, Math.min(amount ?? have, have));
+  if (moved > 0 && await trySpend(broadcasterId, src, moved)) {
+    const toBalance = await adjustBalance(broadcasterId, to, toDisplay, moved);
+    return { moved, fromBalance: have - moved, toBalance };
+  }
+  const dst = await sqlite.execute(
+    "SELECT balance FROM points_balances WHERE broadcaster_id = ? AND username = ?",
+    [broadcasterId, to.toLowerCase()],
+  );
+  return { moved: 0, fromBalance: have, toBalance: Number(dst.rows[0]?.balance ?? 0) };
+}
+
 export async function getTopBalances(broadcasterId: string, limit: number) {
   const res = await sqlite.execute(
     `SELECT username, display_name, balance FROM points_balances

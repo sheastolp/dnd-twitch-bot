@@ -22,6 +22,8 @@
 //   !gold today all                everyone's gain or loss today, plus the net
 //   !gold give @user <amount>      gift some of your coin (e.g. 5sp)
 //   !gold add|remove|set @user <amount>   (mod) adjust a balance
+//   !gold transfer @from @to [amount]     (mod) move coin between viewers — all
+//                                  of it if no amount (e.g. after a Twitch rename)
 //   !gold on|off|status            (mod for on/off) toggle the whole system
 //
 //   !giveaway [status]             what's up for grabs
@@ -49,6 +51,7 @@ import {
   getGiveawayTotals,
   getTopBalances,
   isPointsEnabled,
+  moveBalance,
   setBalance,
   setPointsEnabled,
   startGiveaway,
@@ -338,6 +341,36 @@ async function handleGold(
     return true;
   }
 
+  // !gold transfer @from @to [N]  (mod) — the whole purse when N is left out,
+  // e.g. for a viewer who renamed on Twitch and now earns under a new name.
+  const transfer = args.match(/^(?:transfer|move)\s+(\S+)\s+(\S+)(?:\s+(.+))?$/i);
+  if (transfer) {
+    if (!isModerator) {
+      await sendChatMessage(`@${display} only the broadcaster or a moderator can transfer coin between viewers.`, broadcasterId);
+      return true;
+    }
+    const from = cleanUsername(transfer[1]);
+    const to = cleanUsername(transfer[2]);
+    const rawAmount = (transfer[3] ?? "").trim();
+    const amount = !rawAmount || /^all$/i.test(rawAmount) ? null : parseAmount(rawAmount);
+    if (!from || !to || (rawAmount && !/^all$/i.test(rawAmount) && amount === null)) {
+      await sendChatMessage(`@${display} usage: !gold transfer @from @to [amount] — leave the amount off to move everything`, broadcasterId);
+      return true;
+    }
+    if (from === to) {
+      await sendChatMessage(`@${display} that's the same purse twice.`, broadcasterId);
+      return true;
+    }
+    const r = await moveBalance(broadcasterId, from, to, to, amount);
+    await sendChatMessage(
+      r.moved > 0
+        ? `@${display} moved ${coin(r.moved)} from @${from} to @${to}. @${to} now holds ${coin(r.toBalance)}; @${from} has ${coin(r.fromBalance)} left.`
+        : `@${display} @${from} has no coin to move.`,
+      broadcasterId,
+    );
+    return true;
+  }
+
   // !gold add|remove|set @user N  (mod)
   const adjust = args.match(/^(add|remove|set)\s+(\S+)\s+(.+)$/i);
   if (adjust) {
@@ -364,7 +397,7 @@ async function handleGold(
 
   await sendChatMessage(
     `@${display} coin: !gold | !gold @user | !gold top | !gold give @user <amount, e.g. 5sp>${
-      isModerator ? " | !gold add/remove/set @user <amount> | !gold on/off" : ""
+      isModerator ? " | !gold add/remove/set @user <amount> | !gold transfer @from @to [amount] | !gold on/off" : ""
     }`,
     broadcasterId,
   );

@@ -464,6 +464,7 @@ The command is `!gold` and the leaderboard lives under `!gold top` on purpose: `
 | `!gold today [@user]` / `!gold today all` | Gold you (or @user) gained or lost today; `all` lists every adventurer, biggest gains first, with the net. "Today" is the host laptop's calendar day; counts every way coin moves (chat, loot, rob, haggle, giveaways, mod adjustments), and pays out any autohunt bouts already fought first so the total is current to the moment |
 | `!gold give @user <amount>` | Gift some of your coin, e.g. `!gold give @friend 5sp` |
 | `!gold add` / `remove` / `set @user <amount>` | Adjust a balance, e.g. `!gold add @friend 2gp` *(mod)* |
+| `!gold transfer @from @to [amount]` | Move coin from one viewer to another — the **whole purse** when the amount is left off (or `all`), capped at what they hold. For a viewer who changed their Twitch name and started over under the new one: `!gold transfer @oldname @newname` *(mod)* |
 | `!jar` | **Swear jar:** shows the total, plus when the jar was last given away (who won and how much). Swearing in chat automatically costs 2 cp per word (paid from your gold, needs coin on) and the bot announces it. No cooldown |
 | `!jar +<amount>` | Add coin to the jar by hand, e.g. `!jar +8`, `!jar +5sp` |
 | `!jar +<amount> @user` | Fine a viewer: moves that much of *their* gold (whatever they can afford) into the jar *(mod)* |
