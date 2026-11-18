@@ -17,6 +17,7 @@ import { sqlite } from "./sqlite.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { getBroadcaster, getExtraEventSubSubscriptions, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent, saveExtraEventSubSubscription } from "./db.ts";
 import { isChannelBot } from "./channel_bots.ts";
+import { isIgnoredViewer } from "./command_ignore.ts";
 import { createFollowEventSubscription, env, sendChatMessage } from "./twitch.ts";
 import { rollFollowThankYou } from "./flavor_events.ts";
 import { FOLLOW_SCOPE } from "./watchtime.ts";
@@ -85,7 +86,7 @@ export async function onFollow(event: any) {
   const userId = String(event?.user_id ?? "");
   const login = String(event?.user_login ?? "");
   const display = String(event?.user_name ?? login);
-  if (!broadcasterId || !userId || await isChannelBot(broadcasterId, login, userId, env("TWITCH_BOT_ID"))) return;
+  if (!broadcasterId || !userId || await isChannelBot(broadcasterId, login, userId, env("TWITCH_BOT_ID")) || await isIgnoredViewer(broadcasterId, login)) return;
   const connection = await getBroadcaster(broadcasterId);
   if (!connection || Number(connection.connected) !== 1 || Number(connection.is_live) !== 1) return;
   const [on, blocked, groupOn] = await Promise.all([

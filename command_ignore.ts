@@ -1,16 +1,20 @@
-// Command ignore list — viewers whose "!" commands GuildScribe silently
-// ignores, without treating them as bots. Unlike the bot list
-// (channel_bots.ts), an ignored viewer still earns chat gold and watch time,
-// is still thanked for subs and raids, still counts in !botcheck, and still
-// goes through auto-ban and the spam filters. Only their commands are dropped.
+// Ignore list — viewers GuildScribe ignores completely, without treating them
+// as bots. Their chat messages are dropped before any feature sees them: no
+// commands, no replies to @mentions or keyword triggers, no swear jar, no
+// chat gold, no watch time, no NPC chatter or chronicle quotes. Their subs,
+// raids, follows, cheers and channel-point redemptions get no thank-you or
+// effect either, and the chat reader and idle overlays skip them.
 //
-//   !ignore @user        mod: ignore their commands
+// Moderation still applies: auto-ban, the spam filters and the hate-raid
+// shield run before the ignore check, so an ignored spammer is still caught.
+//
+//   !ignore @user        mod: ignore them
 //   !unignore @user      mod: listen to them again
 //   !ignore list         mod: who's ignored
 //   /dashboard/bots      mod: the same list, in its own section of the page
 //
-// Mods and the broadcaster are never ignored, even if they're on the list,
-// so nobody can lock the channel's mods out of the bot.
+// Mods and the broadcaster are never ignored in chat, even if they're on the
+// list, so nobody can lock the channel's mods out of the bot.
 //
 // Lookups go through a short per-isolate cache, so the chat hot path costs
 // one read per channel every CACHE_MS at most.
@@ -33,7 +37,7 @@ export async function ensureCommandIgnoreTables() {
   );
 }
 
-/** Wipes the channel's command ignore list — called from !dndbot leave purge. */
+/** Wipes the channel's ignore list — called from !dndbot leave purge. */
 export async function purgeCommandIgnoreData(broadcasterId: string) {
   await sqlite.execute("DELETE FROM command_ignored WHERE broadcaster_id = ?", [broadcasterId]);
   cache.delete(broadcasterId);
@@ -51,14 +55,24 @@ async function loadSet(broadcasterId: string): Promise<Set<string>> {
   return logins;
 }
 
-/** Whether this viewer's commands are ignored in this channel. Never throws:
- * a failed lookup lets the command through. */
-export async function isCommandIgnored(broadcasterId: string, login: string): Promise<boolean> {
+/** Every ignored login in this channel (lowercase). Never throws. */
+export async function getIgnoredLogins(broadcasterId: string): Promise<Set<string>> {
+  try {
+    return await loadSet(broadcasterId);
+  } catch (e) {
+    console.error("ignore list lookup failed", e);
+    return new Set();
+  }
+}
+
+/** Whether GuildScribe ignores this viewer in this channel. Never throws:
+ * a failed lookup treats them as not ignored. */
+export async function isIgnoredViewer(broadcasterId: string, login: string): Promise<boolean> {
   if (!broadcasterId || !login) return false;
   try {
     return (await loadSet(broadcasterId)).has(login.toLowerCase());
   } catch (e) {
-    console.error("command ignore lookup failed", e);
+    console.error("ignore list lookup failed", e);
     return false;
   }
 }
@@ -118,15 +132,15 @@ export async function handleCommandIgnoreCommand(
 
   if (verb === "ignore" && (arg.toLowerCase() === "list" || arg === "")) {
     if (arg === "") {
-      await say("usage: !ignore @user (stop answering their commands) | !unignore @user | !ignore list");
+      await say("usage: !ignore @user (GuildScribe ignores them completely) | !unignore @user | !ignore list");
       return true;
     }
     const list = await listCommandIgnored(broadcasterId);
-    if (!list.length) await say("🔇 Nobody's commands are being ignored.");
+    if (!list.length) await say("🔇 Nobody is being ignored.");
     else {
       const names = list.map((u) => u.login);
       const shown = names.slice(0, 20).join(", ");
-      await say(`🔇 Ignoring commands from ${list.length}: ${shown}${names.length > 20 ? `, and ${names.length - 20} more (see the dashboard's bot list page)` : ""}.`);
+      await say(`🔇 Ignoring ${list.length}: ${shown}${names.length > 20 ? `, and ${names.length - 20} more (see the dashboard's bot list page)` : ""}.`);
     }
     return true;
   }
@@ -144,13 +158,13 @@ export async function handleCommandIgnoreCommand(
     const added = await addCommandIgnored(broadcasterId, [target], chatter);
     await say(
       added.length
-        ? `🔇 GuildScribe will ignore commands from ${target}. They still earn gold and watch time. (Mods are never ignored. !unignore ${target} to undo.)`
+        ? `🔇 GuildScribe will ignore ${target} completely: no commands, replies, gold, swear jar or watch time. (Mods are never ignored. !unignore ${target} to undo.)`
         : `${target} is already ignored.`,
     );
   } else {
     await say(
       (await removeCommandIgnored(broadcasterId, target))
-        ? `🔊 GuildScribe will answer ${target}'s commands again.`
+        ? `🔊 GuildScribe is listening to ${target} again.`
         : `${target} wasn't being ignored.`,
     );
   }

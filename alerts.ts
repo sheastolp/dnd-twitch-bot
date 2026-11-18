@@ -32,6 +32,7 @@ import { sqlite } from "./sqlite.ts";
 import { createCheerEventSubscription, env, sendChatMessage } from "./twitch.ts";
 import { getBroadcaster, getCustomCommand, getExtraEventSubSubscriptions, isChannelBlocked, isChannelEnabled, isCommandGroupEnabled, recordMonitorEvent, saveExtraEventSubSubscription } from "./db.ts";
 import { isChannelBot } from "./channel_bots.ts";
+import { isIgnoredViewer } from "./command_ignore.ts";
 import { getBroadcasterAdToken } from "./ads_db.ts";
 import { escapeHtml } from "./utils.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -150,7 +151,7 @@ export async function onFollowAlert(event: any) {
   const broadcasterId = String(event?.broadcaster_user_id ?? "");
   const login = String(event?.user_login ?? "");
   const display = String(event?.user_name ?? login);
-  if (!broadcasterId || !login || await isChannelBot(broadcasterId, login, String(event?.user_id ?? ""), env("TWITCH_BOT_ID"))) return;
+  if (!broadcasterId || !login || await isChannelBot(broadcasterId, login, String(event?.user_id ?? ""), env("TWITCH_BOT_ID")) || await isIgnoredViewer(broadcasterId, login)) return;
   if (!(await channelTakesAlerts(broadcasterId))) return;
   const res = await sqlite.execute(
     `SELECT

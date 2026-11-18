@@ -30,6 +30,7 @@
 import { getBroadcaster, isChannelBlocked, isChannelEnabled, saveExtraEventSubSubscription } from "./db.ts";
 import { createRedemptionEventSubscription, sendChatMessage } from "./twitch.ts";
 import { isChannelBot } from "./channel_bots.ts";
+import { isIgnoredViewer } from "./command_ignore.ts";
 import {
   clearEffects,
   getEffectRemainingMs,
@@ -196,7 +197,7 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
   if (!mapping) return;
 
   const botId = Deno.env.get("TWITCH_BOT_ID") ?? "";
-  if (await isChannelBot(broadcasterId, redeemer, String(event?.user_id ?? ""), botId)) return;
+  if (await isChannelBot(broadcasterId, redeemer, String(event?.user_id ?? ""), botId) || await isIgnoredViewer(broadcasterId, redeemer)) return;
   const connection = await getBroadcaster(broadcasterId);
   if (!connection || Number(connection.connected) !== 1) return;
   if (await isChannelBlocked(broadcasterId)) return;

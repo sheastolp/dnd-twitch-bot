@@ -46,7 +46,7 @@ import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanDa
 import { ensureAutoModTables, handleAutoModCommand, maybeAutoMod, purgeAutoModData } from "./automod.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
-import { ensureCommandIgnoreTables, handleCommandIgnoreCommand, isCommandIgnored, purgeCommandIgnoreData } from "./command_ignore.ts";
+import { ensureCommandIgnoreTables, handleCommandIgnoreCommand, isIgnoredViewer, purgeCommandIgnoreData } from "./command_ignore.ts";
 import { migrateQuietDefaults } from "./quiet_defaults.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
@@ -328,7 +328,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     const subDisplay: string = body.event?.user_name ?? subUserLogin;
     const tier: string | undefined = body.event?.tier;
     const isAnonymousGifter = subscriptionType === "channel.subscription.gift" && Boolean(body.event?.is_anonymous);
-    if (!subBroadcasterId || (!isAnonymousGifter && await isChannelBot(subBroadcasterId, subUserLogin, body.event?.user_id ?? "", env("TWITCH_BOT_ID")))) {
+    if (!subBroadcasterId || (!isAnonymousGifter && (await isChannelBot(subBroadcasterId, subUserLogin, body.event?.user_id ?? "", env("TWITCH_BOT_ID")) || await isIgnoredViewer(subBroadcasterId, subUserLogin)))) {
       return new Response("OK");
     }
     const subConnection = await getBroadcaster(subBroadcasterId);
@@ -378,7 +378,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     const raiderId: string = body.event?.from_broadcaster_user_id ?? "";
     const raiderDisplay: string = body.event?.from_broadcaster_user_name ?? raiderLogin;
     const viewers = Number(body.event?.viewers ?? 0);
-    if (!raidBroadcasterId || await isChannelBot(raidBroadcasterId, raiderLogin, raiderId, env("TWITCH_BOT_ID"))) {
+    if (!raidBroadcasterId || await isChannelBot(raidBroadcasterId, raiderLogin, raiderId, env("TWITCH_BOT_ID")) || await isIgnoredViewer(raidBroadcasterId, raiderLogin)) {
       return new Response("OK");
     }
     const raidConnection = await getBroadcaster(raidBroadcasterId);
@@ -561,6 +561,12 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (
     !viaWhisper && await maybeHateRaid(modEvent, display, chatter, chatterId, broadcasterId, isModerator, Number(connection.is_live) === 1)
   ) return new Response("OK");
+
+  // A mod put this viewer on the ignore list (!ignore @user, command_ignore.ts):
+  // after moderation above, nothing else sees the message — no commands,
+  // replies to mentions, triggers, swear jar, chat gold or watch time.
+  // Mods and the broadcaster are never ignored.
+  if (!isModerator && await isIgnoredViewer(broadcasterId, chatter)) return new Response("OK");
 
   // Stay quiet in chat while the channel is offline — but let mod+ (the
   // broadcaster, lead moderators and moderators; see hasModeratorBadge in
@@ -815,15 +821,11 @@ async function handleNotification(body: any): Promise<Response | void> {
     // deliberately excluded from COMMAND_GROUPS so they're unaffected.
     const group = groupForMessage(chatMessage, /^!dndduel\s/i.test(chatMessage) ? await getChannelRoster(broadcasterId) : undefined);
     const rateLimited = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
-    const [ignored, allowed, groupOn, hexNotice] = await Promise.all([
-      isModerator ? false : isCommandIgnored(broadcasterId, chatter), // !ignore list (command_ignore.ts)
+    const [allowed, groupOn, hexNotice] = await Promise.all([
       rateLimited ? checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS) : true,
       group ? isCommandGroupEnabled(broadcasterId, group) : true,
       checkFeatureLock(chatMessage, chatter, broadcasterId), // channel-point "can't use <feature>" hexes
     ]);
-    // A mod put this viewer on the command ignore list (!ignore @user): drop
-    // the command silently. Watch time above still counted; mods never land here.
-    if (ignored) return new Response("OK");
     // Throttle non-mod command spam before it reaches any handler.
     // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
     if (!allowed) return new Response("OK");

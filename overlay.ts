@@ -47,6 +47,7 @@ import { renderThemePage } from "./overlay_theme.ts";
 import { SCENES } from "./overlay_scenes.ts";
 import { getDelveOptions, getIdleHeroes, renderIdlePage, saveDelveSnapshot } from "./idle.ts";
 import { getChannelBotLogins } from "./channel_bots.ts";
+import { getIgnoredLogins } from "./command_ignore.ts";
 import { getNowPlaying, renderNowPlayingOverlay } from "./nowplaying.ts";
 import { renderSoundBytesOverlay } from "./soundbytes.ts";
 import { getClipAudio, getSoundPlaysAfter, renderSoundAlertsOverlay, SOUND_ALERTS_OFF_PAGE } from "./soundalerts.ts";
@@ -528,14 +529,16 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
     const live = await liveChannelName(channel);
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: GuildScribe is skipped by login only if it's in the channel's bot list */ }
-    const channelBots = await getChannelBotLogins(channel.id).catch(() => new Set<string>());
+    // Bots and ignored viewers (!ignore, command_ignore.ts) are both skipped.
+    const channelBots = new Set([...(await getChannelBotLogins(channel.id).catch(() => new Set<string>())), ...(await getIgnoredLogins(channel.id))]);
     return html(renderChatReaderPage(channelKey, live.login, live.name, botId, channelBots));
   }
   if (panel === "idle") {
     const live = await liveChannelName(channel);
     let botId = "";
     try { botId = env("TWITCH_BOT_ID"); } catch (_) { /* unset: the bot's own lines just count as a chatter */ }
-    const channelBots = await getChannelBotLogins(channel.id).catch(() => new Set<string>());
+    // Bots and ignored viewers (!ignore, command_ignore.ts) are both skipped.
+    const channelBots = new Set([...(await getChannelBotLogins(channel.id).catch(() => new Set<string>())), ...(await getIgnoredLogins(channel.id))]);
     return html(renderIdlePage(channelKey, live.login, live.name, botId, channelBots, await getDelveOptions(channel.id)));
   }
   if (!(panel in OVERLAY_PANELS)) return html(`Unknown panel. Try one of: ${Object.keys(OVERLAY_PANELS).join(", ")}.`, 400);
