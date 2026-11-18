@@ -22,6 +22,7 @@ import { sqlite } from "./sqlite.ts";
 import { escapeHtml } from "./utils.ts";
 import { isBotAccount, KNOWN_BOT_ACCOUNTS, listedBotAccounts, MY_BOT_ACCOUNTS } from "./bot_accounts.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
+import { addCommandIgnored, listCommandIgnored, removeCommandIgnored } from "./command_ignore.ts";
 
 /** The bot viewer check adds flagged chatters at or above this score (max 7). */
 export const BOTCHECK_AUTO_ADD_SCORE = 4;
@@ -194,6 +195,23 @@ export async function applyBotListForm(broadcasterId: string, form: FormData): P
       ? { ok: true, message: `${login} is off the bot list.` }
       : { ok: false, message: `${login} wasn't on the list.` };
   }
+  // Command ignore list (command_ignore.ts): its own section on this page.
+  if (intent === "ignore_add") {
+    const { ok, bad } = parseNames(String(form.get("names") ?? ""));
+    if (!ok.length) return { ok: false, message: bad.length ? `"${bad[0]}" isn't a Twitch username (letters, numbers and _ only, up to 25).` : "Type at least one username." };
+    const added = await addCommandIgnored(broadcasterId, ok, "dashboard");
+    let message = added.length ? `GuildScribe will ignore commands from ${added.join(", ")}.` : "Already ignored.";
+    if (added.length && ok.length > added.length) message += ` ${ok.length - added.length} already ignored.`;
+    if (bad.length) message += ` Skipped ${bad.join(", ")} (not a valid username).`;
+    return { ok: true, message };
+  }
+  if (intent === "ignore_remove") {
+    const login = String(form.get("login") ?? "").toLowerCase();
+    if (!LOGIN_RE.test(login)) return null;
+    return (await removeCommandIgnored(broadcasterId, login))
+      ? { ok: true, message: `GuildScribe will answer ${login}'s commands again.` }
+      : { ok: false, message: `${login} wasn't being ignored.` };
+  }
   if (intent === "auto_on" || intent === "auto_off") {
     await setBotCheckAutoAdd(broadcasterId, intent === "auto_on");
     return { ok: true, message: intent === "auto_on" ? "The bot viewer check will add likely bots to the list." : "The bot viewer check won't add anyone to the list by itself." };
@@ -207,7 +225,7 @@ export async function renderBotListPage(d: { broadcasterId: string; broadcasterN
     `<form method="post" action="/dashboard/bots" class="inline">${hidden}<input type="hidden" name="intent" value="${intent}">${extra}<button type="submit" class="${cls}">${label}</button></form>`;
   const qs = `channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.key)}`;
   const name = escapeHtml(d.broadcasterName);
-  const [bots, auto] = await Promise.all([listChannelBots(d.broadcasterId), isBotCheckAutoAdd(d.broadcasterId)]);
+  const [bots, auto, ignored] = await Promise.all([listChannelBots(d.broadcasterId), isBotCheckAutoAdd(d.broadcasterId), listCommandIgnored(d.broadcasterId)]);
   const fmtDate = (t: number) => new Date(t).toISOString().slice(0, 10);
 
   const rows = bots.map((b) =>
@@ -229,6 +247,14 @@ ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<
 ${bots.length
     ? `<div class="table-wrap"><table><thead><tr><th>Account</th><th>Added by</th><th>Why</th><th class="num">Added</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
     : `<p class="note">Nothing yet. Type a name above, or let the bot viewer check fill it in.</p>`}
+<h2>Ignored commands</h2>
+<p>Not bots, just viewers whose <code>!</code> commands GuildScribe ignores. Everything else carries on as normal: they still earn chat gold and watch time, are thanked for subs and raids, and go through auto-ban and the spam filters. Mods and the broadcaster are never ignored. In chat: <code>!ignore @user</code>, <code>!unignore @user</code>, <code>!ignore list</code>.</p>
+<form method="post" action="/dashboard/bots" class="add">${hidden}<input type="hidden" name="intent" value="ignore_add"><textarea name="names" rows="1" placeholder="Twitch usernames, separated by spaces, commas or new lines" required aria-label="Usernames whose commands to ignore"></textarea><button type="submit" class="ember">Ignore commands</button></form>
+${ignored.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Viewer</th><th>Added by</th><th class="num">Added</th><th></th></tr></thead><tbody>${ignored.map((u) =>
+      `<tr><td><a class="who" href="https://twitch.tv/${encodeURIComponent(u.login)}" target="_blank" rel="noopener">${escapeHtml(u.login)}</a></td><td class="small">${u.addedBy ? escapeHtml(u.addedBy) : `<span class="muted">—</span>`}</td><td class="num small">${fmtDate(u.addedAt)}</td><td class="num">${btn("ignore_remove", "Stop ignoring", `<input type="hidden" name="login" value="${escapeHtml(u.login)}">`)}</td></tr>`
+    ).join("")}</tbody></table></div>`
+    : `<p class="note">Nobody's commands are being ignored.</p>`}
 <h2>Always treated as bots</h2>
 <p class="muted">No need to add these: GuildScribe itself, <strong>any account whose name ends in "bot"</strong>, and ${builtIn.map((b) => `<code>${escapeHtml(b)}</code>`).join(", ")}.</p>`;
 

@@ -46,6 +46,7 @@ import { ensureAutoBanTables, handleAutoBanCommand, maybeAutoBan, purgeAutoBanDa
 import { ensureAutoModTables, handleAutoModCommand, maybeAutoMod, purgeAutoModData } from "./automod.ts";
 import { ensureBotDetectTables, handleBotCheckCommand, purgeBotDetectData } from "./botdetect.ts";
 import { ensureChannelBotTables, isChannelBot, isTrustedChannelBot, purgeChannelBotData } from "./channel_bots.ts";
+import { ensureCommandIgnoreTables, handleCommandIgnoreCommand, isCommandIgnored, purgeCommandIgnoreData } from "./command_ignore.ts";
 import { migrateQuietDefaults } from "./quiet_defaults.ts";
 import { ensureNowPlayingTables, purgeNowPlayingData } from "./nowplaying.ts";
 import { ensureChannelOptionTables, purgeChannelOptions } from "./channel_options.ts";
@@ -160,6 +161,7 @@ const SCHEMA_FUNCTIONS: Array<() => Promise<unknown>> = [
   ensureAutoModTables,
   ensureBotDetectTables,
   ensureChannelBotTables,
+  ensureCommandIgnoreTables,
   ensureNowPlayingTables,
   ensureChannelOptionTables,
   ensureDelveTables,
@@ -652,6 +654,7 @@ async function handleNotification(body: any): Promise<Response | void> {
       await purgeAutoModData(broadcasterId);
       await purgeBotDetectData(broadcasterId);
       await purgeChannelBotData(broadcasterId);
+      await purgeCommandIgnoreData(broadcasterId);
       await purgeChannelOptions(broadcasterId);
       await purgeDelveData(broadcasterId);
       await purgeAdAlertData(broadcasterId);
@@ -812,11 +815,15 @@ async function handleNotification(body: any): Promise<Response | void> {
     // deliberately excluded from COMMAND_GROUPS so they're unaffected.
     const group = groupForMessage(chatMessage, /^!dndduel\s/i.test(chatMessage) ? await getChannelRoster(broadcasterId) : undefined);
     const rateLimited = !isModerator && !/^!(?:jar|fine)(?:\s|$)/i.test(chatMessage);
-    const [allowed, groupOn, hexNotice] = await Promise.all([
+    const [ignored, allowed, groupOn, hexNotice] = await Promise.all([
+      isModerator ? false : isCommandIgnored(broadcasterId, chatter), // !ignore list (command_ignore.ts)
       rateLimited ? checkCommandRateLimit(broadcasterId, chatter, COMMAND_COOLDOWN_MS) : true,
       group ? isCommandGroupEnabled(broadcasterId, group) : true,
       checkFeatureLock(chatMessage, chatter, broadcasterId), // channel-point "can't use <feature>" hexes
     ]);
+    // A mod put this viewer on the command ignore list (!ignore @user): drop
+    // the command silently. Watch time above still counted; mods never land here.
+    if (ignored) return new Response("OK");
     // Throttle non-mod command spam before it reaches any handler.
     // !jar / !fine (swear jar) are deliberately exempt: no cooldown on their trigger.
     if (!allowed) return new Response("OK");
@@ -907,6 +914,7 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleAutoBanCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleAutoModCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
   if (await handleBotCheckCommand(chatMessage, display, isModerator, broadcasterId, baseUrl)) return new Response("OK");
+  if (await handleCommandIgnoreCommand(chatMessage, chatter, display, isModerator, broadcasterId)) return new Response("OK");
   // Sery_Bot-style tools: !hateraid, !shield, !offlinelock, !onlinenotif, !onlinecheck,
   // !followbots, !removebots, !checkforbots, !clip, and the fun commands.
   if (await handleStreamGuardCommand(chatMessage, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");
