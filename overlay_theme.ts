@@ -44,7 +44,8 @@
 // nothing plays (nowplaying.ts).
 //
 // Emblem: &emblem=<image URL> (or the older &logo=) replaces the d20 with your
-// own badge or PNGtuber; add &talk=<image URL> and it swaps to that image
+// own badge or PNGtuber (&emblem=0 leaves it out — no emblem, no ribbon, the
+// mic is never opened); add &talk=<image URL> and it swaps to that image
 // while you talk (with a little bounce; &bounce=0 to keep it still) — a
 // PNGtuber. &talkat=<0–1> sets how loud counts as talking (default .3),
 // &size=<px> the emblem's size (default 200 d20 / 240 image, up to 520; it
@@ -256,6 +257,8 @@ const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.font
 const badge=document.getElementById("badge");
 const imgUrl=k=>{try{const u=new URL(Q.get(k)||"");return u.protocol==="https:"||u.protocol==="http:"?u.href:null}catch(e){return null}};
 const idleUrl=imgUrl("emblem")||imgUrl("logo"), talkUrl=imgUrl("talk");
+const noEmblem=Q.get("emblem")==="0"||Q.get("emblem")==="none";
+if(noEmblem)badge.parentElement.remove();
 if(idleUrl){const img=h("img","idle");img.alt="";img.src=idleUrl;badge.replaceChildren(img);badge.parentElement.classList.add("custom");
   if(talkUrl){const t=h("img","talk");t.alt="";t.src=talkUrl;badge.append(t);if(Q.get("bounce")!=="0")badge.classList.add("bounce")}}
 if(Q.get("ribbon")!=="1")rib.remove(); // the name banner is opt-in
@@ -366,7 +369,7 @@ async function micStream(){
   if(!dev)return first;
   first.getTracks().forEach(t=>t.stop());return open(dev.deviceId)}
 async function startMic(){
-  if(micQ.toLowerCase()==="off"||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
+  if(noEmblem||micQ.toLowerCase()==="off"||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return;
   let stream;try{stream=await micStream()}catch(e){return}
   const ctx=new (window.AudioContext||window.webkitAudioContext)();
   const an=ctx.createAnalyser();an.fftSize=1024;ctx.createMediaStreamSource(stream).connect(an);
