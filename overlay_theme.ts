@@ -13,7 +13,8 @@
 //
 // Scenes (&scene=game|brb|chat, see overlay_scenes.ts) swap the middle of
 // the sheet: gameplay, "be right back" and "just chatting" layouts with their
-// own windows, a Dungeon Gate for pop-up overlays, and a card. The brb and
+// own windows, a Dungeon Gate for pop-up overlays, and a card. The sudoku
+// scene gives almost the whole sheet to one window for Sudoku on Stream. The brb and
 // chat windows play The Endless Delve (idle.ts), chat's idle game, unless
 // &idle=0 leaves them empty for a source of your own (Words on Stream).
 //
@@ -257,7 +258,7 @@ const rib=document.getElementById("ribbon");rib.textContent=title;rib.style.font
 const badge=document.getElementById("badge");
 const imgUrl=k=>{try{const u=new URL(Q.get(k)||"");return u.protocol==="https:"||u.protocol==="http:"?u.href:null}catch(e){return null}};
 const idleUrl=imgUrl("emblem")||imgUrl("logo"), talkUrl=imgUrl("talk");
-const noEmblem=Q.get("emblem")==="0"||Q.get("emblem")==="none";
+const noEmblem=!!CFG.noEmblem||Q.get("emblem")==="0"||Q.get("emblem")==="none";
 if(noEmblem)badge.parentElement.remove();
 if(idleUrl){const img=h("img","idle");img.alt="";img.src=idleUrl;badge.replaceChildren(img);badge.parentElement.classList.add("custom");
   if(talkUrl){const t=h("img","talk");t.alt="";t.src=talkUrl;badge.append(t);if(Q.get("bounce")!=="0")badge.classList.add("bounce")}}
@@ -393,7 +394,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   if (!(sceneKey in SCENES)) sceneKey = "game";
   const scene = SCENES[sceneKey];
   const { holes: HOLE, paper: PAPER, mask } = sheetFor(sceneKey, scene);
-  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle, dark: look.dark, look: look.panelQuery };
+  const cfg = { channel: channelKey, login: login.toLowerCase(), name, streamTitle, live, idle, dark: look.dark, look: look.panelQuery, noEmblem: !!scene.noEmblem };
   const e = look.edge;
   // Fonts as custom properties too; a heading font with no real bold isn't smeared into a fake one.
   const lookCss = `#stage{${Object.entries(look.vars).map(([k, v]) => `${k}:${v}`).join(";")};--hf:${look.fonts.heading};--bf:${look.fonts.body}${look.fonts.noFauxBold ? ";font-synthesis-weight:none" : ""}}.paper{background:${look.paperBg}}${look.image ? ".curl{display:none}" : ""}`;
@@ -418,7 +419,7 @@ export function renderThemePage(channelKey: string, login: string, name: string,
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GuildScribe theme · ${escapeHtml(scene.label)} · ${escapeHtml(name)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapeHtml(look.fonts.href)}">
 <style>${STYLE}#stage{--sheet:${mask}}${lookCss}</style></head><body><div id="stage">${sceneUnderHtml(scene)}<div class="paper"></div>${edges}<div class="curl"></div><div class="curl bot"></div>
-<div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
+<div class="title"><div class="name"><i class="gem" id="gem"></i><span id="title"></span></div>${sceneKey === "game" || scene.noSubtitle ? "" : `<div class="subtitle" id="subtitle" hidden></div>`}</div>
 <section class="chat"${scene.chatH ? ` style="height:${scene.chatH}px"` : ""}><header><h2>Tavern Talk</h2><p id="chatsub"></p></header><div class="msgs" id="msgs"></div><div class="goldbox" id="goldbox" hidden><iframe id="gold" title="Goldboard" scrolling="no"></iframe></div></section>
 ${scene.rule ? `<div class="rule"></div>` : ""}${sceneHtml(scene)}${scene.status ? `<iframe class="status" id="status" title="status" scrolling="no"></iframe>` : ""}
 <div class="np off${scene.music ? " under" : ""}${scene.music?.stack ? " stack" : ""}" id="np"${scene.music ? ` style="left:${scene.music.x}px;top:${scene.music.y}px;width:${scene.music.w}px;height:${scene.music.h}px"` : ""}><img alt=""><div class="t"><div class="k">♪ Now playing</div><div class="song"></div><div class="by"></div><div class="bar" hidden><i></i></div></div></div>

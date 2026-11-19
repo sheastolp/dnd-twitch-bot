@@ -29,6 +29,12 @@
 //           (farewell lines, &text=<line>; an optional countdown, and
 //           &raid=<channel> for a "Raiding … next" line) and the stream's
 //           Saving Throws tally under it as a recap.
+//   sudoku — "Sudoku on Stream": the game is the show. One torn window as
+//           big as the sheet allows (1464×912, nearly floor to ceiling, from
+//           the left edge to Tavern Talk) for a Sudoku on Stream Browser
+//           source with &frame=1 (its parchment-and-wood layout, board as big
+//           as the window's height). No emblem, status strip or subtitle, so
+//           nothing crowds the board; Tavern Talk and the goldboard stay.
 //
 // The Battle Tracker (brb and chat) is GuildScribe's battle panel — the fight
 // under way, the raid boss summary and the recent results — drawn by the theme itself (no extra
@@ -62,7 +68,7 @@
 export type CardKind = "brb" | "chat" | "start" | "end";
 export type Rect = { x: number; y: number; w: number; h: number };
 /** idle: the theme fills this window with The Endless Delve unless &idle=0. */
-export type SceneWindow = Rect & { id: string; label: string; idle?: boolean };
+export type SceneWindow = Rect & { id: string; label: string; idle?: boolean; note?: string };
 export type SceneDef = {
   label: string;
   windows: SceneWindow[];
@@ -86,6 +92,10 @@ export type SceneDef = {
   /** Now playing (&music=1): where the scene puts it, centred in this box —
    * stacked (art above the song) when the box is narrow. Without it, top-left. */
   music?: Rect & { stack?: boolean };
+  /** No emblem in this scene (its window runs into the bottom-left corner). */
+  noEmblem?: boolean;
+  /** No stream-title subtitle under the name (like gameplay), so the window can start high. */
+  noSubtitle?: boolean;
 };
 
 export const SCENES: Record<string, SceneDef> = {
@@ -140,6 +150,15 @@ export const SCENES: Record<string, SceneDef> = {
     music: { x: 1254, y: 960, w: 520, h: 60 },
     tracker: { x: 1128, y: 722, w: 772, h: 224 },
     chatH: 597,
+  },
+  sudoku: {
+    label: "Sudoku on Stream",
+    windows: [{
+      id: "sudoku", label: "Sudoku on Stream", x: 40, y: 112, w: 1464, h: 912,
+      note: "a Browser source sized 1464 × 912 with &frame=1 on its link",
+    }],
+    noEmblem: true,
+    noSubtitle: true,
   },
 };
 

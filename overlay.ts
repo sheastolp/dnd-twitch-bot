@@ -6,7 +6,7 @@
 //   GET /overlays?channel=<id|login>                 setup page: every overlay URL + live previews
 //   GET /overlay?channel=<id|login>&panel=<name>     one overlay (the OBS browser source)
 //   GET /overlay?channel=<id|login>&panel=theme      the whole stream layout in one source (overlay_theme.ts);
-//                                                    &scene=game|brb|chat|start|end picks the layout (overlay_scenes.ts)
+//                                                    &scene=game|brb|chat|start|end|sudoku picks the layout (overlay_scenes.ts)
 //   GET /overlay/data?channel=<id|login>&panels=a,b  the JSON the overlay polls
 //   GET /overlay/title?channel=<id|login>            the stream's current title and live state (the theme's
 //                                                    subtitle and live gem poll it; &title=0 skips the title)
@@ -493,8 +493,8 @@ export async function handleOverlayRoute(req: Request, url: URL, path: string): 
   const panel = (url.searchParams.get("panel") ?? "all").toLowerCase();
   if (panel === "theme") {
     const scene = (url.searchParams.get("scene") ?? "game").toLowerCase();
-    // The stream title subtitle is on every scene but gameplay.
-    const withSub = scene !== "game" && scene in SCENES;
+    // The stream title subtitle is on every scene but gameplay (and Sudoku on Stream).
+    const withSub = scene !== "game" && scene in SCENES && !SCENES[scene].noSubtitle;
     const [live, streamTitle] = await Promise.all([liveChannelName(channel), withSub ? liveStreamTitle(channel.id) : ""]);
     const idle = await isCommandGroupEnabled(channel.id, "delve");
     return html(renderThemePage(channelKey, live.login, live.name, scene, streamTitle, channel.live, idle, themeLook(url.searchParams, 1920, 1080)));
