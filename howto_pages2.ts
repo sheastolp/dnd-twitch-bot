@@ -53,7 +53,7 @@ export const HOWTO_PLAY: HowtoTopic[] = [
       `Anyone with a saved character types <code>!rally</code> to sound the war horn. Others type <code>!rally</code> to join the muster, up to 9 raiders.`,
       `Raid as a party: whoever types <code>!rally</code> drags every member of their <code>!party</code> (with a saved character) into the muster too, while there's room.`,
       `The party charges a minute later, or right away when full. The muster's leader or a mod can launch early with <code>!rally go</code>.`,
-      `The boss keeps its wounds between raids. When it falls, everyone who struck it this stream gets its full XP and a share of a big hoard — and a second raid boss is posted, so each stream has two to take down.`,
+      `The boss keeps its wounds between raids. When it falls, everyone who struck it this stream gets its full XP and a share of a big hoard — that's the stream's raid quest done.`,
       `<code>!rally status</code> shows the boss's HP and when the next raid can muster.`,
     ],
     tips: [
