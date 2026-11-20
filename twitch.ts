@@ -154,9 +154,9 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   const token = getAppToken();
   token.catch(() => {});
   const nicks = await getChannelNicknames(broadcasterId);
-  const message = opts?.keepNames
-    ? limitNameAppearances(text.slice(0, 500), guard)
-    : limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
+  // keepNames: names stay usernames, but a name repeated past the cap is
+  // shortened to the viewer's nickname rather than a cut-down username.
+  const message = limitNameAppearances(opts?.keepNames ? text.slice(0, 500) : applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);
