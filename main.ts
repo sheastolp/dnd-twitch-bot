@@ -970,8 +970,8 @@ function runInBackground(work: () => Promise<unknown>) {
 
 // Switches whose words other chat bots (Nightbot, StreamElements…) commonly
 // answer too: while one is off, viewers' commands stay silent rather than
-// GuildScribe saying "switched off" next to the other bot's reply. Mods are
-// still told, since they're the ones who can switch it on.
+// GuildScribe saying "switched off" next to the other bot's reply. This
+// applies to mods too — the other bot answers them just the same.
 const SILENT_WHEN_OFF = new Set(["lurk", "hug", "clips", "funstuff", "streamstats", "d20", "diceroll", "rollfate", "rollchecks", "logs", "connections"]);
 const GROUP_OFF_NOTICE_MS = 10 * 60_000;
 const groupOffNoticed = new Map<string, number>();
@@ -979,7 +979,7 @@ const groupOffNoticed = new Map<string, number>();
 /** A !command whose dashboard switch is off: say so (once per viewer and
  * switch every 10 minutes) instead of ignoring it. */
 async function tellGroupOff(group: string, commandWord: string, display: string, chatter: string, broadcasterId: string, isModerator: boolean) {
-  if (!isModerator && SILENT_WHEN_OFF.has(group)) return;
+  if (SILENT_WHEN_OFF.has(group)) return;
   const key = `${broadcasterId}:${chatter}:${group}`;
   const now = Date.now();
   if (now - (groupOffNoticed.get(key) ?? 0) < GROUP_OFF_NOTICE_MS) return;
