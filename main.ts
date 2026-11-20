@@ -773,8 +773,8 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (!channelOn) return new Response("OK");
 
   // Every viewer gets a fantasy nickname the first time they chat (unless one
-  // is already set) — chat replies use it in place of their name (mentions.ts).
-  // Awaited so even their first reply uses it; cached, so usually no query.
+  // is already set) — they can be targeted by it ("!duel @Ironquill"), but
+  // chat replies that mention someone without an "@" use their username.
   try { await ensureNickname(broadcasterId, chatter); } catch (e) { console.error("ensureNickname failed", e); }
 
   // A viewer can be targeted by nickname as well as by name ("!duel @Ironquill"):
