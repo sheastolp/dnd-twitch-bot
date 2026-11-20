@@ -1,6 +1,6 @@
 // !nick — viewer nicknames. Every viewer is given a fantasy nickname the
-// first time they chat (ensureNickname in mentions.ts). Commands can target
-// a viewer by it, but the bot's replies name people by their username.
+// first time they chat (ensureNickname in mentions.ts); the bot's chat
+// replies call them by it instead of their name.
 //
 //   !nick <nickname>         (everyone) choose your own nickname
 //   !nick remove             (everyone) drop yours; you get a fresh random one

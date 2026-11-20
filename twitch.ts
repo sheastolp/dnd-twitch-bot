@@ -1,6 +1,6 @@
 // Twitch API helpers (tokens, chat, EventSub)
 
-import { limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
+import { applyNicknames, getChannelNicknames, limitNameAppearances, lookupViewerNames, shortenNames } from "./mentions.ts";
 import { MAX_LOOKUP_MESSAGE_LENGTH } from "./data.ts";
 import { splitChatMessage } from "./utils.ts";
 import { claimWhisperNotice, defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
@@ -152,9 +152,8 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   // the try below, like any other send failure.
   const token = getAppToken();
   token.catch(() => {});
-  // Names the bot writes without an "@" stay the viewer's username — never
-  // swapped for their nickname (see mentions.ts).
-  const message = limitNameAppearances(text.slice(0, 500), guard);
+  const nicks = await getChannelNicknames(broadcasterId);
+  const message = limitNameAppearances(opts?.keepNames ? text.slice(0, 500) : applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);
@@ -258,15 +257,17 @@ export async function sendChatMessages(
   // per response. See mentions.ts.
   let displays = new Map<string, string>();
   const guard = [...(opts?.names ?? []), ...initiatorNames()];
-  // Bare (un-@'d) names stay the viewer's username, not their nickname.
+  // Nicknames (!nick or automatic) apply to every reply (cached per channel, mentions.ts).
+  const nicks = await getChannelNicknames(broadcasterId);
   if (opts?.names?.length) {
     // Battle logs: bare names -> one whole word of the display name ("Stoned").
     displays = await lookupViewerNames(broadcasterId, opts.names).catch(() => new Map<string, string>()); // fall back to the text's own names
     const lead = text.match(/^(?:[^\w@]*)@([A-Za-z0-9_]{1,25})\b/)?.[1];
     if (lead) displays.set(lead.toLowerCase(), lead);
-    text = shortenNames(text, opts.names, displays);
+    text = shortenNames(text, opts.names, displays, nicks);
   }
-  text = limitNameAppearances(text, guard, { displays });
+  text = applyNicknames(text, guard, nicks);
+  text = limitNameAppearances(text, guard, { displays, nicks });
   let parts = prepareParts(text, CHAT_MAX, maxParts);
   parts = preferLinkInFirstPart(parts);
   const summarized = await summarizeLongReply(text, opts?.detail ?? original, parts.length, broadcasterId, opts?.summary, opts?.names);
