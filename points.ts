@@ -37,7 +37,7 @@
 
 import { sendChatMessage } from "./twitch.ts";
 import { pick } from "./utils.ts";
-import { formatCoins, MAX_COPPER, parseCoins } from "./coins.ts";
+import { earnsChatGold, formatCoins, MAX_COPPER, parseCoins } from "./coins.ts";
 import {
   addEntryTickets,
   adjustBalance,
@@ -124,14 +124,15 @@ const coin = formatCoins;
 
 /** Grants gold for an ordinary chat message. Safe to call for every
  * non-command message from a real (non-bot) viewer while the stream is
- * live — does nothing when the system is off or the viewer is cooling down. */
+ * live — does nothing when the system is off or the viewer is cooling down.
+ * Message length doesn't matter: "B2 3" earns the same as a paragraph. */
 export async function maybeAwardChatPoints(
   chatMessage: string,
   chatter: string,
   display: string,
   broadcasterId: string,
 ): Promise<void> {
-  if (chatMessage.trim().length < 2) return;
+  if (!earnsChatGold(chatMessage)) return; // short messages like "B2 3" count too
   if (!(await isPointsEnabled(broadcasterId))) return;
   // Per-channel options (dashboard Quick setup → Gold); defaults are the env values above.
   const [perMessage, everySeconds] = await Promise.all([optNum(broadcasterId, "gold.perMessage"), optNum(broadcasterId, "gold.earnEvery")]);

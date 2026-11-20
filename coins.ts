@@ -117,3 +117,10 @@ export function parseFirstPrice(text: string): number | null {
   }
   return found && total > 0 && total <= MAX_COPPER ? total : null;
 }
+
+/** Whether a plain chat message counts toward chat gold. Any message with
+ * visible text counts, however short ("B2 3", "gg", "7"): the per-viewer
+ * earn cooldown is what stops spam, not message length. */
+export function earnsChatGold(message: string): boolean {
+  return message.trim().length > 0;
+}
