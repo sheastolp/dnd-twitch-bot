@@ -366,7 +366,7 @@ async function handleNotification(body: any): Promise<Response | void> {
         : subscriptionType === "channel.subscription.gift"
           ? rollGiftSubThankYou(isAnonymousGifter ? null : subDisplay, Number(body.event?.total ?? 1), tier)
           : rollResubThankYou(subDisplay, Number(body.event?.cumulative_months ?? 1), tier);
-    if (thankYou) await sendChatMessage(thankYou, subBroadcasterId);
+    if (thankYou) await sendChatMessage(thankYou, subBroadcasterId, [], { keepNames: true }); // usernames, not nicknames
     return new Response("OK");
   }
 
@@ -390,7 +390,7 @@ async function handleNotification(body: any): Promise<Response | void> {
     // (reuses raidConnection.is_live already fetched above).
     if (Number(raidConnection.is_live) !== 1) return new Response("OK");
     if (!(await isCommandGroupEnabled(raidBroadcasterId, "raidthanks"))) return new Response("OK");
-    await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId);
+    await sendChatMessage(rollRaidThankYou(raiderDisplay, viewers), raidBroadcasterId, [], { keepNames: true });
     return new Response("OK");
   }
 

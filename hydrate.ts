@@ -42,7 +42,7 @@ export async function onHydrateRedemption(event: any, now = Date.now()): Promise
   if (!(await isCommandGroupEnabled(id, "shots"))) return true;
   if (!(await isChannelEnabled(id)) || (await isChannelBlocked(id))) return true;
   const who = String(event?.user_name ?? event?.user_login ?? "Someone");
-  await sendChatMessage(hydrateRedeemLine(who, title, previous, now), id);
+  await sendChatMessage(hydrateRedeemLine(who, title, previous, now), id, [], { keepNames: true });
   return true;
 }
 

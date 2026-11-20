@@ -139,7 +139,8 @@ export async function notifyCommandFailed() {
 
 // opts.log: false when the caller logs the reply as a whole itself (parts of
 // a longer reply, or the summary of one already saved). opts.keepNames: leave
-// real names alone (!nick list, which has to show who has which nickname).
+// real names alone (!nick list, which has to show who has which nickname, and
+// redeem / sub / raid / follow announcements, which name people by username).
 // opts.whisper: false when the caller already applied whisper mode to the
 // reply as a whole.
 export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean }) {
@@ -153,7 +154,9 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
   const token = getAppToken();
   token.catch(() => {});
   const nicks = await getChannelNicknames(broadcasterId);
-  const message = limitNameAppearances(opts?.keepNames ? text.slice(0, 500) : applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
+  const message = opts?.keepNames
+    ? limitNameAppearances(text.slice(0, 500), guard)
+    : limitNameAppearances(applyNicknames(text.slice(0, 500), guard, nicks), guard, { nicks });
   if (!message.trim()) return true;
   try {
     await waitForChatSlot(broadcasterId);

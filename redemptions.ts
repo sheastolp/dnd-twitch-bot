@@ -208,6 +208,8 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
     await sendChatMessage(
       fill(pick(SHIELD_LINES), { user: `@${display}`, mins: waitText(expiresAt - Date.now()) }),
       broadcasterId,
+      [],
+      { keepNames: true },
     );
     return;
   }
@@ -219,18 +221,22 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
     await sendChatMessage(
       `@${display} your "${title}" redemption needs "<user> <feature>" in its text box (e.g. "bob rob"). Features: ${featureNames}. A mod can refund it from the rewards queue.`,
       broadcasterId,
+      [],
+      { keepNames: true },
     );
     return;
   }
   const broadcasterLogin = String(connection.login ?? "").toLowerCase();
   if (parsed.target === redeemer) {
-    await sendChatMessage(`@${display} you can't hex yourself — a mod can refund "${title}" from the rewards queue.`, broadcasterId);
+    await sendChatMessage(`@${display} you can't hex yourself — a mod can refund "${title}" from the rewards queue.`, broadcasterId, [], { keepNames: true });
     return;
   }
   if (parsed.target === broadcasterLogin || await isChannelBot(broadcasterId, parsed.target, "", botId)) {
     await sendChatMessage(
       `@${display} that target is protected by powers beyond any hex — a mod can refund "${title}" from the rewards queue.`,
       broadcasterId,
+      [],
+      { keepNames: true },
     );
     return;
   }
@@ -249,6 +255,8 @@ export async function handleRedemptionEvent(event: any): Promise<void> {
       mins: waitText(expiresAt - Date.now()),
     }),
     broadcasterId,
+    [],
+    { keepNames: true },
   );
 }
 

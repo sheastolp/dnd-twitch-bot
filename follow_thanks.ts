@@ -96,5 +96,5 @@ export async function onFollow(event: any) {
   ]);
   if (!on || blocked || !groupOn) return;
   if (!(await claimFollowThanks(broadcasterId, userId))) return;
-  await sendChatMessage(rollFollowThankYou(display), broadcasterId);
+  await sendChatMessage(rollFollowThankYou(display), broadcasterId, [], { keepNames: true });
 }
