@@ -1,8 +1,8 @@
 // GuildScribe — the stream's raid quests. When the channel goes live
 // (stream.online in main.ts), a raid quest is posted: a high-level boss
-// (CR RAID_MIN_CR and up) that no lone hero should take on. One boss per
-// stream by default; RAID_QUESTS_PER_STREAM (env) allows more: when one falls,
-// the next is posted at once (behind the usual raid cooldown). Quest 2 can't be mustered
+// (CR RAID_MIN_CR and up) that no lone hero should take on. Up to
+// RAID_QUESTS_PER_STREAM bosses go up each stream: when one falls, the next is
+// posted at once (behind the usual raid cooldown). Quest 2 can't be mustered
 // until RAID_SECOND_QUEST_DELAY_SECONDS (default 2h) after quest 1 falls, so
 // it lands in the second half of the stream. Viewers band
 // together with !rally into a temporary party that fights it; the boss's HP
@@ -31,8 +31,8 @@
 // change it with !rally cooldown). It is per channel, separate from the hunting
 // cooldown, and does not stop anyone joining a muster that is already open.
 //
-// Announcements: the quest is posted in chat once per stream, when it goes
-// live. There are no periodic reminders; !rally status shows the boss anytime.
+// No periodic reminders: each quest is announced once when it's posted, and
+// !rally status shows the boss anytime.
 //
 // When the boss falls, every hero who struck it during the stream earns its
 // full XP and a share of a hoard RAID_LOOT_MULTIPLIER times a normal drop.
@@ -67,7 +67,7 @@ export const MAX_RAID_COOLDOWN_SECONDS = 2 * 3600;
 export const DEFAULT_RAID_COOLDOWN_SECONDS = Math.floor(envNumber("RAID_COOLDOWN_SECONDS", 600, 0, MAX_RAID_COOLDOWN_SECONDS));
 export const RAID_MIN_CR = envNumber("RAID_MIN_CR", 13, 1, 17);
 /** Raid bosses posted per stream: slaying one posts the next, up to this many. */
-export const RAID_QUESTS_PER_STREAM = Math.floor(envNumber("RAID_QUESTS_PER_STREAM", 1, 1, 10));
+export const RAID_QUESTS_PER_STREAM = Math.floor(envNumber("RAID_QUESTS_PER_STREAM", 2, 1, 10));
 /** How long after quest 1's boss falls before quest 2 can be mustered (default 2 hours). */
 export const RAID_SECOND_QUEST_DELAY_SECONDS = Math.floor(envNumber("RAID_SECOND_QUEST_DELAY_SECONDS", 2 * 3600, 0, 6 * 3600));
 // The muster time, party size, boss HP and hoard multipliers are per-channel
