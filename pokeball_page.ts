@@ -23,6 +23,7 @@ import {
   scaleStep,
 } from "./pokeball_db.ts";
 import { escapeHtml } from "./utils.ts";
+import { optWord, setOptionValue } from "./channel_options.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 
 const NAME_RE = /^[A-Za-zÀ-ÿ0-9' -]{2,30}$/;
@@ -100,6 +101,10 @@ export async function applyPokeballForm(broadcasterId: string, form: FormData): 
     await setPokeballEnabled(broadcasterId, intent === "module_on");
     return { ok: true, message: `Pokéball advisor turned ${intent === "module_on" ? "on" : "off"}.` };
   }
+  if (intent === "voice_on" || intent === "voice_off") {
+    await setOptionValue(broadcasterId, "pokeball.listen", intent === "voice_on" ? "on" : null);
+    return { ok: true, message: `Voice throws turned ${intent === "voice_on" ? "on" : "off"}.` };
+  }
   if (intent === "save") {
     const { ball, error } = readBall(form);
     if (!ball) return { ok: false, message: error!, edit: key || undefined };
@@ -137,7 +142,11 @@ export async function renderPokeballPage(d: {
   const qs = `channel=${encodeURIComponent(d.broadcasterId)}&key=${encodeURIComponent(d.key)}`;
   const editLink = (k: string, label: string) => `<a class="btn ghost small-btn" href="/dashboard/pokeballs?${qs}&edit=${encodeURIComponent(k)}#edit">${label}</a>`;
   const name = escapeHtml(d.broadcasterName);
-  const [balls, on] = await Promise.all([listBalls(d.broadcasterId), isPokeballEnabled(d.broadcasterId)]);
+  const [balls, on, voiceOn] = await Promise.all([
+    listBalls(d.broadcasterId),
+    isPokeballEnabled(d.broadcasterId),
+    optWord(d.broadcasterId, "pokeball.listen").then((w) => w === "on").catch(() => false),
+  ]);
   const pending = balls.filter((b) => b.status === "pending").sort((a, b) => b.seen - a.seen);
   const known = balls.filter((b) => b.status !== "pending");
   const editing = d.edit ? balls.find((b) => b.key === d.edit) : undefined;
@@ -187,6 +196,9 @@ export async function renderPokeballPage(d: {
 ${d.error ? `<p class="banner error">${escapeHtml(d.error)}</p>` : d.notice ? `<p class="banner ok">${escapeHtml(d.notice)}</p>` : ""}
 <p>When <strong>PokemonCommunityGame</strong> spawns a Pokémon, GuildScribe looks it up (types, weight, speed, catch rate, legendary) and suggests the ball to throw from this list. Core balls are built in; you can add the balls your game has, edit any of them, or turn some off. <strong>Balls you add, teach or edit are shared with every channel</strong>; turning a ball off only affects ${name}.</p>
 <div class="controls">${on ? btn("module_off", "Turn off") : btn("module_on", "Turn on", "", "ember")}<span>${on ? "<strong>On</strong> — suggesting a ball for every spawn while you're live." : "<strong>Off</strong> — same as <code>!ball on</code> in chat."}</span></div>
+<h2>Voice throws</h2>
+<p>While a Pokémon is out, say <strong>"throw a great ball"</strong> (any ball by name) or <strong>"catch it"</strong> / <strong>"throw it"</strong> for the suggested ball, and GuildScribe types <code>!pokecatch &lt;ball&gt;</code> in chat <strong>as you</strong>, so the catch is yours. One throw per Pokémon. GuildScribe listens to your live stream's audio for this (what it heard shows on the 🎙 Listening log). Needs the advisor on, and the <code>user:write:chat</code> permission — reconnect on <a href="/connect">/connect</a> once to allow it.</p>
+<div class="controls">${voiceOn ? btn("voice_off", "Turn off") : btn("voice_on", "Turn on", "", "ember")}<span>${voiceOn ? `<strong>On</strong>${on ? " — listening while you're live." : " — but the advisor is off, so nothing is thrown."}` : "<strong>Off</strong> — same as <code>!ball voice on</code> in chat."}</span></div>
 <h2>Balls chat asked about</h2>
 ${pending.length
     ? `<p class="muted">Balls a viewer threw (<code>!pokecatch …</code>) or PokemonCommunityGame mentioned that GuildScribe doesn't know. Teach one and it joins the list below.</p><div class="table-wrap"><table><thead><tr><th>Ball</th><th class="num">Seen</th><th>First used by</th><th class="num">Since</th><th></th></tr></thead><tbody>${pendingRows}</tbody></table></div>`

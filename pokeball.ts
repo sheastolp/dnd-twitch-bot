@@ -25,9 +25,20 @@
 //
 // PokemonCommunityGame is a bot account, so its messages reach this through
 // the bot branch in main.ts (maybePokeballAdvice), never the command router.
+//
+// Voice throws (!ball voice on, option pokeball.listen): while a spawn is
+// open, the streamer saying "throw a great ball" (or "catch it" / "throw it"
+// for the suggested ball) makes GuildScribe type "!pokecatch greatball" in
+// chat AS THE STREAMER, so the catch counts for them. stream_listen.ts hears
+// it (maybeVoiceThrow); the message is sent with the broadcaster's own token,
+// which needs the user:write:chat permission (optional on /connect). One
+// throw per spawn.
 
 import { getBroadcaster, isChannelBlocked, isChannelEnabled } from "./db.ts";
-import { sendChatMessage } from "./twitch.ts";
+import { sendChatMessage, sendChatMessageAsBroadcaster } from "./twitch.ts";
+import { getBroadcasterAdToken } from "./ads_db.ts";
+import { getValidAdToken } from "./ads.ts";
+import { optWord, setOptionValue } from "./channel_options.ts";
 import {
   type Ball,
   ballKey,
@@ -51,6 +62,12 @@ export function targetPct(captureRate: number): number {
 const RESERVE_PCT = 100;
 /** At most one "what's that ball?" question per channel this often. */
 const ASK_COOLDOWN_MS = 2 * 60_000;
+/** How long after a spawn a voice throw is accepted (about PokemonCommunityGame's catch window). */
+export const SPAWN_WINDOW_MS = 90_000;
+/** At most one "I need permission to throw" message per channel this often. */
+const NO_TOKEN_WARN_MS = 30 * 60_000;
+/** The Twitch permission a voice throw needs (sending chat as the streamer). */
+export const CHAT_AS_SCOPE = "user:write:chat";
 
 /** !ball on|off|status, !ball balls, !ball unknown, !ball <Pokémon>. */
 export async function handlePokeballCommand(
@@ -68,6 +85,11 @@ export async function handlePokeballCommand(
   if (action === "status") {
     const on = await isPokeballEnabled(broadcasterId);
     await say(`🔴 The Pokéball advisor is ${on ? "on — I'll suggest a ball whenever PokemonCommunityGame spawns a Pokémon" : "off in this channel"}.${isModerator ? ` Mods: !ball ${on ? "off" : "on"}; edit the balls on !dashboard → 🔴 Pokéballs.` : ""}`);
+    return true;
+  }
+  const voice = action.match(/^voice(?:\s+(on|off|status))?$/);
+  if (voice) {
+    await handleVoiceCommand(say, broadcasterId, isModerator, voice[1] ?? "status");
     return true;
   }
   if (action === "on" || action === "off") {
@@ -102,6 +124,58 @@ export async function handlePokeballCommand(
   return true;
 }
 
+/** !ball voice on|off|status. */
+async function handleVoiceCommand(say: (t: string) => Promise<unknown>, broadcasterId: string, isModerator: boolean, action: string) {
+  const label = `Voice throws ("throw a great ball" / "catch it" while a Pokémon is out)`;
+  if (action === "status" || !isModerator) {
+    if (action !== "status") {
+      await say("only the broadcaster or a moderator can switch voice throws on or off.");
+      return;
+    }
+    const on = await voiceThrowsOn(broadcasterId);
+    const problems = on ? await voiceProblems(broadcasterId) : "";
+    await say(`🔴 ${label} ${on ? "are on" : "are off"}.${problems}${isModerator ? ` Switch with !ball voice ${on ? "off" : "on"}.` : ""}`);
+    return;
+  }
+  // "off" is the default, so off just drops the channel's own value.
+  await setOptionValue(broadcasterId, "pokeball.listen", action === "on" ? "on" : null);
+  if (action === "off") {
+    await say("🔴 Voice throws off.");
+    return;
+  }
+  await say(`🔴 Voice throws on — GuildScribe starts listening within a minute while you're live, and throws as you when you say "throw a <ball>" or "catch it".${await voiceProblems(broadcasterId)}`);
+}
+
+/** What still stops voice throws from working, as a sentence to append ("" when nothing). */
+async function voiceProblems(broadcasterId: string): Promise<string> {
+  const notes: string[] = [];
+  if (!(await isPokeballEnabled(broadcasterId))) notes.push("the Pokéball advisor is off (!ball on)");
+  if (!(await hasChatAsScope(broadcasterId))) notes.push(`the streamer needs to reconnect on /connect and allow "${CHAT_AS_SCOPE}" so I can type the throw as them`);
+  return notes.length ? ` Heads-up: ${notes.join("; and ")}.` : "";
+}
+
+/** Whether the voice-throw option is on (pokeball.listen). */
+export async function voiceThrowsOn(broadcasterId: string): Promise<boolean> {
+  return (await optWord(broadcasterId, "pokeball.listen")) === "on";
+}
+
+/** Whether GuildScribe should listen to this channel for throws (option and advisor on). */
+export async function wantsVoiceThrows(broadcasterId: string): Promise<boolean> {
+  if (!(await voiceThrowsOn(broadcasterId))) return false;
+  return await isPokeballEnabled(broadcasterId);
+}
+
+async function hasChatAsScope(broadcasterId: string): Promise<boolean> {
+  const row = await getBroadcasterAdToken(broadcasterId).catch(() => null);
+  return !!row && String(row.scope ?? "").split(/\s+/).includes(CHAT_AS_SCOPE);
+}
+
+/** The broadcaster's own token when it may send chat as them, else null. */
+async function chatAsToken(broadcasterId: string): Promise<string | null> {
+  if (!(await hasChatAsScope(broadcasterId))) return null;
+  return await getValidAdToken(broadcasterId);
+}
+
 /** The Pokémon name from a spawn announcement, or null if it isn't one. */
 export function parseSpawn(text: string): string | null {
   const m = text.match(/\bA wild (.+?) (?:appears|appeared|has appeared)\b/i);
@@ -128,6 +202,29 @@ export function thrownBall(text: string): string | null {
   if (!m) return null;
   const key = ballKey(m[1]);
   return key.length > 4 && key.length <= 24 ? key : null;
+}
+
+// Words before "ball" that mean "a ball" rather than a kind of ball: "throw a ball", "throw the ball".
+const ANY_BALL_WORDS = new Set(["a", "an", "the", "my", "one", "that", "this", "your", "another"]);
+
+/**
+ * A throw the streamer said, from one transcribed line: { ball: "greatball" }
+ * for "throw a great ball", { ball: null } (the suggested ball) for "throw
+ * it", "throw a ball", "catch it". Null when the line isn't a throw.
+ */
+export function heardThrow(text: string): { ball: string | null } | null {
+  const norm = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/['’‘`]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+  const m = norm.match(/\bthrow (?:(?:a|an|the|my|one|another) )?([a-z]+) ?ball\b/);
+  if (m) {
+    const word = m[1];
+    if (ANY_BALL_WORDS.has(word)) return { ball: null };
+    if (NOT_BALL_WORDS.has(word)) return null; // "throw a football"
+    const key = ballKey(word);
+    return key.length > 4 && key.length <= 24 ? { ball: key } : null;
+  }
+  if (/\b(?:throw it|throw one|catch (?:it|him|her|that|this one)|poke ?catch)\b/.test(norm)) return { ball: null };
+  return null;
 }
 
 const REGIONS: Record<string, string> = { alolan: "alola", galarian: "galar", hisuian: "hisui", paldean: "paldea" };
@@ -262,13 +359,22 @@ export function recommendBall(p: PokeInfo, balls: Ball[]): { ball: string; pct: 
 }
 
 async function adviceFor(name: string, balls: Ball[]): Promise<string> {
+  return (await advise(name, balls)).text;
+}
+
+/** The suggestion for a Pokémon: the chat line and the key of the ball it names. */
+async function advise(name: string, balls: Ball[]): Promise<{ text: string; ball: string }> {
   const info = await lookupPokemon(name);
-  if (!info) return `🔴 ${name}? I couldn't look it up — try a Great Ball, or a Quick Ball thrown right away.`;
+  if (!info) return { text: `🔴 ${name}? I couldn't look it up — try a Great Ball, or a Quick Ball thrown right away.`, ball: "greatball" };
   const { ball, pct, why, alt } = recommendBall(info, balls);
   const types = info.types.map(cap).join("/");
   const altText = alt && alt.name !== ball ? ` Alt: ${alt.name}${alt.note ? ` — ${alt.note.replace(/\.$/, "")}` : ""}.` : "";
-  return `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${pct !== null ? `${pct}%, ` : ""}${why}).${altText}`;
+  return { text: `🔴 Wild ${name} (${types}, catch rate ${info.captureRate}/255) → ${ball} (${pct !== null ? `${pct}%, ` : ""}${why}).${altText}`, ball: ballKey(ball) };
 }
+
+/** The Pokémon out right now per channel, for voice throws. */
+const openSpawns = new Map<string, { name: string; ball: string; at: number; thrown: boolean }>();
+const lastNoTokenWarn = new Map<string, number>();
 
 /** Whether the advisor may talk in this channel right now. */
 async function advisorLive(broadcasterId: string): Promise<boolean> {
@@ -298,7 +404,14 @@ export async function maybePokeballAdvice(broadcasterId: string, chatter: string
     const known = new Set(balls.map((b) => b.key));
     // Unknown balls the game mentions are listed on the page quietly — only a viewer's throw asks chat.
     for (const key of mentioned) if (!known.has(key)) await recordUnknownBall(broadcasterId, key, POKEMON_GAME_BOT);
-    if (name) await sendChatMessage(await adviceFor(name, balls), broadcasterId);
+    if (name) {
+      // Open for voice throws before the lookup, so a quick "catch it" isn't missed.
+      const spawn = { name, ball: "greatball", at: Date.now(), thrown: false };
+      openSpawns.set(broadcasterId, spawn);
+      const advice = await advise(name, balls);
+      spawn.ball = advice.ball;
+      await sendChatMessage(advice.text, broadcasterId);
+    }
   } catch {
     // advisory only — never break chat handling
   }
@@ -328,5 +441,43 @@ export async function maybeAskAboutBall(broadcasterId: string, chatter: string, 
     );
   } catch {
     // advisory only
+  }
+}
+
+/**
+ * Called by stream_listen.ts for each line the streamer said. When it's a
+ * throw and a Pokémon is out, types "!pokecatch <ball>" in chat as the
+ * streamer. Returns what happened, for the listen log, or null when the line
+ * isn't a throw (or voice throws are off). Never throws.
+ */
+export async function maybeVoiceThrow(broadcasterId: string, text: string): Promise<{ thrown: boolean; log: string } | null> {
+  try {
+    const heard = heardThrow(text);
+    if (!heard) return null;
+    if (!(await wantsVoiceThrows(broadcasterId)) || !(await advisorLive(broadcasterId))) return null;
+    const spawn = openSpawns.get(broadcasterId);
+    if (!spawn || Date.now() - spawn.at > SPAWN_WINDOW_MS) return { thrown: false, log: "heard a throw, but no Pokémon is out — nothing thrown." };
+    if (spawn.thrown) return { thrown: false, log: `heard a throw, but you already threw at ${spawn.name}.` };
+    const key = heard.ball ?? spawn.ball;
+    const token = await chatAsToken(broadcasterId);
+    if (!token) {
+      const now = Date.now();
+      if (now - (lastNoTokenWarn.get(broadcasterId) ?? 0) >= NO_TOKEN_WARN_MS) {
+        lastNoTokenWarn.set(broadcasterId, now);
+        await sendChatMessage(
+          `🔴 I heard the streamer call for a ${ballNameFromKey(key)}, but I can't throw it as them yet — the streamer needs to reconnect on /connect and allow "${CHAT_AS_SCOPE}".`,
+          broadcasterId,
+        );
+      }
+      return { thrown: false, log: `heard a ${ballNameFromKey(key)} throw, but there's no ${CHAT_AS_SCOPE} permission — reconnect on /connect.` };
+    }
+    spawn.thrown = true;
+    if (!(await sendChatMessageAsBroadcaster(token, broadcasterId, `!pokecatch ${key}`))) {
+      spawn.thrown = false;
+      return { thrown: false, log: `Twitch refused the throw (!pokecatch ${key}).` };
+    }
+    return { thrown: true, log: `threw a ${ballNameFromKey(key)} at ${spawn.name} (!pokecatch ${key}).` };
+  } catch (e) {
+    return { thrown: false, log: `voice throw failed: ${(e as Error).message}` };
   }
 }

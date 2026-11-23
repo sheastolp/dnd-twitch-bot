@@ -9,9 +9,14 @@
 // newest LOG_MAX lines, lost on restart, never in the database) for the
 // operator page /admin/listen (listen_page.ts), like UndercoverBurn's /logs.
 //
+// It also hears voice Pokéball throws ("throw a great ball", "catch it"):
+// pokeball.ts maybeVoiceThrow types !pokecatch as the streamer while a
+// PokemonCommunityGame Pokémon is out.
+//
 // Per channel it's the "Count a shot when you say…" option on the Shot
-// counter card (shots.listen), and it only runs while the shots switch is on
-// and the channel is live. syncStreamListening (server.ts, every 30 s)
+// counter card (shots.listen, only while the shots switch is on) and/or
+// voice throws (pokeball.listen, !ball voice on, only while the Pokéball
+// advisor is on), and it only runs while the channel is live. syncStreamListening (server.ts, every 30 s)
 // starts and stops captures.
 //
 // Needs on the host: `streamlink` and `ffmpeg` on PATH, and Deno started
@@ -27,6 +32,7 @@ import { sendChatMessage } from "./twitch.ts";
 import { isCommandGroupEnabled } from "./db.ts";
 import { optWord } from "./channel_options.ts";
 import { adjustShots, shotWords } from "./shots.ts";
+import { maybeVoiceThrow, wantsVoiceThrows } from "./pokeball.ts";
 import { pick } from "./utils.ts";
 import { SAMPLE_RATE, type Segment, SpeechSegmenter } from "./vad.ts";
 
@@ -100,7 +106,7 @@ const health = { failures: 0, lastError: "", pausedUntil: 0 };
 
 // ── The listen log (/admin/listen) ──
 
-export type ListenLogKind = "said" | "shot" | "cooldown" | "status" | "error";
+export type ListenLogKind = "said" | "shot" | "throw" | "cooldown" | "status" | "error";
 export type ListenLogLine = { ts: number; login: string; kind: ListenLogKind; text: string };
 const LOG_MAX = 2000;
 const listenLog: ListenLogLine[] = [];
@@ -136,10 +142,15 @@ export function getListenStatus() {
   };
 }
 
-/** Whether this channel wants listening right now (live, shots on, shots.listen on). */
-async function wantsListening(broadcasterId: string): Promise<boolean> {
+/** Whether this channel wants shots counted by ear (shots on, shots.listen on). */
+async function wantsShotListening(broadcasterId: string): Promise<boolean> {
   if (!(await isCommandGroupEnabled(broadcasterId, "shots"))) return false;
   return (await optWord(broadcasterId, "shots.listen")) === "on";
+}
+
+/** Whether this channel wants listening at all: for shots or for voice Pokéball throws. */
+async function wantsListening(broadcasterId: string): Promise<boolean> {
+  return (await wantsShotListening(broadcasterId)) || (await wantsVoiceThrows(broadcasterId));
 }
 
 /** Logins being listened to right now. */
@@ -264,7 +275,7 @@ async function runCapture(broadcasterId: string, login: string, signal: AbortSig
       if (!text) continue;
       lastText = text;
       chain = chain.then(() => onLine(broadcasterId, login, text)).catch((e) =>
-        note("error", login, `counting the shot failed: ${(e as Error).message}`)
+        note("error", login, `handling what was heard failed: ${(e as Error).message}`)
       );
     }
   };
@@ -301,9 +312,11 @@ async function runCapture(broadcasterId: string, login: string, signal: AbortSig
   await Promise.allSettled([streamlink.status, ffmpeg.status]);
 }
 
-/** One transcribed line: a shot if it holds a phrase (and the cooldown's over). */
+/** One transcribed line: a Pokéball throw, or a shot if it holds a phrase (and the cooldown's over). */
 async function onLine(broadcasterId: string, login: string, text: string) {
   note("said", login, text);
+  const thrown = await maybeVoiceThrow(broadcasterId, text);
+  if (thrown) note(thrown.thrown ? "throw" : "status", login, thrown.log);
   const said = heardPhrase(text);
   if (!said) return;
   const now = Date.now();
@@ -311,8 +324,8 @@ async function onLine(broadcasterId: string, login: string, text: string) {
     note("cooldown", login, `heard "${said}" again within ${SHOT_COOLDOWN_MS / 1000}s — not counted.`);
     return;
   }
-  // Switched off mid-stream: the capture stops on the next sync, but don't count meanwhile.
-  if (!(await wantsListening(broadcasterId))) return;
+  // Switched off mid-stream (or only listening for throws): don't count.
+  if (!(await wantsShotListening(broadcasterId))) return;
   lastShotAt.set(broadcasterId, now);
   const [n, w] = await Promise.all([adjustShots(broadcasterId, 1), shotWords(broadcasterId)]);
   const total = `${n} ${n === 1 ? w.one : w.many}`;

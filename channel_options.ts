@@ -124,6 +124,9 @@ export const OPTIONS: OptionDef[] = [
     def: 1800, min: 0, max: 14_400, suggest: ["off", "20m", "30m", "45m", "1h"] },
   { key: "shots.listen", bundle: "shots", label: "Add one when you say \"that was stupid\", \"I'm stupid\" or \"that was worthy of one\"", help: "on = GuildScribe listens to your live stream's audio (like UndercoverBurn does), adds one each time it hears one of those phrases, and says so in chat. What it heard shows on the dashboard's 🎙 Listening log (kept in memory, cleared on restart, never saved). Only while you're live and the shot counter is on.", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
+  // Voice Pokéball throws (pokeball.ts, stream_listen.ts). Shown on /dashboard/pokeballs, not a quick-setup card.
+  { key: "pokeball.listen", bundle: "pokeball", label: "Throw a Pokéball when you say \"throw a great ball\" or \"catch it\"", help: "on = GuildScribe listens to your live stream's audio and, while a PokemonCommunityGame Pokémon is out, types !pokecatch <ball> in chat as you. Needs the Pokéball advisor on and the user:write:chat permission (reconnect on /connect).", kind: "word",
+    def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
   // Headpats (headpats.ts)
   { key: "headpats.chance", bundle: "headpats", label: "Answer a headpat in chat", help: "How often a \"headpat\" / \"pat pat\" in chat gets one back. !headpat always answers.", kind: "percent",
     def: 33, min: 1, max: 100, suggest: ["10%", "33%", "50%", "100%"] },

@@ -244,6 +244,37 @@ export async function sendChatAnnouncement(text: string, broadcasterId: string, 
   return await sendChatMessage(message, broadcasterId, [], { log: false, whisper: false });
 }
 
+/** Sends one chat message as the broadcaster themself, not as GuildScribe:
+ * `userToken` is the broadcaster's own token and must carry user:write:chat.
+ * Used for voice Pokéball throws (pokeball.ts), which PokemonCommunityGame
+ * has to see coming from the streamer. True once Twitch posted it. */
+export async function sendChatMessageAsBroadcaster(userToken: string, broadcasterId: string, message: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://api.twitch.tv/helix/chat/messages", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${userToken}`,
+        "Client-Id": env("TWITCH_CLIENT_ID"),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ broadcaster_id: broadcasterId, sender_id: broadcasterId, message: message.slice(0, 500) }),
+    });
+    if (!res.ok) {
+      console.error(`Twitch chat send (as broadcaster) failed: ${res.status} ${await res.text().catch(() => "")}`);
+      return false;
+    }
+    const result = (await res.json().catch(() => null))?.data?.[0];
+    if (result && result.is_sent === false) {
+      console.error(`Twitch dropped a message sent as the broadcaster: ${result.drop_reason?.message ?? result.drop_reason?.code ?? "no reason given"}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Twitch chat send (as broadcaster) failed:", (e as Error).message);
+    return false;
+  }
+}
+
 export async function sendChatMessages(
   text: string,
   broadcasterId: string,

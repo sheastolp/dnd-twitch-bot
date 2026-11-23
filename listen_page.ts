@@ -22,11 +22,13 @@ import { escapeHtml } from "./utils.ts";
 import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { isCommandGroupEnabled } from "./db.ts";
 import { optWord } from "./channel_options.ts";
+import { wantsVoiceThrows } from "./pokeball.ts";
 import { getListenLog, getListenStatus, LISTEN_LOG_MAX, listenLogStartedAt, type ListenLogLine } from "./stream_listen.ts";
 
 const KINDS: Record<string, string> = {
   said: "What was said",
   shot: "Shots poured",
+  throw: "Pokéballs thrown",
   cooldown: "Heard again (cooldown)",
   status: "Start / stop",
   error: "Problems",
@@ -91,6 +93,7 @@ form.filter input[type=text]{min-width:180px}
 .logbox .who{color:#c9a96a}
 .logbox .kind{display:inline-block;min-width:66px;color:#8a7d68}
 .logbox .l.shot{color:#9be39b;font-weight:700}
+.logbox .l.throw{color:#ff8f8f;font-weight:700}
 .logbox .l.cooldown{color:#d8c690}
 .logbox .l.status{color:#9fb7d8}
 .logbox .l.error{color:#ff9a8f}
@@ -115,7 +118,7 @@ function transcriberStat(): string {
   return `<div class="stat"><b>${t}</b>transcriber (${escapeHtml(st.host)}, ${escapeHtml(st.model)})</div>`;
 }
 
-type ChannelRow = { id: string; login: string; name: string; live: boolean; listenOn: boolean; shotsOn: boolean };
+type ChannelRow = { id: string; login: string; name: string; live: boolean; listenOn: boolean; shotsOn: boolean; throwsOn: boolean };
 
 /** Why a channel is or isn't being listened to, in a few words. */
 function channelState(c: ChannelRow | undefined, login: string): string {
@@ -123,8 +126,8 @@ function channelState(c: ChannelRow | undefined, login: string): string {
   const cap = st.captures.find((x) => x.login === login);
   if (cap) return `🎙 listening now (${ago(Date.now() - cap.startedAt)})`;
   if (!c) return "not connected";
-  if (!c.listenOn) return "listening is off (!feature shot listen on)";
-  if (!c.shotsOn) return "⚠️ shot counter is off (!feature shots on)";
+  if (!c.listenOn && !c.throwsOn) return "listening is off (!feature shot listen on, or !ball voice on)";
+  if (!c.throwsOn && !c.shotsOn) return "⚠️ shot counter is off (!feature shots on)";
   if (!c.live) return "offline — starts when the stream goes live";
   if (st.unavailableUntil > Date.now()) return "⚠️ streamlink/ffmpeg can't run — see Problems";
   if (!st.hasKey) return "⚠️ no transcription API key";
@@ -133,9 +136,10 @@ function channelState(c: ChannelRow | undefined, login: string): string {
 
 async function channelRow(r: any): Promise<ChannelRow> {
   const id = String(r.broadcaster_id);
-  const [listen, shots] = await Promise.all([
+  const [listen, shots, throwsOn] = await Promise.all([
     optWord(id, "shots.listen").catch(() => "off"),
     isCommandGroupEnabled(id, "shots").catch(() => false),
+    wantsVoiceThrows(id).catch(() => false),
   ]);
   return {
     id,
@@ -144,6 +148,7 @@ async function channelRow(r: any): Promise<ChannelRow> {
     live: Number(r.is_live) === 1,
     listenOn: listen === "on",
     shotsOn: shots,
+    throwsOn,
   };
 }
 
@@ -153,7 +158,7 @@ async function overviewChannels(): Promise<ChannelRow[]> {
   const { rows } = await sqlite.execute(
     `SELECT b.broadcaster_id, b.login, b.display_name, b.is_live FROM broadcasters b
      WHERE b.connected = 1 AND b.login IS NOT NULL AND (
-       EXISTS (SELECT 1 FROM channel_options o WHERE o.broadcaster_id = b.broadcaster_id AND o.opt_key = 'shots.listen' AND o.value = 'on')
+       EXISTS (SELECT 1 FROM channel_options o WHERE o.broadcaster_id = b.broadcaster_id AND o.opt_key IN ('shots.listen', 'pokeball.listen') AND o.value = 'on')
        ${logins.length ? `OR LOWER(b.login) IN (${logins.map(() => "?").join(",")})` : ""}
      )`,
     logins,
