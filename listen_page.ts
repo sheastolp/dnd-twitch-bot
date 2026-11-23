@@ -23,12 +23,14 @@ import { LEDGER_CSS, scrollDoc } from "./scroll_theme.ts";
 import { isCommandGroupEnabled } from "./db.ts";
 import { optWord } from "./channel_options.ts";
 import { wantsVoiceThrows } from "./pokeball.ts";
+import { wantsVoiceCommands } from "./voice_commands.ts";
 import { getListenLog, getListenStatus, LISTEN_LOG_MAX, listenLogStartedAt, type ListenLogLine } from "./stream_listen.ts";
 
 const KINDS: Record<string, string> = {
   said: "What was said",
   shot: "Shots poured",
   throw: "Pokéballs thrown",
+  voice: "Voice commands sent",
   cooldown: "Heard again (cooldown)",
   status: "Start / stop",
   error: "Problems",
@@ -94,6 +96,7 @@ form.filter input[type=text]{min-width:180px}
 .logbox .kind{display:inline-block;min-width:66px;color:#8a7d68}
 .logbox .l.shot{color:#9be39b;font-weight:700}
 .logbox .l.throw{color:#ff8f8f;font-weight:700}
+.logbox .l.voice{color:#f2c96b;font-weight:700}
 .logbox .l.cooldown{color:#d8c690}
 .logbox .l.status{color:#9fb7d8}
 .logbox .l.error{color:#ff9a8f}
@@ -126,7 +129,7 @@ function channelState(c: ChannelRow | undefined, login: string): string {
   const cap = st.captures.find((x) => x.login === login);
   if (cap) return `🎙 listening now (${ago(Date.now() - cap.startedAt)})`;
   if (!c) return "not connected";
-  if (!c.listenOn && !c.throwsOn) return "listening is off (!feature shot listen on, or !ball voice on)";
+  if (!c.listenOn && !c.throwsOn) return "listening is off (!feature shot listen on, or !voice)";
   if (!c.throwsOn && !c.shotsOn) return "⚠️ shot counter is off (!feature shots on)";
   if (!c.live) return "offline — starts when the stream goes live";
   if (st.unavailableUntil > Date.now()) return "⚠️ streamlink/ffmpeg can't run — see Problems";
@@ -139,7 +142,7 @@ async function channelRow(r: any): Promise<ChannelRow> {
   const [listen, shots, throwsOn] = await Promise.all([
     optWord(id, "shots.listen").catch(() => "off"),
     isCommandGroupEnabled(id, "shots").catch(() => false),
-    wantsVoiceThrows(id).catch(() => false),
+    Promise.all([wantsVoiceThrows(id), wantsVoiceCommands(id)]).then(([a, b]) => a || b).catch(() => false),
   ]);
   return {
     id,
@@ -158,7 +161,7 @@ async function overviewChannels(): Promise<ChannelRow[]> {
   const { rows } = await sqlite.execute(
     `SELECT b.broadcaster_id, b.login, b.display_name, b.is_live FROM broadcasters b
      WHERE b.connected = 1 AND b.login IS NOT NULL AND (
-       EXISTS (SELECT 1 FROM channel_options o WHERE o.broadcaster_id = b.broadcaster_id AND o.opt_key IN ('shots.listen', 'pokeball.listen') AND o.value = 'on')
+       EXISTS (SELECT 1 FROM channel_options o WHERE o.broadcaster_id = b.broadcaster_id AND o.opt_key IN ('shots.listen', 'pokeball.listen', 'voice.join', 'voice.rally') AND o.value = 'on')
        ${logins.length ? `OR LOWER(b.login) IN (${logins.map(() => "?").join(",")})` : ""}
      )`,
     logins,

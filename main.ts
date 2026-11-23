@@ -83,6 +83,7 @@ import { ensureChecklistTables, handleChecklistCommand, purgeChecklistData } fro
 import { ensureShotTables, handleShotCommand, purgeShotData } from "./shots.ts";
 import { ensureSoundByteTables, handleSoundByteCommand, purgeSoundByteData } from "./soundbytes.ts";
 import { ensureSoundAlertTables, handleSoundAlertCommand, onSoundAlertCheer, onSoundAlertRedemption, purgeSoundAlertData } from "./soundalerts.ts";
+import { handleVoiceCommand } from "./voice_commands.ts";
 import { ensurePokeballTables, handlePokeballCommand, maybeAskAboutBall, maybePokeballAdvice, purgePokeballData } from "./pokeball.ts";
 import { ensureQuoteTables, handleQuoteCommand, purgeQuoteData } from "./quotes.ts";
 import { ensureGameStatsTables, handleGameStatsCommand, purgeGameStatsData } from "./game_stats.ts";
@@ -908,6 +909,8 @@ async function handleNotification(body: any): Promise<Response | void> {
   // Hunt and Hoard (hoard.ts), under "Monster hunts": its words fall through when
   // it's off or the channel has its own custom command of the same name.
   if (await handleHoardCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
+  // Voice !join / !rally / Pokéball throws (voice_commands.ts): !voice [join|rally|ball on|off].
+  if (await handleVoiceCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   // Pokéball advisor toggle (pokeball.ts): !ball on/off/status.
   if (await handlePokeballCommand(chatMessage, display, broadcasterId, isModerator)) return new Response("OK");
   if (await handleBestiaryCommand(chatMessage, chatter, display, broadcasterId, isModerator, baseUrl)) return new Response("OK");

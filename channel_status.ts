@@ -29,8 +29,8 @@ export const CONNECT_SCOPES: Array<{ scope: string; feature: string; optional?: 
   { scope: "clips:edit", feature: "!clip", optional: true },
   // Optional: only the on-screen cheer alert needs it (alerts.ts subscribes lazily once granted).
   { scope: "bits:read", feature: "Cheer alerts on stream", optional: true },
-  // Optional: only voice Pokéball throws (pokeball.ts) send chat as the streamer.
-  { scope: "user:write:chat", feature: "Voice Pokéball throws (!ball voice)", optional: true },
+  // Optional: only voice commands (chat_as.ts: Pokéball throws, !join, !rally) send chat as the streamer.
+  { scope: "user:write:chat", feature: "Voice commands: Pokéball throws, !join and !rally (!voice)", optional: true },
 ];
 
 /** Extra EventSub subscriptions /connect creates (eventsub_extra_subscriptions.kind).

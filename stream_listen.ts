@@ -9,14 +9,16 @@
 // newest LOG_MAX lines, lost on restart, never in the database) for the
 // operator page /admin/listen (listen_page.ts), like UndercoverBurn's /logs.
 //
-// It also hears voice Pokéball throws ("throw a great ball", "catch it"):
-// pokeball.ts maybeVoiceThrow types !pokecatch as the streamer while a
-// PokemonCommunityGame Pokémon is out.
+// It also hears voice commands, typed in chat as the streamer: Pokéball
+// throws ("throw a great ball", "catch it" — pokeball.ts maybeVoiceThrow,
+// while a PokemonCommunityGame Pokémon is out) and "join" / "rally" (→ !join
+// / !rally, voice_commands.ts).
 //
 // Per channel it's the "Count a shot when you say…" option on the Shot
 // counter card (shots.listen, only while the shots switch is on) and/or
 // voice throws (pokeball.listen, !ball voice on, only while the Pokéball
-// advisor is on), and it only runs while the channel is live. syncStreamListening (server.ts, every 30 s)
+// advisor is on) and/or voice !join / !rally (voice.join, voice.rally,
+// !voice join|rally on), and it only runs while the channel is live. syncStreamListening (server.ts, every 30 s)
 // starts and stops captures.
 //
 // Needs on the host: `streamlink` and `ffmpeg` on PATH, and Deno started
@@ -33,6 +35,7 @@ import { isCommandGroupEnabled } from "./db.ts";
 import { optWord } from "./channel_options.ts";
 import { adjustShots, shotWords } from "./shots.ts";
 import { maybeVoiceThrow, wantsVoiceThrows } from "./pokeball.ts";
+import { maybeVoiceCommand, wantsVoiceCommands } from "./voice_commands.ts";
 import { pick } from "./utils.ts";
 import { SAMPLE_RATE, type Segment, SpeechSegmenter } from "./vad.ts";
 
@@ -106,7 +109,7 @@ const health = { failures: 0, lastError: "", pausedUntil: 0 };
 
 // ── The listen log (/admin/listen) ──
 
-export type ListenLogKind = "said" | "shot" | "throw" | "cooldown" | "status" | "error";
+export type ListenLogKind = "said" | "shot" | "throw" | "voice" | "cooldown" | "status" | "error";
 export type ListenLogLine = { ts: number; login: string; kind: ListenLogKind; text: string };
 const LOG_MAX = 2000;
 const listenLog: ListenLogLine[] = [];
@@ -148,9 +151,9 @@ async function wantsShotListening(broadcasterId: string): Promise<boolean> {
   return (await optWord(broadcasterId, "shots.listen")) === "on";
 }
 
-/** Whether this channel wants listening at all: for shots or for voice Pokéball throws. */
+/** Whether this channel wants listening at all: for shots, voice Pokéball throws or voice !join / !rally. */
 async function wantsListening(broadcasterId: string): Promise<boolean> {
-  return (await wantsShotListening(broadcasterId)) || (await wantsVoiceThrows(broadcasterId));
+  return (await wantsShotListening(broadcasterId)) || (await wantsVoiceThrows(broadcasterId)) || (await wantsVoiceCommands(broadcasterId));
 }
 
 /** Logins being listened to right now. */
@@ -312,11 +315,13 @@ async function runCapture(broadcasterId: string, login: string, signal: AbortSig
   await Promise.allSettled([streamlink.status, ffmpeg.status]);
 }
 
-/** One transcribed line: a Pokéball throw, or a shot if it holds a phrase (and the cooldown's over). */
+/** One transcribed line: a Pokéball throw, a voice !join / !rally, and/or a shot if it holds a phrase (and the cooldown's over). */
 async function onLine(broadcasterId: string, login: string, text: string) {
   note("said", login, text);
   const thrown = await maybeVoiceThrow(broadcasterId, text);
   if (thrown) note(thrown.thrown ? "throw" : "status", login, thrown.log);
+  const command = await maybeVoiceCommand(broadcasterId, text);
+  if (command) note(command.sent ? "voice" : "status", login, command.log);
   const said = heardPhrase(text);
   if (!said) return;
   const now = Date.now();

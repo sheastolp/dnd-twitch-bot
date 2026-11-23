@@ -127,6 +127,11 @@ export const OPTIONS: OptionDef[] = [
   // Voice Pokéball throws (pokeball.ts, stream_listen.ts). Shown on /dashboard/pokeballs, not a quick-setup card.
   { key: "pokeball.listen", bundle: "pokeball", label: "Throw a Pokéball when you say \"throw a great ball\" or \"catch it\"", help: "on = GuildScribe listens to your live stream's audio and, while a PokemonCommunityGame Pokémon is out, types !pokecatch <ball> in chat as you. Needs the Pokéball advisor on and the user:write:chat permission (reconnect on /connect).", kind: "word",
     def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
+  // Voice !join / !rally (voice_commands.ts, stream_listen.ts). !voice join|rally on|off in chat.
+  { key: "voice.join", bundle: "voice", label: "Type !join as you when you say \"join\"", help: "on = GuildScribe listens to your live stream's audio and, when you say \"join\" (on its own, or \"let's join\"), types !join in chat as you, for another bot's or game's join. Needs the user:write:chat permission (reconnect on /connect). Same as !voice join on.", kind: "word",
+    def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
+  { key: "voice.rally", bundle: "raid", label: "Type !rally as you when you say \"rally\"", help: "on = GuildScribe listens to your live stream's audio and, when you say \"rally\" (on its own, \"let's rally\", \"rally up\" or \"sound the war horn\"), types !rally in chat as you — sounding the horn or joining the muster. Needs the user:write:chat permission (reconnect on /connect). Same as !voice rally on.", kind: "word",
+    def: "off", choices: ["on", "off"], suggest: ["on", "off"] },
   // Headpats (headpats.ts)
   { key: "headpats.chance", bundle: "headpats", label: "Answer a headpat in chat", help: "How often a \"headpat\" / \"pat pat\" in chat gets one back. !headpat always answers.", kind: "percent",
     def: 33, min: 1, max: 100, suggest: ["10%", "33%", "50%", "100%"] },

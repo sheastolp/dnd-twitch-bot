@@ -35,9 +35,8 @@
 // throw per spawn.
 
 import { getBroadcaster, isChannelBlocked, isChannelEnabled } from "./db.ts";
-import { sendChatMessage, sendChatMessageAsBroadcaster } from "./twitch.ts";
-import { getBroadcasterAdToken } from "./ads_db.ts";
-import { getValidAdToken } from "./ads.ts";
+import { sendChatMessage } from "./twitch.ts";
+import { CHAT_AS_SCOPE, chatAsProblem, sendAsStreamer } from "./chat_as.ts";
 import { optWord, setOptionValue } from "./channel_options.ts";
 import {
   type Ball,
@@ -64,10 +63,6 @@ const RESERVE_PCT = 100;
 const ASK_COOLDOWN_MS = 2 * 60_000;
 /** How long after a spawn a voice throw is accepted (about PokemonCommunityGame's catch window). */
 export const SPAWN_WINDOW_MS = 90_000;
-/** At most one "I need permission to throw" message per channel this often. */
-const NO_TOKEN_WARN_MS = 30 * 60_000;
-/** The Twitch permission a voice throw needs (sending chat as the streamer). */
-export const CHAT_AS_SCOPE = "user:write:chat";
 
 /** !ball on|off|status, !ball balls, !ball unknown, !ball <Pokémon>. */
 export async function handlePokeballCommand(
@@ -150,7 +145,8 @@ async function handleVoiceCommand(say: (t: string) => Promise<unknown>, broadcas
 async function voiceProblems(broadcasterId: string): Promise<string> {
   const notes: string[] = [];
   if (!(await isPokeballEnabled(broadcasterId))) notes.push("the Pokéball advisor is off (!ball on)");
-  if (!(await hasChatAsScope(broadcasterId))) notes.push(`the streamer needs to reconnect on /connect and allow "${CHAT_AS_SCOPE}" so I can type the throw as them`);
+  const scope = await chatAsProblem(broadcasterId);
+  if (scope) notes.push(scope);
   return notes.length ? ` Heads-up: ${notes.join("; and ")}.` : "";
 }
 
@@ -163,17 +159,6 @@ export async function voiceThrowsOn(broadcasterId: string): Promise<boolean> {
 export async function wantsVoiceThrows(broadcasterId: string): Promise<boolean> {
   if (!(await voiceThrowsOn(broadcasterId))) return false;
   return await isPokeballEnabled(broadcasterId);
-}
-
-async function hasChatAsScope(broadcasterId: string): Promise<boolean> {
-  const row = await getBroadcasterAdToken(broadcasterId).catch(() => null);
-  return !!row && String(row.scope ?? "").split(/\s+/).includes(CHAT_AS_SCOPE);
-}
-
-/** The broadcaster's own token when it may send chat as them, else null. */
-async function chatAsToken(broadcasterId: string): Promise<string | null> {
-  if (!(await hasChatAsScope(broadcasterId))) return null;
-  return await getValidAdToken(broadcasterId);
 }
 
 /** The Pokémon name from a spawn announcement, or null if it isn't one. */
@@ -374,7 +359,7 @@ async function advise(name: string, balls: Ball[]): Promise<{ text: string; ball
 
 /** The Pokémon out right now per channel, for voice throws. */
 const openSpawns = new Map<string, { name: string; ball: string; at: number; thrown: boolean }>();
-const lastNoTokenWarn = new Map<string, number>();
+
 
 /** Whether the advisor may talk in this channel right now. */
 async function advisorLive(broadcasterId: string): Promise<boolean> {
@@ -459,22 +444,16 @@ export async function maybeVoiceThrow(broadcasterId: string, text: string): Prom
     if (!spawn || Date.now() - spawn.at > SPAWN_WINDOW_MS) return { thrown: false, log: "heard a throw, but no Pokémon is out — nothing thrown." };
     if (spawn.thrown) return { thrown: false, log: `heard a throw, but you already threw at ${spawn.name}.` };
     const key = heard.ball ?? spawn.ball;
-    const token = await chatAsToken(broadcasterId);
-    if (!token) {
-      const now = Date.now();
-      if (now - (lastNoTokenWarn.get(broadcasterId) ?? 0) >= NO_TOKEN_WARN_MS) {
-        lastNoTokenWarn.set(broadcasterId, now);
-        await sendChatMessage(
-          `🔴 I heard the streamer call for a ${ballNameFromKey(key)}, but I can't throw it as them yet — the streamer needs to reconnect on /connect and allow "${CHAT_AS_SCOPE}".`,
-          broadcasterId,
-        );
-      }
-      return { thrown: false, log: `heard a ${ballNameFromKey(key)} throw, but there's no ${CHAT_AS_SCOPE} permission — reconnect on /connect.` };
-    }
     spawn.thrown = true;
-    if (!(await sendChatMessageAsBroadcaster(token, broadcasterId, `!pokecatch ${key}`))) {
+    const sent = await sendAsStreamer(broadcasterId, `!pokecatch ${key}`, `🔴 I heard the streamer call for a ${ballNameFromKey(key)}, but I can't throw it as them yet.`);
+    if (sent !== "sent") {
       spawn.thrown = false;
-      return { thrown: false, log: `Twitch refused the throw (!pokecatch ${key}).` };
+      return {
+        thrown: false,
+        log: sent === "no-permission"
+          ? `heard a ${ballNameFromKey(key)} throw, but there's no ${CHAT_AS_SCOPE} permission — reconnect on /connect.`
+          : `Twitch refused the throw (!pokecatch ${key}).`,
+      };
     }
     return { thrown: true, log: `threw a ${ballNameFromKey(key)} at ${spawn.name} (!pokecatch ${key}).` };
   } catch (e) {
