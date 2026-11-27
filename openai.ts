@@ -15,10 +15,24 @@
 //
 // A caller may pass `reasoning_effort`; it is only forwarded to OpenAI
 // reasoning models (gpt-5*, o3*, o4*), which are the only ones that accept it.
-// A caller may also pass `think: false`: on Ollama, "thinking" models (qwen3,
-// deepseek-r1…) then answer straight away instead of spending the reply's
-// time and tokens thinking first. It's sent as reasoning_effort "none"; a
-// server that won't take that gets the request again without it.
+// Those models also refuse `temperature`, `top_p` and the penalties, so those
+// are dropped for them and sent to every other model.
+//
+// Thinking: on any server but OpenAI, requests ask the model to answer
+// straight away instead of thinking first (Qwen3/3.5, deepseek-r1…), because a
+// chat reply needs a quip, not a proof, and thinking would spend the reply's
+// time and tokens. It's sent the two ways servers understand: llama.cpp's
+// `chat_template_kwargs: { enable_thinking: false }` (the AI Pool) and
+// `reasoning_effort: "none"` (Ollama). A server that won't take them gets the
+// request again without them. A caller that does want thinking passes
+// `think: true`.
+//
+// The AI Pool answers one request at a time, so GuildScribe sends it one at a
+// time too (AI_MAX_CONCURRENT, default 1 for any server but OpenAI): the rest
+// wait their turn inside their own time limit. A caller that would rather
+// skip than wait (an NPC chiming in unprompted) passes `ifIdle: true`. A busy
+// or failed request is not tried again against the pool (it shouldn't be
+// taxed by bots): each feature answers its own fallback way instead.
 
 export const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -31,6 +45,9 @@ const ENV_BASE_URL = cleanBaseUrl(Deno.env.get("OPENAI_BASE_URL") || "") || DEFA
 const ENV_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
 const ENV_MODEL = (Deno.env.get("OPENAI_MODEL") || "").trim();
 const TIMEOUT_MS = Number(Deno.env.get("OPENAI_TIMEOUT_MS") || 60_000);
+/** How many requests GuildScribe has in flight at once to a server that isn't
+ * OpenAI (the AI Pool and Ollama answer one at a time). 0 = no limit. */
+const MAX_CONCURRENT = Math.max(0, Math.floor(Number(Deno.env.get("AI_MAX_CONCURRENT") ?? "1")));
 
 /** What the operator saved on /admin/ai; blank fields fall back to the env vars. */
 export type AiOverride = { baseUrl: string; model: string; apiKey: string };
@@ -118,43 +135,119 @@ export function stripThinking(j: any): any {
   return j;
 }
 
+/** Thrown when the AI didn't get to the request in time (busy with others,
+ * or the time limit ran out) or the caller asked to skip a busy AI. */
+export class AiBusyError extends Error {
+  constructor(message = "the AI is busy") {
+    super(message);
+    this.name = "AiBusyError";
+  }
+}
+
+/** True if `e` means "busy or too slow", not "broken": a queue that didn't
+ * clear, a timeout, or a 503/429 from the server. Callers say "try again in a
+ * moment" for these. */
+export function isAiBusy(e: unknown): boolean {
+  if (e instanceof AiBusyError) return true;
+  const name = (e as any)?.name ?? "";
+  if (name === "TimeoutError" || name === "AbortError") return true;
+  return /HTTP (?:503|429)\b/.test(String(e));
+}
+
+// One slot per request in flight; the rest queue in order.
+let active = 0;
+const queue: (() => void)[] = [];
+
+function takeSlot(deadline: number, ifIdle: boolean): Promise<() => void> {
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    active--;
+    queue.shift()?.();
+  };
+  if (MAX_CONCURRENT === 0) return Promise.resolve(() => {});
+  if (active < MAX_CONCURRENT) {
+    active++;
+    return Promise.resolve(release);
+  }
+  if (ifIdle) return Promise.reject(new AiBusyError("the AI is busy with another reply"));
+  return new Promise((resolve, reject) => {
+    const go = () => {
+      clearTimeout(timer);
+      active++;
+      resolve(release);
+    };
+    const timer = setTimeout(() => {
+      const at = queue.indexOf(go);
+      if (at >= 0) queue.splice(at, 1);
+      reject(new AiBusyError("the AI was busy with other replies the whole time"));
+    }, Math.max(0, deadline - Date.now()));
+    queue.push(go);
+  });
+}
+
+/** Test hook: how many requests are in flight and waiting. */
+export function aiQueueState(): { active: number; waiting: number } {
+  return { active, waiting: queue.length };
+}
+
+const SAMPLING_FIELDS = ["temperature", "top_p", "frequency_penalty", "presence_penalty"];
+
 export class OpenAI {
   chat = {
     completions: {
-      create: async (body: Record<string, any>, opts: { timeoutMs?: number } = {}): Promise<any> => {
+      create: async (body: Record<string, any>, opts: { timeoutMs?: number; ifIdle?: boolean } = {}): Promise<any> => {
         await overrideReady;
         const cfg = currentAiConfig();
         if (cfg.isOpenAI && !cfg.apiKey) throw new Error("AI replies need OPENAI_API_KEY (or another AI server picked on /admin/ai or in OPENAI_BASE_URL)");
         const req: Record<string, any> = { ...body, stream: false };
-        const noThinking = req.think === false;
+        const wantsThinking = req.think === true;
         delete req.think;
         if (cfg.model) req.model = cfg.model;
-        if (req.reasoning_effort !== undefined && !isReasoningModel(String(req.model ?? ""))) delete req.reasoning_effort;
-        if (noThinking && !cfg.isOpenAI) req.reasoning_effort = "none";
+        const reasoning = isReasoningModel(String(req.model ?? ""));
+        if (req.reasoning_effort !== undefined && !reasoning) delete req.reasoning_effort;
+        // OpenAI reasoning models only take the default sampling.
+        if (reasoning) for (const k of SAMPLING_FIELDS) delete req[k];
+        const thinkingOff = !cfg.isOpenAI && !wantsThinking;
+        if (thinkingOff) {
+          req.reasoning_effort = "none";
+          req.chat_template_kwargs = { ...(req.chat_template_kwargs ?? {}), enable_thinking: false };
+        }
         // Ollama and most other OpenAI-compatible servers read max_tokens.
         if (!cfg.isOpenAI && req.max_completion_tokens !== undefined && req.max_tokens === undefined) {
           req.max_tokens = req.max_completion_tokens;
           delete req.max_completion_tokens;
         }
-        const signal = AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS);
-        const post = () =>
-          fetch(`${cfg.baseUrl}/chat/completions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
-            },
-            body: JSON.stringify(req),
-            signal,
-          });
-        let res = await post();
-        if (res.status === 400 && noThinking && !cfg.isOpenAI) {
-          await res.body?.cancel();
-          delete req.reasoning_effort;
-          res = await post();
+        const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
+        const deadline = Date.now() + timeoutMs;
+        const release = cfg.isOpenAI ? () => {} : await takeSlot(deadline, !!opts.ifIdle);
+        try {
+          const signal = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+          const post = () =>
+            fetch(`${cfg.baseUrl}/chat/completions`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
+              },
+              body: JSON.stringify(req),
+              signal,
+            });
+          let res = await post();
+          // A server that doesn't know the thinking-off fields (the request
+          // never ran, so this isn't a retry of real work).
+          if (res.status === 400 && thinkingOff) {
+            await res.body?.cancel();
+            delete req.reasoning_effort;
+            delete req.chat_template_kwargs;
+            res = await post();
+          }
+          if (!res.ok) throw new Error(`AI request failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
+          return stripThinking(await res.json());
+        } finally {
+          release();
         }
-        if (!res.ok) throw new Error(`AI request failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-        return stripThinking(await res.json());
       },
     },
   };
