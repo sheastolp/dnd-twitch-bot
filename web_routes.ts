@@ -38,6 +38,7 @@ import { handleBotConnectRoute } from "./whisper.ts";
 import { handleReplyPageRoute } from "./replypages.ts";
 import { handleEventSubAdminRoute } from "./eventsub_admin.ts";
 import { handleMotdAdminRoute } from "./motd.ts";
+import { handleAiAdminRoute } from "./ai_model.ts";
 import { handleOperatorLogin, isOperatorRequest, operatorUnauthorized } from "./operator_auth.ts";
 import { handleOverlayRoute } from "./overlay.ts";
 import { handleExtensionRoute } from "./extension.ts";
@@ -737,6 +738,12 @@ export async function handleWebRoute(req: Request, url: URL, path: string): Prom
   // The developer's message of the day (motd.ts) — same ADMIN_API_SECRET gate.
   if (path === "/admin/motd") {
     const routed = await handleMotdAdminRoute(req, url, path);
+    if (routed) return routed;
+  }
+
+  // Which AI model GuildScribe uses (ai_model.ts) — same ADMIN_API_SECRET gate.
+  if (path === "/admin/ai") {
+    const routed = await handleAiAdminRoute(req, url, path);
     if (routed) return routed;
   }
 

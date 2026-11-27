@@ -18,6 +18,7 @@ import { warmFivetools } from "./fivetools.ts";
 import { syncStreamListening } from "./stream_listen.ts";
 import { runHydrationReminders } from "./hydrate.ts";
 import { runShotTitleCheck } from "./shots_auto.ts";
+import { loadAiSettings } from "./ai_model.ts";
 
 const PORT = Number(Deno.env.get("PORT") || 8801);
 const HOST = Deno.env.get("HOST") || "127.0.0.1";
@@ -57,6 +58,9 @@ every("shots_title_cron", 2, () => runShotTitleCheck());
 // Hearing the streamer for the shot counter (stream_listen.ts): start/stop
 // audio captures as channels go live or switch it on/off.
 setInterval(() => syncStreamListening().catch((e) => console.error("stream_listen failed:", e)), 30_000);
+
+// The AI address and model picked on /admin/ai (ai_model.ts); AI replies wait for it.
+loadAiSettings();
 
 // Download the 5e.tools archive (fivetools.ts) in the background so the first
 // !monster / !spell lookup that needs it doesn't wait on GitHub.
