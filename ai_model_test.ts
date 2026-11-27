@@ -6,8 +6,8 @@ Deno.env.set("DB_PATH", `${dir}/ai_model_test.sqlite`);
 const SECRET = "test-secret-0123456789-abcdefghijklmnop";
 Deno.env.set("ADMIN_API_SECRET", SECRET);
 
-const { handleAiAdminRoute, loadAiSettings } = await import("./ai_model.ts");
-const { currentAiConfig, OpenAI } = await import("./openai.ts");
+const { aiPoolPresetUrl, handleAiAdminRoute, loadAiSettings } = await import("./ai_model.ts");
+const { currentAiConfig, OpenAI, stripThinking } = await import("./openai.ts");
 
 // A pretend OpenAI-shaped server: /v1 is open, /keyed/v1 wants "Bearer sekrit".
 const seen: { path: string; auth: string; model: string }[] = [];
@@ -92,4 +92,30 @@ Deno.test({
 
     await server.shutdown();
   },
+});
+
+Deno.test("AI Pool preset: AI_POOL_URL, else port 8090 on the env's tailnet machine", () => {
+  const before = { base: Deno.env.get("OPENAI_BASE_URL"), pool: Deno.env.get("AI_POOL_URL") };
+  try {
+    Deno.env.delete("AI_POOL_URL");
+    Deno.env.set("OPENAI_BASE_URL", "https://box.tailabc.ts.net/v1");
+    assertEquals(aiPoolPresetUrl(), "http://box.tailabc.ts.net:8090/v1");
+    Deno.env.set("OPENAI_BASE_URL", "https://api.openai.com/v1");
+    assertEquals(aiPoolPresetUrl(), "");
+    Deno.env.set("AI_POOL_URL", "http://100.64.0.7:8090/v1/");
+    assertEquals(aiPoolPresetUrl(), "http://100.64.0.7:8090/v1");
+    Deno.env.set("AI_POOL_URL", "off");
+    assertEquals(aiPoolPresetUrl(), "");
+  } finally {
+    before.base === undefined ? Deno.env.delete("OPENAI_BASE_URL") : Deno.env.set("OPENAI_BASE_URL", before.base);
+    before.pool === undefined ? Deno.env.delete("AI_POOL_URL") : Deno.env.set("AI_POOL_URL", before.pool);
+  }
+});
+
+Deno.test("stripThinking keeps only the answer", () => {
+  const reply = (content: string) => stripThinking({ choices: [{ message: { content } }] }).choices[0].message.content;
+  assertEquals(reply("<think>hmm, a greeting</think>\n\nWelcome in!"), "Welcome in!");
+  assertEquals(reply("hmm, a greeting</think>Welcome in!"), "Welcome in!");
+  assertEquals(reply("Welcome in!"), "Welcome in!");
+  assertEquals(reply("Welcome<think>still going"), "Welcome");
 });

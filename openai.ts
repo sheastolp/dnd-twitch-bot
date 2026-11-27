@@ -104,6 +104,20 @@ export async function listAiModels(baseUrl: string, apiKey: string, timeoutMs = 
   return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
 }
 
+/** Thinking models (Qwen3/3.5 on llama.cpp or Ollama) can still put their
+ * <think>…</think> notes in the reply; only the answer after them goes on. */
+export function stripThinking(j: any): any {
+  for (const c of Array.isArray(j?.choices) ? j.choices : []) {
+    const m = c?.message;
+    if (typeof m?.content !== "string" || !/<\/?think>/i.test(m.content)) continue;
+    let t = m.content.replace(/<think>[\s\S]*?<\/think>/gi, "");
+    const close = t.search(/<\/think>/i); // an opening tag the template already sent
+    if (close >= 0) t = t.slice(close + "</think>".length);
+    m.content = t.replace(/<think>[\s\S]*$/i, "").trim();
+  }
+  return j;
+}
+
 export class OpenAI {
   chat = {
     completions: {
@@ -140,7 +154,7 @@ export class OpenAI {
           res = await post();
         }
         if (!res.ok) throw new Error(`AI request failed: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-        return await res.json();
+        return stripThinking(await res.json());
       },
     },
   };
