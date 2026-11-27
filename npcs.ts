@@ -34,7 +34,7 @@
 
 import { ensureOrrery, orreryPromptLine } from "./orrery.ts";
 import { isAiBusy, OpenAI } from "./openai.ts";
-import { cleanChatReply } from "./ai_reply.ts";
+import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
 import {
@@ -184,7 +184,7 @@ export async function generateNpcReply(
     if (!reply) {
       await recordMonitorEvent(
         "npc_generation_error",
-        `${ownerKey}/${character.name}: empty reply. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
+        `${ownerKey}/${character.name}: unusable reply (${junkReason(raw) ?? "empty after cleanup"}) ${junkSample(raw)}. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
       );
       return { ok: false, error: "generation_failed" };
     }

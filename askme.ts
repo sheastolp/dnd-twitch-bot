@@ -44,6 +44,7 @@ import { isReasoningModel, OpenAI } from "./openai.ts";
 import { mainContent, readPage, WEB_SEARCH_ON, webSearch } from "./websearch.ts";
 import { getChannelInfo, sendChatMessage } from "./twitch.ts";
 import { compactText } from "./utils.ts";
+import { junkReason, junkSample } from "./ai_reply.ts";
 import { isCommandGroupEnabled, recordMonitorEvent, setCommandGroupEnabled } from "./db.ts";
 
 const openai = new OpenAI();
@@ -634,7 +635,11 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     // "I couldn't find that" with a source link under it reads as an answer.
     if (/^NOT[ _]FOUND\b/i.test(text)) return null;
     if (/\b(couldn'?t|could not|can'?t|cannot|unable to) find\b|\bdo(es)?n'?t (say|mention|contain|include)\b/i.test(text)) return null;
-    if (text) return { text, source: { url: article.url, title: article.title, site: article.site } };
+    // A garbled answer (a wall of one symbol, say) is no answer: a passage
+    // speaks for itself below instead.
+    const junk = text ? junkReason(raw) ?? junkReason(text) : null;
+    if (junk) await recordMonitorEvent("askme_error", `${broadcasterId}: unusable answer (${junk}) ${junkSample(raw)}`);
+    else if (text) return { text, source: { url: article.url, title: article.title, site: article.site } };
   } catch (e) {
     console.error("askme AI answer failed", e);
     await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);

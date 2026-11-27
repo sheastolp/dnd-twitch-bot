@@ -39,7 +39,7 @@
 
 import { ensureOrrery, orreryPersonLine, orreryPromptLine } from "./orrery.ts";
 import { isReasoningModel, OpenAI } from "./openai.ts";
-import { cleanChatReply } from "./ai_reply.ts";
+import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
 import { PUBLIC_BASE_URL } from "./config.ts";
@@ -362,9 +362,13 @@ export async function generateHaggleReply(
       const counterCopper = listedCopper !== null ? counterPrice(verdict, listedCopper, offerCopper) : null;
       return { ok: true, reply, merchantName: listing.merchantName, itemDesc: listing.itemDesc, deal: verdict.deal, listedCopper, offerCopper, agreedCopper, counterCopper };
     }
+    // Empty or garbled (a wall of "/" from the AI Pool once): the built-in
+    // rules below answer instead, and the monitor shows what came back.
+    const rawText = String(completion.choices[0]?.message?.content ?? "");
+    const why = junkReason(rawText) ?? "empty after cleanup";
     await recordMonitorEvent(
       "haggle_generation_error",
-      `${broadcasterId}/${listing.merchantName}: empty reply. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
+      `${broadcasterId}/${listing.merchantName}: unusable reply (${why}) ${junkSample(rawText)}. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
     );
   } catch (e) {
     console.error("generateHaggleReply failed", e);

@@ -20,7 +20,7 @@
 
 import { ensureOrrery, orreryBotPerson, orreryPromptLine } from "./orrery.ts";
 import { OpenAI } from "./openai.ts";
-import { cleanChatReply } from "./ai_reply.ts";
+import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
 import { recordMonitorEvent } from "./db.ts";
@@ -128,8 +128,12 @@ async function generateReply(broadcasterId: string, display: string, message: st
         { role: "user", content: `${display}: ${message || "(just tagged you and said nothing)"}` },
       ],
     }, { timeoutMs: TIMEOUT_MS });
-    const reply = cleanChatReply(stripSpeakerLabel(completion.choices?.[0]?.message?.content ?? ""), [], MAX_REPLY_LEN)
+    const raw = String(completion.choices?.[0]?.message?.content ?? "");
+    const reply = cleanChatReply(stripSpeakerLabel(raw), [], MAX_REPLY_LEN)
       .replace(/(^|\s)@(?=[A-Za-z0-9_])/g, "$1"); // she tags nobody; the reply's own @tag is added below
+    // Empty or garbled: one of her canned lines goes out instead (and stays
+    // out of her memory of the chat).
+    if (!reply) await recordMonitorEvent("mention_reply_error", `${broadcasterId}: unusable reply (${junkReason(raw) ?? "empty after cleanup"}) ${junkSample(raw)}`);
     return reply || null;
   } catch (e) {
     console.error("mention reply failed", e);
