@@ -6,7 +6,8 @@
 // operator pick them in the browser instead, with no file editing and no
 // restart:
 //   - Address: any OpenAI-shaped server (OpenAI, Ollama, the AI Pool, …),
-//     ending in /v1.
+//     ending in /v1. "AI Pool" fills in the pool's brain: AI_POOL_URL, or
+//     port 8090 on the tailnet machine OPENAI_BASE_URL points at.
 //   - Model: typed, or picked from the list the server itself offers
 //     (GET <address>/models).
 //   - Key: optional, for servers that want one. It's never shown again,
@@ -39,12 +40,30 @@ const MAX_MODEL_LEN = 200;
 const MAX_URL_LEN = 500;
 const MAX_KEY_LEN = 500;
 
+/** The AI Pool's brain (llama-server, OpenAI-shaped, no key): AI_POOL_URL,
+ * else port 8090 on the tailnet machine guildscribe.env's OPENAI_BASE_URL
+ * points at (the FX705, where Ollama and the pool both run), else none. */
+export function aiPoolPresetUrl(): string {
+  const set = cleanBaseUrl(Deno.env.get("AI_POOL_URL") ?? "");
+  if (/^(off|no|false|0)$/i.test(set)) return "";
+  if (set) return set;
+  try {
+    const host = new URL(Deno.env.get("OPENAI_BASE_URL") ?? "").hostname;
+    if (host.endsWith(".ts.net") || /^100\.\d+\.\d+\.\d+$/.test(host)) return `http://${host}:8090/v1`;
+  } catch { /* no env address */ }
+  return "";
+}
+
 /** Addresses offered as one-tap fills. */
-const PRESETS: { label: string; url: string }[] = [
-  { label: "OpenAI", url: DEFAULT_BASE_URL },
-  { label: "Ollama on this laptop", url: "http://localhost:11434/v1" },
-  { label: "llama.cpp on this laptop", url: "http://localhost:8080/v1" },
-];
+function presets(): { label: string; url: string }[] {
+  const pool = aiPoolPresetUrl();
+  return [
+    ...(pool ? [{ label: "AI Pool", url: pool }] : []),
+    { label: "OpenAI", url: DEFAULT_BASE_URL },
+    { label: "Ollama on this laptop", url: "http://localhost:11434/v1" },
+    { label: "llama.cpp on this laptop", url: "http://localhost:8080/v1" },
+  ];
+}
 
 let saved: AiOverride & { updatedAt: number } = { baseUrl: "", model: "", apiKey: "", updatedAt: 0 };
 
@@ -140,7 +159,7 @@ function page(s: PageState): Response {
   const formModel = s.form?.model ?? saved.model;
   const k = encodeURIComponent(s.key);
   const hiddenKey = `<input type="hidden" name="key" value="${escapeHtml(s.key)}">`;
-  const presets = PRESETS.map((p) => `<button type="button" class="chip" data-url="${escapeHtml(p.url)}">${escapeHtml(p.label)}</button>`).join("");
+  const presetButtons = presets().map((p) => `<button type="button" class="chip" data-url="${escapeHtml(p.url)}">${escapeHtml(p.label)}</button>`).join("");
   const models = s.models?.length
     ? `<p class="muted small">Tap one to pick it (${s.models.length} on ${escapeHtml(s.modelsFrom ?? "")}):</p><div class="chips">${
       s.models.map((m) => `<button type="button" class="chip model" data-model="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join("")
@@ -167,7 +186,7 @@ ${test}
 <h3>Change it</h3>
 <label for="ai-url"><strong>Address</strong> <span class="muted small">(an OpenAI-shaped server, usually ending in /v1)</span></label>
 <input type="url" id="ai-url" name="base_url" value="${escapeHtml(formUrl)}" maxlength="${MAX_URL_LEN}" placeholder="${escapeHtml(cfg.baseUrlSource === "page" ? "" : cfg.baseUrl)}" inputmode="url" spellcheck="false">
-<div class="chips">${presets}</div>
+<div class="chips">${presetButtons}</div>
 <label for="ai-model"><strong>Model</strong> <span class="muted small">(blank = guildscribe.env or each feature's own)</span></label>
 <input type="text" id="ai-model" name="model" value="${escapeHtml(formModel)}" maxlength="${MAX_MODEL_LEN}" placeholder="e.g. qwen3.5:35b-a3b or gpt-4o-mini" spellcheck="false" autocapitalize="off">
 <button type="submit" name="intent" value="models" class="ghost" formnovalidate>Load models from this address</button>
