@@ -20,8 +20,9 @@
 //     ASKME_SEARCH_URL sends the searches through the Local AI search server
 //     instead of straight to DuckDuckGo (see websearch.ts).
 //   - ASKME_DEBUG=1 logs every lookup's passages and the AI's raw reply.
-//   - Thinking models answer without thinking first (think: false in
-//     openai.ts), and the AI gets ASKME_AI_TIMEOUT_S (default 90) to reply. Sending a handful of matching
+//   - Thinking models answer without thinking first (openai.ts turns it off),
+//     and the AI gets ASKME_AI_TIMEOUT_S (default 45) to reply, waiting its
+//     turn on the AI Pool included. Sending a handful of matching
 //     passages instead of whole intros keeps the prompt small (fast on a CPU
 //     Ollama) and puts the specific fact in front of the model. If the AI
 //     call fails, the best passage itself is posted. ASKME_MODEL picks the
@@ -71,12 +72,14 @@ const GAME_WIKI_BONUS = 1.5;
 /** The share of the question's words a passage must contain to be posted on
  * its own when the AI can't answer — below it, it's likely off topic. */
 const MIN_FALLBACK_COVERAGE = 0.6;
-// Roomy so "thinking" models (qwen3, gpt-5…) have budget left to answer;
-// llama3.2 and the like stop after a sentence or two anyway.
-const ANSWER_MAX_TOKENS = 1000;
+// One or two sentences and a [n]: thinking is off (openai.ts), so this is all
+// answer. OpenAI reasoning models (gpt-5…) think anyway and need more room.
+const ANSWER_MAX_TOKENS = 400;
+const REASONING_MAX_TOKENS = 1000;
 const WIKI_TIMEOUT_MS = 8_000;
-// A laptop GPU can take a while, more so when Ollama has to load the model first.
-const AI_TIMEOUT_MS = Math.max(10, Number(Deno.env.get("ASKME_AI_TIMEOUT_S") ?? "90")) * 1000;
+// The pool answers in seconds but may be busy with another reply first, and
+// Ollama may have to load the model; past this the best passage answers.
+const AI_TIMEOUT_MS = Math.max(10, Number(Deno.env.get("ASKME_AI_TIMEOUT_S") ?? "45")) * 1000;
 // ASKME_DEBUG=1 logs each question's lookup and the AI's raw reply, to see
 // why an answer came out wrong or not at all.
 const DEBUG = /^(1|true|yes|on)$/i.test(Deno.env.get("ASKME_DEBUG") ?? "");
@@ -91,7 +94,7 @@ const SYSTEM_PROMPT = [
   `Passages can be about different things with similar names — a game and its sequel, spin-off or remake, a film, a book. Use only passages about exactly the thing asked about, and never mix facts from one into another.`,
   `You may be told which game the stream is playing: "this game" means that game, and you can use that note to say what game is being played.`,
   `If passages disagree, trust the most recent, most official-looking one. Web pages can be ads, forums or out of date: prefer the passages that state the fact plainly.`,
-  `If the passages don't contain the answer, say you couldn't find it — never guess or add facts that aren't in them.`,
+  `If the passages don't contain the answer, reply with exactly NOT FOUND and nothing else. Never guess or add facts that aren't in them.`,
   `Keep it family-friendly. If a question asks for something harmful, hateful, sexual, or someone's private personal information, politely decline in one sentence.`,
 ].join(" ");
 
@@ -591,15 +594,15 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     // The date, so "latest" and "when is…" are answered from the right side of it.
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
     const excerpts = passages.map((p, i) => `[${i + 1}] (${p.article.site}: ${p.article.title}) ${p.text}`).join("\n\n");
-    // No `temperature` override: some OpenAI models only accept the default.
+    // Facts, not flair: a low temperature (openai.ts drops it for OpenAI
+    // reasoning models, which only take the default).
     const ask = (retry: boolean) => openai.chat.completions.create({
       model: MODEL,
-      max_completion_tokens: ANSWER_MAX_TOKENS,
-      // Answering from passages needs no thinking, and on Ollama it's the slow part.
-      think: false,
-      // The second try, after the model got stuck repeating itself, is
-      // steered away from repeating (reasoning models don't take these).
-      ...(retry && !isReasoningModel(MODEL) ? { frequency_penalty: 0.6, presence_penalty: 0.3 } : {}),
+      max_completion_tokens: isReasoningModel(MODEL) ? REASONING_MAX_TOKENS : ANSWER_MAX_TOKENS,
+      temperature: 0.2,
+      // The second try, after a server error (Ollama aborts a reply stuck
+      // repeating itself), is steered away from repeating.
+      ...(retry ? { frequency_penalty: 0.6, presence_penalty: 0.3 } : {}),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -614,7 +617,8 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     } catch (e) {
       // Ollama aborts a reply that loops on the same words ("token repeat
       // limit reached", HTTP 500); one more go usually comes out fine.
-      if (!/HTTP 5\d\d/.test(String(e))) throw e;
+      // Not for a busy (503) one: the pool isn't asked twice when it's busy.
+      if (!/HTTP 5(?!03)\d\d/.test(String(e))) throw e;
       console.warn("askme AI answer failed, trying once more:", String(e).slice(0, 200));
       completion = await ask(true);
     }
@@ -628,6 +632,7 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
       MAX_ANSWER_LEN,
     );
     // "I couldn't find that" with a source link under it reads as an answer.
+    if (/^NOT[ _]FOUND\b/i.test(text)) return null;
     if (/\b(couldn'?t|could not|can'?t|cannot|unable to) find\b|\bdo(es)?n'?t (say|mention|contain|include)\b/i.test(text)) return null;
     if (text) return { text, source: { url: article.url, title: article.title, site: article.site } };
   } catch (e) {
