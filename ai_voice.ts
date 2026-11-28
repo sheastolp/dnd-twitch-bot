@@ -140,6 +140,37 @@ export function checkFacts(canned: string, reply: string): string | null {
   return null;
 }
 
+/** What a line's wording must and must not name, on top of checkFacts:
+ * !oracle's chosen option is in `keep`, the options it didn't pick are in
+ * `avoid`, so the AI can't swap the answer. */
+export type RewordGuard = { keep?: string[]; avoid?: string[] };
+
+/** Where `phrase` appears in `text` as whole words (any case). */
+function spans(text: string, phrase: string): Array<[number, number]> {
+  const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "giu");
+  return [...text.matchAll(re)].map((m) => [m.index!, m.index! + m[0].length]);
+}
+
+/** Why `reply` breaks `guard`, or null if it doesn't. An avoided option
+ * inside the kept one ("pizza" in "pineapple pizza") doesn't count, nor
+ * one the canned line itself names. */
+export function checkGuard(canned: string, reply: string, guard?: RewordGuard): string | null {
+  if (!guard) return null;
+  const kept: Array<[number, number]> = [];
+  for (const k of guard.keep ?? []) {
+    const found = spans(reply, k);
+    if (!found.length) return "lost the answer";
+    kept.push(...found);
+  }
+  for (const a of guard.avoid ?? []) {
+    if (spans(canned, a).length) continue;
+    const loose = spans(reply, a).filter(([s, e]) => !kept.some(([ks, ke]) => ks <= s && e <= ke));
+    if (loose.length) return "named another option";
+  }
+  return null;
+}
+
 /** Why `text` is left as it is (no AI), or null if the AI may word it. */
 export function notRewordable(text: string): string | null {
   const t = text.trim();
@@ -173,7 +204,7 @@ export function rewordPending(): number {
 
 /** `text` worded by the AI, or `text` itself (see the top of this file).
  * Never throws. */
-export async function aiWordReply(text: string, broadcasterId = ""): Promise<string> {
+export async function aiWordReply(text: string, broadcasterId = "", guard?: RewordGuard): Promise<string> {
   if (!isAiEnabled()) return text;
   if (notRewordable(text)) return text;
   const cfg = currentAiConfig();
@@ -211,7 +242,7 @@ export async function aiWordReply(text: string, broadcasterId = ""): Promise<str
       ? (junkReason(raw) ?? "empty after cleanup")
       : /^[/.]/.test(reply)
       ? "starts like a chat command"
-      : checkFacts(body, reply);
+      : (checkFacts(body, reply) ?? checkGuard(body, reply, guard));
     if (why) {
       rewordStats.blocked++;
       await recordMonitorEvent("ai_reword_blocked", `${broadcasterId}: ${why}. Canned ${junkSample(body)}, AI ${junkSample(raw)}`).catch(() => {});

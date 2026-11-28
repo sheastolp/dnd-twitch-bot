@@ -7,10 +7,18 @@
 // command recently in this channel — see getRecentChatters in db.ts), not a
 // live Twitch chatters-list call, so this needs no new OAuth scope and no
 // re-auth for existing connected channels.
+//
+//   !oracle pizza or tacos?           a question that offers options gets
+//   !oracle should I play X, Y or Z   one of those options instead of a
+//   !oracle dinner: pizza/tacos       chatter (oracle_choices.ts). The code
+//                                     picks it, at random, so it's fair; the
+// AI may word the line, but only if its wording names that option and none
+// of the others (aiGuard, ai_voice.ts), otherwise the canned line goes out.
 
 import { sendChatMessage } from "./twitch.ts";
 import { getRecentChatters } from "./db.ts";
-import { rollOracle } from "./flavor.ts";
+import { rollOracle, rollOracleChoice } from "./flavor.ts";
+import { choiceOptions, pickChoice } from "./oracle_choices.ts";
 
 const MIN_QUESTION_LEN = 2;
 
@@ -26,6 +34,15 @@ export async function handleOracleCommand(
   const question = (match[1] ?? "").trim();
   if (question.length < MIN_QUESTION_LEN) {
     await sendChatMessage(`@${display} ask the oracle something, e.g. !oracle who should stream next?`, broadcasterId);
+    return true;
+  }
+
+  const options = choiceOptions(question);
+  if (options) {
+    const choice = pickChoice(options);
+    await sendChatMessage(`@${display} ${rollOracleChoice(choice)}`, broadcasterId, [], {
+      aiGuard: { keep: [choice], avoid: options.filter((o) => o !== choice) },
+    });
     return true;
   }
 

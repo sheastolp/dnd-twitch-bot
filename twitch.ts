@@ -6,7 +6,7 @@ import { splitChatMessage } from "./utils.ts";
 import { claimWhisperNotice, defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
-import { aiWordReply } from "./ai_voice.ts";
+import { aiWordReply, type RewordGuard } from "./ai_voice.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -146,8 +146,10 @@ export async function notifyCommandFailed() {
 // reply as a whole. opts.ai: false when the line must go out word for word
 // (the AI already wrote it, people wrote it, or it's part of a longer reply);
 // otherwise the AI words it first (ai_voice.ts), canned line as fallback.
-export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean; ai?: boolean }) {
-  if (opts?.ai !== false) text = await aiWordReply(text, broadcasterId);
+// opts.aiGuard: what the AI's wording must and must not name (!oracle's
+// chosen option, and the options it didn't pick).
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean; ai?: boolean; aiGuard?: RewordGuard }) {
+  if (opts?.ai !== false) text = await aiWordReply(text, broadcasterId, opts?.aiGuard);
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   if (await whisperReplyInstead(text, broadcasterId, opts)) return true;

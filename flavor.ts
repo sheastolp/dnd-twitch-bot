@@ -102,6 +102,35 @@ export function rollOracle(question: string, chatterName: string): string {
   return flavor(displayQuestion, chatterName);
 }
 
+// !oracle with options ("!oracle pizza or tacos?"): the code picks one of
+// the options (oracle_choices.ts) and the line names it, in quotes, and
+// names nothing else — not the question, so the other options never appear
+// (ai_voice.ts checks the AI's wording names this option and no other).
+const ORACLE_CHOICE_LINES: Array<(choice: string) => string> = [
+  (c) => `🔮 The crystal ball swirls, then clears on one answer: "${c}"`,
+  (c) => `📜 You cast Augury. The vision is clear: "${c}"`,
+  (c) => `🎴 The Deck of Many Things turns up a single card: "${c}"`,
+  (c) => `👁️ The beholder's central eye narrows and settles on "${c}"`,
+  (c) => `✨ The bones scatter and spell it out: "${c}"`,
+  (c) => `🕯️ The candle's smoke curls into one word: "${c}"`,
+  (c) => `🗿 The ancient statue raises one stone finger toward "${c}"`,
+  (c) => `🐉 The dragon exhales the answer on the wind: "${c}"`,
+  (c) => `🧙 The wizard's crystal shows only "${c}"`,
+  (c) => `🌕 By the light of the full moon, fate chooses "${c}"`,
+  (c) => `🍀 Fate's coin spins, falls and lands on "${c}"`,
+  (c) => `⚖️ The DM checks the notes behind the screen and rules: "${c}"`,
+  (c) => `🔥 The campfire pops and sends its spark toward "${c}"`,
+  (c) => `🧿 The rune stones fall into one shape: "${c}"`,
+  (c) => `🃏 The tarot turns, and the card reads "${c}"`,
+  (c) => `🌟 The stars align and trace out "${c}"`,
+  (c) => `📖 The tome of fate flips open to a page that reads "${c}"`,
+];
+
+/** The oracle's line for one chosen option (see oracle_choices.ts). */
+export function rollOracleChoice(choice: string): string {
+  return pick(ORACLE_CHOICE_LINES)(choice);
+}
+
 // !hug — an undocumented, purely warm/supportive command. No dice, no
 // mechanics, no game state. Kept out of !dndbothelp and the guide on
 // purpose (like !connections) so it stays a small, genuine gesture rather
