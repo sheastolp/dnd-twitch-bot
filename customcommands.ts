@@ -721,7 +721,7 @@ export async function handleCustomCommandInvocation(
     args,
     count: Number(result.row.uses ?? 0),
   });
-  await sendChatMessages(text, broadcasterId);
+  await sendChatMessages(text, broadcasterId, { ai: false }); // the streamer's own words
   return true;
 }
 
@@ -755,7 +755,7 @@ export async function handleTriggerMatch(
       args: text,
       count: Number(row.uses ?? 0) + 1,
     });
-    await sendChatMessages(rendered, broadcasterId);
+    await sendChatMessages(rendered, broadcasterId, { ai: false }); // the streamer's own words
     return true;
   }
   return false;

@@ -6,6 +6,7 @@ import { splitChatMessage } from "./utils.ts";
 import { claimWhisperNotice, defer, forgetWhisperIntro, getBotUserToken, getReplyInitiator, LONG_REPLY_PARTS, replySummary, sendWhisperParts, setWhisperReplies, WHISPER_MAX, whisperIntroNeeded, whisperMode } from "./whisper.ts";
 import { saveReplyPage } from "./replypages.ts";
 import { recordMonitorEvent, sqlite } from "./db.ts";
+import { aiWordReply } from "./ai_voice.ts";
 
 export const env = (name: string) => {
   const value = Deno.env.get(name);
@@ -142,8 +143,11 @@ export async function notifyCommandFailed() {
 // real names alone (!nick list, which has to show who has which nickname, and
 // redeem / sub / raid / follow announcements, which name people by username).
 // opts.whisper: false when the caller already applied whisper mode to the
-// reply as a whole.
-export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean }) {
+// reply as a whole. opts.ai: false when the line must go out word for word
+// (the AI already wrote it, people wrote it, or it's part of a longer reply);
+// otherwise the AI words it first (ai_voice.ts), canned line as fallback.
+export async function sendChatMessage(text: string, broadcasterId: string, names: string[] = [], opts?: { log?: boolean; keepNames?: boolean; whisper?: boolean; ai?: boolean }) {
+  if (opts?.ai !== false) text = await aiWordReply(text, broadcasterId);
   // A one-message response gets the same nicknames and 2-appearances-per-name
   // cap (mentions.ts); parts of a longer one were already handled as a whole.
   if (await whisperReplyInstead(text, broadcasterId, opts)) return true;
@@ -216,8 +220,8 @@ export async function sendChatMessage(text: string, broadcasterId: string, names
  * user token with moderator:manage:announcements (/connect-bot) and the bot
  * modded in the channel; on any failure it's posted as a normal chat
  * message instead, so the notice still goes out. */
-export async function sendChatAnnouncement(text: string, broadcasterId: string, color: "primary" | "blue" | "green" | "orange" | "purple" = "primary") {
-  const message = text.slice(0, 500);
+export async function sendChatAnnouncement(text: string, broadcasterId: string, color: "primary" | "blue" | "green" | "orange" | "purple" = "primary", opts?: { ai?: boolean }) {
+  const message = (opts?.ai === false ? text : await aiWordReply(text, broadcasterId)).slice(0, 500);
   if (!message.trim()) return true;
   try {
     const send = (token: string) =>
@@ -241,7 +245,7 @@ export async function sendChatAnnouncement(text: string, broadcasterId: string, 
   } catch (err) {
     console.error("sendChatAnnouncement failed", err);
   }
-  return await sendChatMessage(message, broadcasterId, [], { log: false, whisper: false });
+  return await sendChatMessage(message, broadcasterId, [], { log: false, whisper: false, ai: false });
 }
 
 /** Sends one chat message as the broadcaster themself, not as GuildScribe:
@@ -282,8 +286,10 @@ export async function sendChatMessages(
   // summarizeLongReply) — fights pass fightSummary(...). detail: the full
   // output for the reply's /r/<id> page when it differs from `text` (fights
   // pass their uncut battle log).
-  opts?: { maxParts?: number; names?: string[]; summary?: string; detail?: string },
+  // ai: false sends it word for word (see sendChatMessage).
+  opts?: { maxParts?: number; names?: string[]; summary?: string; detail?: string; ai?: boolean },
 ): Promise<boolean> {
+  if (opts?.ai !== false) text = await aiWordReply(text, broadcasterId);
   const original = text;
   if (await whisperReplyInstead(text, broadcasterId, { detail: opts?.detail })) return true;
   const maxParts = opts?.maxParts ?? MAX_PARTS;
@@ -311,10 +317,10 @@ export async function sendChatMessages(
   if (parts.length > 1) logReply(broadcasterId, parts.join(" "), opts?.detail ?? parts.join(" "));
   const log = parts.length === 1;
   for (let i = 0; i < parts.length; i++) {
-    let ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false });
+    let ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false, ai: false });
     if (!ok && i < parts.length - 1) {
       await sleep(700);
-      ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false });
+      ok = await sendChatMessage(parts[i], broadcasterId, [], { log, whisper: false, ai: false });
     }
     if (!ok) allSent = false;
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
@@ -358,7 +364,7 @@ async function summarizeLongReply(
   }
   const tail = ` 📜 Full ${summary ? "battle log" : "reply"}: ${link}`;
   const head = line.length + tail.length > CHAT_MAX ? line.slice(0, CHAT_MAX - tail.length - 1).trimEnd() + "…" : line;
-  const posted = await sendChatMessage(head + tail, broadcasterId, names, { log: false, whisper: false });
+  const posted = await sendChatMessage(head + tail, broadcasterId, names, { log: false, whisper: false, ai: false });
   // Bonus copy by whisper; silently skipped until /connect-bot is done. In
   // whisper mode "all" the full reply was already whispered.
   if (initiator && whisperMode() !== "all") await sendWhisperParts(initiator.userId, splitChatMessage(text, WHISPER_MAX).filter((p) => p.trim()));
@@ -383,7 +389,7 @@ export async function sendSpellSections(sections: string[], display: string, bro
   const guard = [display, ...initiatorNames()];
   logReply(broadcasterId, parts.join(" "), full);
   for (let i = 0; i < parts.length; i++) {
-    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard, { log: false, whisper: false });
+    await sendChatMessage(limitNameAppearances(parts[i], guard, { seen }), broadcasterId, guard, { log: false, whisper: false, ai: false });
     if (i < parts.length - 1) await sleep(PART_DELAY_MS);
   }
 }

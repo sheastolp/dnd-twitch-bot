@@ -57,7 +57,7 @@ export async function onStreamOnlineMotd(broadcasterId: string) {
   if (now - last < RESEND_GUARD_MS) return;
   await sqlite.execute("INSERT OR REPLACE INTO motd_sent (broadcaster_id, sent_at) VALUES (?, ?)", [broadcasterId, now]);
   try {
-    await sendChatMessage(`${PREFIX}${message}`, broadcasterId);
+    await sendChatMessage(`${PREFIX}${message}`, broadcasterId, [], { ai: false }); // the streamer's own words
   } catch (e) {
     await recordMonitorEvent("motd_send_failed", `${broadcasterId}: ${String(e)}`);
   }

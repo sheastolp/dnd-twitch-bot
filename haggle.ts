@@ -38,7 +38,7 @@
 // say "last chance". Past HAGGLE_TIMEOUT_MS (15 s) the built-in rules answer.
 
 import { ensureOrrery, orreryPersonLine, orreryPromptLine } from "./orrery.ts";
-import { isReasoningModel, OpenAI } from "./openai.ts";
+import { isAiOff, isReasoningModel, OpenAI } from "./openai.ts";
 import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText } from "./utils.ts";
@@ -371,8 +371,11 @@ export async function generateHaggleReply(
       `${broadcasterId}/${listing.merchantName}: unusable reply (${why}) ${junkSample(rawText)}. finish_reason=${(completion.choices[0] as any)?.finish_reason ?? "?"}`,
     );
   } catch (e) {
-    console.error("generateHaggleReply failed", e);
-    await recordMonitorEvent("haggle_generation_error", `${broadcasterId}: ${String(e)}`).catch(() => {});
+    // AI switched off: the built-in rules below answer, nothing to log.
+    if (!isAiOff(e)) {
+      console.error("generateHaggleReply failed", e);
+      await recordMonitorEvent("haggle_generation_error", `${broadcasterId}: ${String(e)}`).catch(() => {});
+    }
   }
 
   // The AI couldn't answer. With a readable price the peddler still decides
@@ -540,7 +543,8 @@ export async function handleHaggleCommand(
   } else if (useCoin && !result.deal && result.counterCopper !== null) {
     note = ` 🚫 No sale — offer ${formatCoins(result.counterCopper)} with !haggle if you want it.`;
   }
-  await sendChatMessages(`🛒 ${result.merchantName}: ${result.reply}${note}`, broadcasterId);
+  // The peddler's own (AI or rule-book) words: not worded again (ai_voice.ts).
+  await sendChatMessages(`🛒 ${result.merchantName}: ${result.reply}${note}`, broadcasterId, { ai: false });
   return true;
 }
 

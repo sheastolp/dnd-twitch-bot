@@ -40,7 +40,7 @@
 //   - Per-chatter cooldown (ASKME_USER_COOLDOWN_S, default 30 s, mods skip it)
 //     and a channel-wide one (ASKME_CHANNEL_COOLDOWN_S, default 5 s).
 
-import { isReasoningModel, OpenAI } from "./openai.ts";
+import { isAiOff, isReasoningModel, OpenAI } from "./openai.ts";
 import { mainContent, readPage, WEB_SEARCH_ON, webSearch } from "./websearch.ts";
 import { getChannelInfo, sendChatMessage } from "./twitch.ts";
 import { compactText } from "./utils.ts";
@@ -641,8 +641,11 @@ async function answerQuestion(broadcasterId: string, question: string): Promise<
     if (junk) await recordMonitorEvent("askme_error", `${broadcasterId}: unusable answer (${junk}) ${junkSample(raw)}`);
     else if (text) return { text, source: { url: article.url, title: article.title, site: article.site } };
   } catch (e) {
-    console.error("askme AI answer failed", e);
-    await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
+    // AI switched off: a passage speaks for itself below, nothing to log.
+    if (!isAiOff(e)) {
+      console.error("askme AI answer failed", e);
+      await recordMonitorEvent("askme_error", `${broadcasterId}: ${String(e)}`);
+    }
   }
   // The AI is down or said nothing: let a passage speak for itself — the one
   // that covers the most of what was asked (the best-ranked of those), and
@@ -715,6 +718,6 @@ export async function handleAskMeCommand(
   const link = answer.source.url.length <= MAX_URL_LEN ? ` — ${answer.source.url}` : "";
   const site = compactText(answer.source.site, 30);
   const reply = `@${display} ${answer.text} 📚 Source: ${site}, ${title}${link}`;
-  await sendChatMessage(reply, broadcasterId, [], { keepNames: true });
+  await sendChatMessage(reply, broadcasterId, [], { keepNames: true, ai: false });
   return true;
 }

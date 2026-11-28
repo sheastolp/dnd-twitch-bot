@@ -19,7 +19,7 @@
 // MENTION_REPLY_TIMEOUT_S (20) for the AI before grumbling a canned line.
 
 import { ensureOrrery, orreryBotPerson, orreryPromptLine } from "./orrery.ts";
-import { OpenAI } from "./openai.ts";
+import { isAiEnabled, isAiOff, OpenAI } from "./openai.ts";
 import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
@@ -113,6 +113,7 @@ export function stripSpeakerLabel(raw: string): string {
 
 /** Asks the model for the babushka's reply to `display` saying `message`. */
 async function generateReply(broadcasterId: string, display: string, message: string): Promise<string | null> {
+  if (!isAiEnabled()) return null; // AI switched off: a canned grumble
   try {
     // openai.ts drops the sampling settings for OpenAI reasoning models.
     await ensureOrrery(); // the first reply after a restart already knows the lore
@@ -136,6 +137,7 @@ async function generateReply(broadcasterId: string, display: string, message: st
     if (!reply) await recordMonitorEvent("mention_reply_error", `${broadcasterId}: unusable reply (${junkReason(raw) ?? "empty after cleanup"}) ${junkSample(raw)}`);
     return reply || null;
   } catch (e) {
+    if (isAiOff(e)) return null;
     console.error("mention reply failed", e);
     await recordMonitorEvent("mention_reply_error", `${broadcasterId}: ${String(e)}`);
     return null;
@@ -167,6 +169,6 @@ export async function maybeReplyToMention(
     { role: "user", content: `${display}: ${message}` },
     { role: "assistant", content: reply },
   ]);
-  await sendChatMessages(`@${display} ${reply}`, broadcasterId);
+  await sendChatMessages(`@${display} ${reply}`, broadcasterId, { ai: false });
   return true;
 }

@@ -19,6 +19,13 @@
 // It's bot-wide (one AI for every channel), so only the operator can change
 // it: the same ADMIN_API_SECRET / bot-admin login as the other /admin pages.
 // Table `bot_ai_settings` (one row).
+//
+// The AI switch, at the top of the page: on (the default), the AI writes
+// GuildScribe's replies (ai_voice.ts) and runs !haggle, NPCs, !askme and the
+// @-mention babushka; off, nothing is sent to any AI and every feature uses
+// its canned lines. Bot admins can also flip it from chat with !ai on|off
+// (anyone can ask !ai). Kept in table `bot_ai_power` (one row), so it
+// survives a restart.
 
 import { sqlite } from "./sqlite.ts";
 import { escapeHtml } from "./utils.ts";
@@ -32,9 +39,14 @@ import {
   DEFAULT_BASE_URL,
   listAiModels,
   OpenAI,
+  isAiEnabled,
+  setAiEnabled,
   setAiOverride,
   setAiOverrideReady,
 } from "./openai.ts";
+import { sendChatMessage } from "./twitch.ts";
+import { isBotAdminLogin } from "./bot_admins.ts";
+import { rewordStats } from "./ai_voice.ts";
 
 const MAX_MODEL_LEN = 200;
 const MAX_URL_LEN = 500;
@@ -73,6 +85,60 @@ export async function ensureAiSettingsTables() {
   );
 }
 
+let powerChangedAt = 0;
+
+async function ensureAiPowerTable() {
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS bot_ai_power (id INTEGER PRIMARY KEY CHECK (id = 1), enabled INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL, updated_by TEXT NOT NULL DEFAULT '')`,
+  );
+}
+
+async function readPower() {
+  await ensureAiPowerTable();
+  const r = (await sqlite.execute("SELECT enabled, updated_at FROM bot_ai_power WHERE id = 1")).rows[0] as any;
+  setAiEnabled(r ? Number(r.enabled) !== 0 : true);
+  powerChangedAt = Number(r?.updated_at ?? 0);
+}
+
+/** Flips the AI switch for every channel and saves it. */
+export async function setAiSwitch(on: boolean, by: string) {
+  await ensureAiPowerTable();
+  await sqlite.execute(
+    `INSERT INTO bot_ai_power (id, enabled, updated_at, updated_by) VALUES (1, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+    [on ? 1 : 0, Date.now(), by],
+  );
+  await readPower();
+}
+
+/** !ai — is the AI writing replies? !ai on|off flips it (bot admins only,
+ * since it's one switch for every channel). True if it was an !ai command. */
+export async function handleAiSwitchCommand(chatMessage: string, chatter: string, display: string, broadcasterId: string): Promise<boolean> {
+  const m = chatMessage.trim().match(/^!ai(?:\s+(\S+))?\s*$/i);
+  if (!m) return false;
+  const action = (m[1] ?? "status").toLowerCase();
+  if (action !== "on" && action !== "off") {
+    const on = isAiEnabled();
+    await sendChatMessage(
+      `@${display} AI replies are ${on ? "on: the AI words GuildScribe's replies" : "off: GuildScribe uses its canned lines"}.${isBotAdminLogin(chatter) ? ` Switch with !ai ${on ? "off" : "on"}.` : ""}`,
+      broadcasterId,
+    );
+    return true;
+  }
+  if (!isBotAdminLogin(chatter)) {
+    await sendChatMessage(`@${display} only the bot's operator can switch AI replies ${action}, since it's one switch for every channel.`, broadcasterId);
+    return true;
+  }
+  await setAiSwitch(action === "on", chatter.toLowerCase());
+  await sendChatMessage(
+    action === "on"
+      ? `@${display} AI replies are on. The AI words GuildScribe's replies again.`
+      : `@${display} AI replies are off. GuildScribe uses its canned lines and sends nothing to the AI.`,
+    broadcasterId,
+  );
+  return true;
+}
+
 async function readSaved() {
   await ensureAiSettingsTables();
   const r = (await sqlite.execute("SELECT base_url, model, api_key, updated_at FROM bot_ai_settings WHERE id = 1")).rows[0] as any;
@@ -87,7 +153,10 @@ async function readSaved() {
 
 /** server.ts: load the page's saved choice at start-up (AI requests wait for it). */
 export function loadAiSettings(): Promise<void> {
-  const p = readSaved().catch((e) => console.error("ai settings load failed:", e));
+  const p = Promise.all([
+    readSaved().catch((e) => console.error("ai settings load failed:", e)),
+    readPower().catch((e) => console.error("ai switch load failed:", e)),
+  ]).then(() => {});
   setAiOverrideReady(p);
   return p;
 }
@@ -177,9 +246,20 @@ function page(s: PageState): Response {
       s.test.model ? ` (model ${escapeHtml(s.test.model)})` : ""
     }:<br>${escapeHtml(s.test.text)}</div>`
     : "";
+  const on = isAiEnabled();
+  const power = `<form method="post" action="/admin/ai" class="card ai-power ${on ? "is-on" : "is-off"}">${hiddenKey}
+<h3>AI replies: ${on ? "ON" : "OFF"}</h3>
+<p>${on
+    ? "The AI words every GuildScribe reply in chat (the bot still works out the dice, coins and names itself), and runs !haggle, NPCs, !askme and the @-mention babushka. If it's slow, busy or garbled, the canned line goes out instead."
+    : "Nothing is sent to the AI. Every reply uses GuildScribe's canned lines, and !haggle, NPCs, !askme and the babushka answer with their built-in ones."}</p>
+<button type="submit" name="intent" value="${on ? "power_off" : "power_on"}" class="${on ? "ghost" : "ember"}" role="switch" aria-checked="${on}">${on ? "Turn AI off" : "Turn AI on"}</button>
+${on ? `<p class="small">Since GuildScribe started: <strong>${rewordStats.reworded}</strong> replies worded by the AI, <strong>${rewordStats.canned}</strong> sent canned instead (${rewordStats.busy} AI busy or slow, ${rewordStats.blocked} blocked for dropping a fact or coming out garbled, ${rewordStats.failed} errors). Blocked ones are on the operator logs as ai_reword_blocked.</p>` : ""}
+<p class="muted small">One switch for every channel. Bot admins can also type <code>!ai on</code> or <code>!ai off</code> in chat.${powerChangedAt ? ` Last switched ${new Date(powerChangedAt).toISOString().replace("T", " ").slice(0, 16)} UTC.` : ""}</p>
+</form>`;
   const body = `<h1>AI model</h1>
-<p class="lede">Pick which AI GuildScribe uses for <code>!haggle</code>, NPCs, <code>!askme</code> and replies when someone @-tags the bot. It's one choice for every channel, and it takes effect straight away, with no restart. Leave a field blank to use what guildscribe.env says.</p>
+<p class="lede">Pick which AI GuildScribe uses to word its chat replies and for <code>!haggle</code>, NPCs, <code>!askme</code> and replies when someone @-tags the bot. It's one choice for every channel, and it takes effect straight away, with no restart. Leave a field blank to use what guildscribe.env says.</p>
 ${s.error ? `<p class="banner error">${escapeHtml(s.error)}</p>` : s.notice ? `<p class="banner ok">${escapeHtml(s.notice)}</p>` : ""}
+${power}
 ${statusCard(cfg)}
 ${test}
 <form method="post" action="/admin/ai" class="card ai-form" autocomplete="off">${hiddenKey}
@@ -223,6 +303,9 @@ const AI_CSS = `
 .actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
 .actions button,.ai-form button{min-height:44px;padding:10px 16px;font:inherit}
 code.wrap{overflow-wrap:anywhere}
+.ai-power.is-on{border-left:6px solid #3f7d3a}
+.ai-power.is-off{border-left:6px solid #9b2c2c}
+.ai-power button{min-height:44px;padding:10px 16px;font:inherit}
 .ai-now p{margin:6px 0;overflow-wrap:anywhere}
 `;
 
@@ -253,7 +336,7 @@ async function runTest(): Promise<NonNullable<PageState["test"]>> {
         max_completion_tokens: 80,
         think: false,
       },
-      { timeoutMs: 90_000 },
+      { timeoutMs: 90_000, ignoreSwitch: true },
     );
     const text = String(res?.choices?.[0]?.message?.content ?? "").trim() || "(an empty reply)";
     return { ok: true, text: text.slice(0, 400), seconds: (Date.now() - started) / 1000, model: String(res?.model ?? cfg.model ?? "") };
@@ -270,6 +353,7 @@ export async function handleAiAdminRoute(req: Request, url: URL, path: string): 
     const key = keyFromQuery(url);
     if (!(await isOperatorRequest(req, key))) return operatorUnauthorized();
     await readSaved();
+    await readPower();
     const cfg = currentAiConfig();
     return page({ key, ...(await tryListModels(cfg.baseUrl, cfg.apiKey)) });
   }
@@ -285,6 +369,14 @@ export async function handleAiAdminRoute(req: Request, url: URL, path: string): 
   const formValues = { baseUrl, model };
 
   if (intent === "test") return page({ key, test: await runTest() });
+
+  if (intent === "power_on" || intent === "power_off") {
+    await setAiSwitch(intent === "power_on", "admin page");
+    return page({
+      key,
+      notice: intent === "power_on" ? "AI replies are on." : "AI replies are off: GuildScribe uses its canned lines and sends nothing to the AI.",
+    });
+  }
 
   if (intent === "reset") {
     await writeSaved({ baseUrl: "", model: "", apiKey: "" });

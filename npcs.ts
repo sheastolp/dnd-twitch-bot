@@ -33,7 +33,7 @@
 // direct question.
 
 import { ensureOrrery, orreryPromptLine } from "./orrery.ts";
-import { isAiBusy, OpenAI } from "./openai.ts";
+import { isAiBusy, isAiEnabled, isAiOff, OpenAI } from "./openai.ts";
 import { cleanChatReply, junkReason, junkSample } from "./ai_reply.ts";
 import { sendChatMessages } from "./twitch.ts";
 import { compactText, pick } from "./utils.ts";
@@ -134,8 +134,25 @@ export interface NpcReplyResult {
 }
 export interface NpcReplyError {
   ok: false;
-  /** busy: the AI was busy or too slow; generation_failed: it errored or said nothing. */
-  error: "not_found" | "empty_message" | "generation_failed" | "busy";
+  /** busy: the AI was busy or too slow; generation_failed: it errored or said
+   * nothing; ai_off: the AI switch is off (canned line, see npcCannedLine). */
+  error: "not_found" | "empty_message" | "generation_failed" | "busy" | "ai_off";
+  /** The character's own name, when it was found. */
+  characterName?: string;
+}
+
+/** What an NPC says while the AI switch is off (/admin/ai, !ai off). */
+const AI_OFF_LINES = [
+  "Hm? Forgive me, friend, my thoughts are miles away tonight. Ask me again another time.",
+  "Not now, traveller. I've a head full of fog and a mug that needs refilling.",
+  "Ah, a fine question, and one I'll answer when my wits come back from wherever they wandered.",
+  "Later, later. The guild keeps me busy enough.",
+  "I'd love to chat, but I'm sworn to silence until the bell rings again.",
+];
+
+/** A canned NPC line for when the AI is switched off. */
+export function npcCannedLine(): string {
+  return pick(AI_OFF_LINES);
 }
 
 /** Platform-agnostic core: looks up the character (own roster, falling back
@@ -156,6 +173,9 @@ export async function generateNpcReply(
 
   const character = await getNpcCharacter(ownerKey, characterName);
   if (!character) return { ok: false, error: "not_found" };
+
+  // AI switched off: a chime-in just doesn't happen; a direct talk gets a canned line.
+  if (!isAiEnabled()) return { ok: false, error: "ai_off", characterName: character.name };
 
   const history = await getRecentNpcConversation(ownerKey, channelId, character.name, CONTEXT_TURN_PAIRS * 2);
 
@@ -196,6 +216,7 @@ export async function generateNpcReply(
 
     return { ok: true, reply, characterName: character.name };
   } catch (e) {
+    if (isAiOff(e)) return { ok: false, error: "ai_off", characterName: character.name };
     // An unprompted chime-in skipping a busy AI is normal, not an error.
     if (overheard && isAiBusy(e)) return { ok: false, error: "busy" };
     console.error("generateNpcReply failed", e);
@@ -257,7 +278,7 @@ export async function maybeNpcChatter(
   const result = await generateNpcReply(ownerKey, broadcasterId, chosen, chatMessage, display, true);
   if (!result.ok) return false; // generation failures are already logged to monitor_events
 
-  await sendChatMessages(`🎭 ${result.characterName}: ${result.reply}`, broadcasterId);
+  await sendChatMessages(`🎭 ${result.characterName}: ${result.reply}`, broadcasterId, { ai: false });
   await resetNpcChatterMessageCount(broadcasterId);
   return true;
 }
@@ -437,6 +458,10 @@ export async function handleNpcCommand(
     const name = match[1].trim();
     const message = match[2].trim();
     const result = await generateNpcReply(twitchOwnerKey(broadcasterId), broadcasterId, name, message, display);
+    if (!result.ok && result.error === "ai_off") {
+      await sendChatMessages(`🎭 ${result.characterName ?? name}: ${npcCannedLine()}`, broadcasterId, { ai: false });
+      return true;
+    }
     if (!result.ok) {
       await sendChatMessages(
         result.error === "not_found"
@@ -448,7 +473,7 @@ export async function handleNpcCommand(
       );
       return true;
     }
-    await sendChatMessages(`🎭 ${result.characterName}: ${result.reply}`, broadcasterId);
+    await sendChatMessages(`🎭 ${result.characterName}: ${result.reply}`, broadcasterId, { ai: false });
     return true;
   }
 

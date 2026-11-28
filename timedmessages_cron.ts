@@ -28,7 +28,7 @@ export default async function () {
       // main.ts) — a plain column read, not a Twitch API call.
       if (Number(row.is_live) === 1) {
         const text = renderTimedMessage(String(row.message ?? ""), Number(row.uses ?? 0) + 1);
-        await sendChatMessages(text, broadcasterId);
+        await sendChatMessages(text, broadcasterId, { ai: false }); // the streamer's own words
         posted++;
       } else {
         skippedOffline++;

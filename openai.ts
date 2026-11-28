@@ -33,6 +33,10 @@
 // skip than wait (an NPC chiming in unprompted) passes `ifIdle: true`. A busy
 // or failed request is not tried again against the pool (it shouldn't be
 // taxed by bots): each feature answers its own fallback way instead.
+//
+// The AI switch (/admin/ai, or !ai on|off in chat — ai_model.ts): while it's
+// off, every request fails at once with AiOffError and nothing is sent to any
+// server, so each feature answers with its own canned lines. On by default.
 
 export const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -62,6 +66,32 @@ export function setAiOverride(o: Partial<AiOverride> | null) {
 /** ai_model.ts: AI requests wait for this (the saved settings loading at start-up). */
 export function setAiOverrideReady(p: Promise<unknown>) {
   overrideReady = p.catch(() => {});
+}
+
+let aiEnabled = true;
+
+/** ai_model.ts: the AI switch (saved on /admin/ai or by !ai on|off). */
+export function setAiEnabled(on: boolean) {
+  aiEnabled = on;
+}
+
+/** False while the AI switch is off: no AI requests at all, canned lines everywhere. */
+export function isAiEnabled(): boolean {
+  return aiEnabled;
+}
+
+/** Thrown, without any request, while the AI switch is off. */
+export class AiOffError extends Error {
+  constructor() {
+    super("the AI is switched off");
+    this.name = "AiOffError";
+  }
+}
+
+/** True if `e` means "the AI switch is off" (callers use their canned line
+ * and log nothing: it isn't a failure). */
+export function isAiOff(e: unknown): boolean {
+  return e instanceof AiOffError || (e as any)?.name === "AiOffError";
 }
 
 export type AiSource = "page" | "file" | "default";
@@ -197,8 +227,11 @@ const SAMPLING_FIELDS = ["temperature", "top_p", "frequency_penalty", "presence_
 export class OpenAI {
   chat = {
     completions: {
-      create: async (body: Record<string, any>, opts: { timeoutMs?: number; ifIdle?: boolean } = {}): Promise<any> => {
+      // ignoreSwitch: only the operator's "Test" button on /admin/ai, which
+      // checks the AI answers before it's switched back on.
+      create: async (body: Record<string, any>, opts: { timeoutMs?: number; ifIdle?: boolean; ignoreSwitch?: boolean } = {}): Promise<any> => {
         await overrideReady;
+        if (!aiEnabled && !opts.ignoreSwitch) throw new AiOffError();
         const cfg = currentAiConfig();
         if (cfg.isOpenAI && !cfg.apiKey) throw new Error("AI replies need OPENAI_API_KEY (or another AI server picked on /admin/ai or in OPENAI_BASE_URL)");
         const req: Record<string, any> = { ...body, stream: false };

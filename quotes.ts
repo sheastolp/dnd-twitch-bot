@@ -211,7 +211,7 @@ export async function handleQuoteCommand(
     await say(numbered ? `there's no quote #${numbered[1]}.` : arg ? `no quote mentions "${arg.slice(0, 40)}".` : "the quote book is empty. Mods: !quote add <text>");
     return true;
   }
-  await sendChatMessage(`📜 ${formatQuote(q)}`, broadcasterId);
+  await sendChatMessage(`📜 ${formatQuote(q)}`, broadcasterId, [], { ai: false }); // word for word
   return true;
 }
 

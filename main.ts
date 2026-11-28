@@ -71,6 +71,7 @@ import { handleDuelCommand, handleMonsterDuelCommand, handlePartyCommand, handle
 import { env, notifyCommandFailed, sendChatMessage, fetchIsChannelLiveNow, createStreamStatusEventSubscriptions, verifyEventSub, deleteEventSubSubscription } from "./twitch.ts";
 import { hasModeratorBadge } from "./utils.ts";
 import { isBotAdminLogin } from "./bot_admins.ts";
+import { handleAiSwitchCommand } from "./ai_model.ts";
 import { rollNewSubThankYou, rollResubThankYou, rollGiftSubThankYou, rollRaidThankYou } from "./flavor_events.ts";
 import { groupForMessage } from "./commandgroups.ts";
 import { page } from "./pages.ts";
@@ -772,6 +773,9 @@ async function handleNotification(body: any): Promise<Response | void> {
   if (await handleFeatureCommand(chatMessage, display, broadcasterId, isModerator, channelOn)) return new Response("OK");
 
   if (!channelOn) return new Response("OK");
+
+  // !ai [on|off] — the bot-wide AI switch (ai_model.ts).
+  if (await handleAiSwitchCommand(chatMessage, chatter, display, broadcasterId)) return new Response("OK");
 
   // Every viewer gets a fantasy nickname the first time they chat (unless one
   // is already set) — chat replies use it in place of their name (mentions.ts).
